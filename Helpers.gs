@@ -131,6 +131,7 @@ function toClientRequest_(request) {
     currentApproverEmail: request.currentApproverEmail,
     currentApproverName: request.currentApproverName,
     route: jsonParse_(request.routeJson, []),
+    isPresidentPending: request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PRESIDENT,
     pdfFileId: request.pdfFileId,
     pdfUrl: request.pdfUrl,
     version: request.version

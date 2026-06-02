@@ -18,6 +18,7 @@ function getBootstrap() {
     reasons: REASONS,
     statusLabels: STATUS_LABELS,
     stepLabels: STEP_LABELS,
+    actionLabels: ACTION_LABELS,
     approvers: admin ? approvers : [],
     departments: getDepartments_(approvers),
     myApproverRule: findApproverRule_(user.email, '')
@@ -182,7 +183,15 @@ function getRequests(filter) {
   var rows = readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS)
     .filter(function(request) {
       if (mode === 'pending') {
-        return normalizeEmail_(request.currentApproverEmail) === user.email;
+        // 自分が承認者の案件 ＋ 社長承認待ち（総務部長/管理者が社長へ提示すべき案件）も残す
+        if (normalizeEmail_(request.currentApproverEmail) === user.email) {
+          return true;
+        }
+        return admin && isPresidentPendingRow_(request);
+      }
+      if (mode === 'president') {
+        return isPresidentPendingRow_(request) &&
+          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
       }
       if (mode === 'all') {
         return admin;
@@ -250,7 +259,8 @@ function getRequestDetail(requestId) {
       canApprove: canApprove_(request, user),
       canReturn: canApprove_(request, user),
       canEdit: canEdit_(request, user),
-      canGeneratePdf: canGeneratePdf_(request, user)
+      canGeneratePdf: canGeneratePdf_(request, user),
+      canPresident: canPresident_(request, user)
     }
   };
 }
@@ -361,6 +371,133 @@ function returnRequest(requestId, comment) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function getTabCounts() {
+  var user = getCurrentUser_();
+  var admin = isAdmin_(user.email);
+  var pending = 0;
+  var president = 0;
+  readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
+    var isPres = isPresidentPendingRow_(request);
+    var mineApprove = normalizeEmail_(request.currentApproverEmail) === user.email;
+    if (mineApprove || (admin && isPres)) {
+      pending++;
+    }
+    if (isPres && (admin || mineApprove)) {
+      president++;
+    }
+  });
+  return { pending: pending, president: president };
+}
+
+function recordPresidentDecision(requestId, decision, comment) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    if (!canPresident_(request, user)) {
+      throw new Error('社長または管理者（総務部長）のみ社長決裁を記録できます。');
+    }
+
+    var presidentName = request.currentApproverName || STEP_LABELS[STEPS.PRESIDENT];
+    var presidentEmail = request.currentApproverEmail;
+    var asProxy = normalizeEmail_(presidentEmail) !== user.email;
+    var operatorNote = asProxy ? '（' + user.name + 'が社長決裁モードで記録）' : '';
+    var cleanComment = sanitizeText_(comment, 1000);
+    var now = nowString_();
+
+    if (decision === 'return') {
+      if (!cleanComment) {
+        throw new Error('差戻し理由を入力してください。');
+      }
+      updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+        updatedAt: now,
+        status: STATUS.RETURNED,
+        currentStep: STEPS.APPLICANT,
+        currentApproverEmail: '',
+        currentApproverName: ''
+      });
+      addHistory_({
+        requestId: requestId,
+        actorEmail: presidentEmail,
+        actorName: presidentName,
+        action: ACTION.RETURN,
+        fromStatus: request.status,
+        toStatus: STATUS.RETURNED,
+        fromStep: STEPS.PRESIDENT,
+        toStep: STEPS.APPLICANT,
+        comment: [cleanComment, operatorNote].filter(Boolean).join(' ')
+      });
+      var returned = getRequestById_(requestId);
+      sendReturnedEmail_(returned, cleanComment);
+      return getRequestDetail(requestId);
+    }
+
+    if (decision !== 'approve') {
+      throw new Error('不正な操作です。');
+    }
+
+    var route = jsonParse_(request.routeJson, []);
+    var currentIndex = route.indexOf(STEPS.PRESIDENT);
+    if (currentIndex === -1) {
+      throw new Error('承認経路が不正です。管理者に確認してください。');
+    }
+
+    var nextStep = route[currentIndex + 1] || STEPS.DONE;
+    var patch = { updatedAt: now };
+    var nextApprover = { email: '', name: '' };
+    if (nextStep === STEPS.DONE) {
+      patch.status = STATUS.COMPLETED;
+      patch.currentStep = STEPS.DONE;
+      patch.currentApproverEmail = '';
+      patch.currentApproverName = '';
+      patch.completedAt = now;
+    } else {
+      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+      nextApprover = getApproverForStep_(approverRule, nextStep);
+      patch.status = STATUS.IN_REVIEW;
+      patch.currentStep = nextStep;
+      patch.currentApproverEmail = nextApprover.email;
+      patch.currentApproverName = nextApprover.name;
+    }
+
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, patch);
+    addHistory_({
+      requestId: requestId,
+      actorEmail: presidentEmail,
+      actorName: presidentName,
+      action: nextStep === STEPS.DONE ? ACTION.COMPLETE : ACTION.APPROVE,
+      fromStatus: request.status,
+      toStatus: patch.status,
+      fromStep: STEPS.PRESIDENT,
+      toStep: patch.currentStep,
+      comment: [cleanComment, operatorNote].filter(Boolean).join(' ')
+    });
+
+    var updated = getRequestById_(requestId);
+    if (nextStep === STEPS.DONE) {
+      createRequestPdfInternal_(requestId, user);
+      updated = getRequestById_(requestId);
+      sendCompletedEmail_(updated);
+    } else {
+      sendApprovalRequestEmail_(updated, nextApprover);
+    }
+
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function isPresidentPendingRow_(request) {
+  return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PRESIDENT;
+}
+
+function canPresident_(request, user) {
+  return isPresidentPendingRow_(request) &&
+    (isAdmin_(user.email) || normalizeEmail_(request.currentApproverEmail) === user.email);
 }
 
 function saveSettings(input) {

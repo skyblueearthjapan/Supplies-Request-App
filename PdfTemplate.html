@@ -3,170 +3,207 @@
   <head>
     <meta charset="utf-8">
     <style>
-      body {
-        color: #111827;
-        font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
-        font-size: 11px;
-      }
+      @page { size: A4; margin: 0; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      * { box-sizing: border-box; }
 
-      h1 {
-        margin: 0 0 8px;
-        text-align: center;
-        font-size: 22px;
-        letter-spacing: 0;
+      .pdf-doc {
+        --ink: #0e0e0e; --ink-2: #3a3a3a; --gray: #6b6b6b; --hair: #c4c4c4; --hair-2: #9a9a9a;
+        --fill: #f1f1ef; --fill-2: #e6e6e3; --paper: #ffffff;
+        --sans: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+        --serif: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
+        --mono: "Roboto Mono", "Consolas", monospace;
+        width: 210mm; min-height: 297mm; margin: 0 auto; padding: 15mm 14mm 13mm;
+        background: var(--paper); color: var(--ink); font-family: var(--sans);
+        font-size: 9.6pt; line-height: 1.5; position: relative;
       }
+      .pdf-doc .mono { font-family: var(--mono); }
 
-      .meta {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
-        margin-bottom: 10px;
-      }
+      .masthead { display: flex; align-items: stretch; justify-content: space-between; gap: 16px; }
+      .mh-left { display: flex; flex-direction: column; justify-content: center; }
+      .mh-co { font-size: 8.2pt; letter-spacing: .28em; color: var(--gray); margin-bottom: 5px; }
+      .mh-title { font-family: var(--serif); font-weight: 700; font-size: 23pt; letter-spacing: .14em; line-height: 1; }
+      .mh-en { font-size: 7.4pt; letter-spacing: .32em; color: var(--gray); margin-top: 7px; text-transform: uppercase; }
+      .mh-right { text-align: right; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+      .mh-no { font-family: var(--mono); font-size: 13pt; font-weight: 700; letter-spacing: .04em; }
+      .mh-date { font-size: 8.4pt; color: var(--ink-2); }
+      .mh-date b { font-family: var(--mono); }
+      .rule-heavy { height: 2.4pt; background: var(--ink); margin: 9px 0 0; }
+      .rule-thin { height: .6pt; background: var(--ink); margin: 1.6pt 0 0; }
 
-      .box {
-        border: 1px solid #9ca3af;
-        padding: 6px;
-        min-height: 28px;
-      }
+      .kessai { margin-top: 11px; }
+      .kessai-lbl { font-size: 7.6pt; letter-spacing: .22em; color: var(--gray); margin-bottom: 4px; }
+      .stamps { display: flex; gap: 0; border: .8pt solid var(--ink); }
+      .stamp { flex: 1; text-align: center; padding: 5px 4px 7px; position: relative; border-right: .6pt solid var(--hair-2); }
+      .stamp:last-child { border-right: 0; }
+      .stamp .s-role { font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding-bottom: 4px; border-bottom: .5pt solid var(--hair); margin-bottom: 6px; }
+      .stamp .s-ring { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; display: table-cell; vertical-align: middle; text-align: center; position: relative; }
+      .stamp.acted .s-ring { border: 1.4pt solid var(--ink); }
+      .stamp.acted .s-name { font-family: var(--serif); font-weight: 700; font-size: 10.5pt; line-height: 40px; }
+      .stamp.acted.ng .s-ring { border-style: dashed; }
+      .stamp .s-empty { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
+      .stamp .s-date { font-family: var(--mono); font-size: 6.8pt; color: var(--gray); }
+      .stamp .s-pending { font-size: 6.8pt; color: var(--hair-2); letter-spacing: .1em; }
 
-      .box span {
-        display: block;
-        color: #6b7280;
-        font-size: 9px;
-      }
+      .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; border: .8pt solid var(--ink); }
+      .mcell { padding: 6px 9px; border-right: .6pt solid var(--hair); border-bottom: .6pt solid var(--hair); }
+      .mcell.wide { grid-column: span 2; }
+      .mcell:nth-child(4n) { border-right: 0; }
+      .mcell .mk { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
+      .mcell .mv { font-size: 10pt; font-weight: 500; }
+      .mcell .mv.amt { font-family: var(--mono); font-weight: 700; font-size: 12pt; }
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 8px;
-      }
+      .sec-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+      .sec-head .sq { width: 8px; height: 8px; background: var(--ink); flex: none; }
+      .sec-head h2 { font-family: var(--serif); font-size: 10.5pt; font-weight: 700; letter-spacing: .1em; margin: 0; white-space: nowrap; flex: none; }
+      .sec-head .sline { flex: 1; height: .5pt; background: var(--hair); }
+      .sec-head .scount { font-size: 7.6pt; color: var(--gray); font-family: var(--mono); }
 
-      th,
-      td {
-        border: 1px solid #9ca3af;
-        padding: 5px;
-        vertical-align: top;
-      }
+      table.items { width: 100%; border-collapse: collapse; }
+      table.items thead th { background: var(--ink); color: #fff; font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding: 5px 7px; text-align: left; border-right: .5pt solid #444; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      table.items thead th:last-child { border-right: 0; }
+      table.items thead th.r { text-align: right; }
+      table.items tbody td { padding: 5.5px 7px; border-bottom: .6pt solid var(--hair); border-right: .5pt solid var(--fill-2); font-size: 9pt; }
+      table.items tbody td:last-child { border-right: 0; }
+      table.items tbody tr:nth-child(even) td { background: var(--fill); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      table.items td.r { text-align: right; font-family: var(--mono); }
+      table.items td.no { text-align: center; font-family: var(--mono); color: var(--gray); font-size: 8pt; }
+      table.items td .nm { font-weight: 600; }
+      table.items td .sub { color: var(--gray); font-size: 7.6pt; }
+      table.items tfoot td { padding: 7px; border-top: 1.6pt solid var(--ink); font-weight: 700; }
+      table.items tfoot .tl { text-align: right; letter-spacing: .1em; font-size: 9pt; }
+      table.items tfoot .tv { text-align: right; font-family: var(--mono); font-size: 13pt; }
 
-      th {
-        background: #eef2f7;
-      }
+      .reasons-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; border: .8pt solid var(--ink); padding: 8px 10px; }
+      .rz { display: flex; gap: 7px; align-items: flex-start; font-size: 8.6pt; line-height: 1.4; color: var(--ink-2); }
+      .rz .chk { width: 12px; height: 12px; border: .8pt solid var(--ink); flex: none; margin-top: 1px; text-align: center; line-height: 12px; font-size: 8pt; }
+      .rz.on { color: var(--ink); font-weight: 700; }
+      .rz.on .chk { background: var(--ink); color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .reason-detail { border: .8pt solid var(--ink); border-top: 0; padding: 7px 10px; min-height: 34px; font-size: 8.8pt; }
+      .reason-detail .rd-k { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
 
-      .right {
-        text-align: right;
-      }
+      table.hist { width: 100%; border-collapse: collapse; }
+      table.hist th { font-size: 7.2pt; letter-spacing: .06em; color: var(--gray); text-align: left; padding: 4px 7px; border-bottom: .8pt solid var(--ink); }
+      table.hist td { font-size: 8pt; padding: 4px 7px; border-bottom: .5pt solid var(--hair); }
+      table.hist td.mono { font-family: var(--mono); color: var(--ink-2); }
 
-      .reason,
-      .history {
-        margin-top: 12px;
-      }
+      .doc-foot { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 16px; }
+      .barcode { display: flex; align-items: flex-end; height: 26px; }
+      .barcode i { display: inline-block; width: 1.5px; height: 26px; background: var(--ink); margin-right: 1.4px; }
+      .foot-meta { font-size: 7pt; color: var(--gray); text-align: right; line-height: 1.5; }
+      .foot-meta .fm-id { font-family: var(--mono); color: var(--ink-2); font-size: 7.6pt; }
 
-      .approval {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        margin-top: 12px;
-      }
-
-      .stamp {
-        border: 1px solid #9ca3af;
-        min-height: 58px;
-        padding: 6px;
-        text-align: center;
-      }
-
-      .stamp strong {
-        display: block;
-        margin-bottom: 8px;
-      }
+      .wm { position: absolute; top: 44%; left: 50%; transform: translate(-50%, -50%) rotate(-16deg); font-family: var(--serif); font-weight: 700; font-size: 64pt; letter-spacing: .2em; color: rgba(14,14,14,.05); white-space: nowrap; }
     </style>
   </head>
   <body>
-    <h1>貯蔵品購入申請書</h1>
-    <div class="meta">
-      <div class="box"><span>申請番号</span><?!= helpers.escapeHtml(detail.request.requestId) ?></div>
-      <div class="box"><span>申請日</span><?!= helpers.escapeHtml(detail.request.requestDate) ?></div>
-      <div class="box"><span>部署</span><?!= helpers.escapeHtml(detail.request.department) ?></div>
-      <div class="box"><span>状態</span><?!= helpers.escapeHtml(detail.request.statusLabel) ?></div>
-      <div class="box"><span>申請者</span><?!= helpers.escapeHtml(detail.request.applicantName) ?></div>
-      <div class="box"><span>メール</span><?!= helpers.escapeHtml(detail.request.applicantEmail) ?></div>
-      <div class="box"><span>合計金額</span><?= helpers.currency(detail.request.totalAmount) ?></div>
-      <div class="box"><span>PDF作成日時</span><?= helpers.escapeHtml(detail.generatedAt) ?></div>
-    </div>
+    <? var req = detail.request; var wm = req.status === 'COMPLETED' ? '完了' : (req.status === 'RETURNED' ? '差戻' : ''); ?>
+    <div class="pdf-doc">
+      <? if (wm) { ?><div class="wm"><?!= wm ?></div><? } ?>
 
-    <table>
-      <thead>
-        <tr>
-          <th>品名</th>
-          <th>型式</th>
-          <th>メーカー</th>
-          <th>数量</th>
-          <th>単価</th>
-          <th>金額</th>
-          <th>希望納期</th>
-          <th>備考</th>
-        </tr>
-      </thead>
-      <tbody>
-        <? for (var i = 0; i < detail.items.length; i++) { var item = detail.items[i]; ?>
-          <tr>
-            <td><?!= helpers.escapeHtml(item.name) ?></td>
-            <td><?!= helpers.escapeHtml(item.model) ?></td>
-            <td><?!= helpers.escapeHtml(item.maker) ?></td>
-            <td class="right"><?!= helpers.escapeHtml(item.quantity) ?></td>
-            <td class="right"><?= helpers.currency(item.unitPrice) ?></td>
-            <td class="right"><?= helpers.currency(item.amount) ?></td>
-            <td><?!= helpers.escapeHtml(item.desiredDeliveryDate) ?></td>
-            <td><?!= helpers.escapeHtml(item.note) ?></td>
-          </tr>
-        <? } ?>
-      </tbody>
-    </table>
-
-    <div class="reason">
-      <div class="box">
-        <span>購入理由</span>
-        <?!= helpers.escapeHtml(detail.request.reasonCode) ?>. <?!= helpers.escapeHtml(detail.request.reasonLabel) ?><br>
-        <?!= helpers.escapeHtml(detail.request.reasonDetail) ?>
+      <div class="masthead">
+        <div class="mh-left">
+          <div class="mh-co">STORAGE SUPPLIES PURCHASE REQUEST</div>
+          <div class="mh-title">貯蔵品購入申請書</div>
+          <div class="mh-en">Storage Supplies Purchase Request</div>
+        </div>
+        <div class="mh-right">
+          <div class="mh-no"><?!= helpers.escapeHtml(req.requestId) ?></div>
+          <div class="mh-date">申請日 <b><?!= helpers.escapeHtml(helpers.dateOnly(req.requestDate)) ?></b></div>
+          <div class="mh-date">区分 <?!= helpers.over ? '社長決裁' : '通常決裁' ?></div>
+        </div>
       </div>
-    </div>
+      <div class="rule-heavy"></div>
+      <div class="rule-thin"></div>
 
-    <div class="approval">
-      <? for (var j = 0; j < detail.request.route.length; j++) { var step = detail.request.route[j]; ?>
-        <div class="stamp">
-          <strong><?!= helpers.escapeHtml(helpers.stepLabel(step)) ?></strong>
-          <? var latest = null; for (var k = 0; k < detail.history.length; k++) { if (detail.history[k].toStep === step || detail.history[k].fromStep === step) latest = detail.history[k]; } ?>
-          <? if (latest) { ?>
-            <?!= helpers.escapeHtml(latest.actorName || latest.actorEmail) ?><br>
-            <?!= helpers.escapeHtml(latest.happenedAt) ?>
+      <div class="kessai">
+        <div class="kessai-lbl">決 裁 欄　APPROVAL</div>
+        <div class="stamps">
+          <? for (var si = 0; si < helpers.stampSteps.length; si++) { var sk = helpers.stampSteps[si]; var st = helpers.stampFor(sk); ?>
+            <? if (st) { ?>
+              <div class="stamp acted<?!= st.kind === 'ng' ? ' ng' : '' ?>">
+                <div class="s-role"><?!= helpers.escapeHtml(helpers.stepLabel(sk)) ?></div>
+                <div class="s-ring"><span class="s-name"><?!= helpers.escapeHtml(helpers.surname(st.name)) ?></span></div>
+                <div class="s-date"><?!= helpers.escapeHtml(helpers.dateOnly(st.date)) ?></div>
+              </div>
+            <? } else { ?>
+              <div class="stamp">
+                <div class="s-role"><?!= helpers.escapeHtml(helpers.stepLabel(sk)) ?></div>
+                <div class="s-empty"></div>
+                <div class="s-pending">—</div>
+              </div>
+            <? } ?>
           <? } ?>
         </div>
-      <? } ?>
-    </div>
+      </div>
 
-    <div class="history">
-      <table>
+      <div class="meta">
+        <div class="mcell"><div class="mk">部署</div><div class="mv"><?!= helpers.escapeHtml(req.department) ?></div></div>
+        <div class="mcell"><div class="mk">申請者</div><div class="mv"><?!= helpers.escapeHtml(req.applicantName) ?></div></div>
+        <div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt"><?!= helpers.escapeHtml(req.applicantEmail) ?></div></div>
+        <div class="mcell"><div class="mk">明細件数</div><div class="mv mono"><?!= detail.items.length ?> 件</div></div>
+        <div class="mcell"><div class="mk">状態</div><div class="mv"><?!= helpers.escapeHtml(helpers.statusLabel(req.status)) ?></div></div>
+        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><?= helpers.currency(req.totalAmount) ?></div></div>
+      </div>
+
+      <div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount"><?!= detail.items.length ?> ITEMS</span></div>
+      <table class="items">
         <thead>
           <tr>
-            <th>日時</th>
-            <th>処理</th>
-            <th>担当</th>
-            <th>ステップ</th>
-            <th>コメント</th>
+            <th style="width:5%">No.</th><th style="width:26%">品名 / 型式・メーカー</th>
+            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価</th>
+            <th class="r" style="width:14%">金額</th><th style="width:13%">希望納期</th><th>備考</th>
           </tr>
         </thead>
         <tbody>
+          <? for (var i = 0; i < detail.items.length; i++) { var item = detail.items[i]; var sub = [item.model, item.maker].filter(Boolean).join('・') || '—'; ?>
+            <tr>
+              <td class="no"><?!= (i + 1) ?></td>
+              <td><div class="nm"><?!= helpers.escapeHtml(item.name) ?></div><div class="sub"><?!= helpers.escapeHtml(sub) ?></div></td>
+              <td class="r"><?!= helpers.escapeHtml(item.quantity) ?></td>
+              <td class="r"><?= helpers.currency(item.unitPrice) ?></td>
+              <td class="r"><b><?= helpers.currency(item.amount) ?></b></td>
+              <td class="mono" style="font-size:8pt"><?!= helpers.escapeHtml(helpers.dateOnly(item.desiredDeliveryDate) || '—') ?></td>
+              <td style="font-size:8pt;color:#6b6b6b"><?!= helpers.escapeHtml(item.note || '—') ?></td>
+            </tr>
+          <? } ?>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" class="tl">合　計</td><td class="tv"><?= helpers.currency(req.totalAmount) ?></td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+
+      <div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div>
+      <div class="reasons-grid">
+        <? for (var ri = 0; ri < reasons.length; ri++) { var rz = reasons[ri]; var on = req.reasonCode === rz.code; ?>
+          <div class="rz<?!= on ? ' on' : '' ?>"><span class="chk"><?!= on ? '✓' : '' ?></span><span><b><?!= helpers.escapeHtml(rz.code) ?>.</b> <?!= helpers.escapeHtml(rz.label) ?></span></div>
+        <? } ?>
+      </div>
+      <div class="reason-detail"><div class="rd-k">理由詳細</div><?!= helpers.escapeHtml(req.reasonDetail || '—') ?></div>
+
+      <div class="sec-head"><span class="sq"></span><h2>承認履歴</h2><span class="sline"></span><span class="scount"><?!= detail.history.length ?> LOGS</span></div>
+      <table class="hist">
+        <thead><tr><th style="width:17%">日時</th><th style="width:11%">処理</th><th style="width:17%">担当</th><th style="width:22%">ステップ</th><th>コメント</th></tr></thead>
+        <tbody>
           <? for (var h = 0; h < detail.history.length; h++) { var row = detail.history[h]; ?>
             <tr>
-              <td><?!= helpers.escapeHtml(row.happenedAt) ?></td>
+              <td class="mono"><?!= helpers.escapeHtml(row.happenedAt) ?></td>
               <td><?!= helpers.escapeHtml(helpers.actionLabel(row.action)) ?></td>
               <td><?!= helpers.escapeHtml(row.actorName || row.actorEmail) ?></td>
-              <td><?!= helpers.escapeHtml(helpers.stepLabel(row.fromStep)) ?> → <?!= helpers.escapeHtml(helpers.stepLabel(row.toStep)) ?></td>
-              <td><?!= helpers.escapeHtml(row.comment) ?></td>
+              <td class="mono" style="font-size:7.4pt"><?!= helpers.escapeHtml(helpers.stepLabel(row.fromStep)) ?> → <?!= helpers.escapeHtml(helpers.stepLabel(row.toStep)) ?></td>
+              <td style="color:#3a3a3a"><?!= helpers.escapeHtml(row.comment || '—') ?></td>
             </tr>
           <? } ?>
         </tbody>
       </table>
+
+      <div class="doc-foot">
+        <div class="barcode"><?!= helpers.barcode(req.requestId) ?></div>
+        <div class="foot-meta">
+          <div class="fm-id"><?!= helpers.escapeHtml(req.requestId) ?></div>
+          <div>本書は貯蔵品購入申請システムにより発行された電磁的記録です。</div>
+        </div>
+      </div>
     </div>
   </body>
 </html>

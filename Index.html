@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-theme="B">
   <head>
     <base target="_top">
     <meta charset="utf-8">
@@ -7,192 +7,35 @@
     <?!= include('Styles'); ?>
   </head>
   <body>
-    <header class="app-header">
-      <div>
-        <p class="eyebrow">Google Apps Script</p>
-        <h1>貯蔵品購入申請</h1>
-      </div>
-      <div class="user-box">
-        <span id="userName">読み込み中</span>
-        <span id="userEmail"></span>
-      </div>
-    </header>
-
-    <nav class="tabs" aria-label="画面切替">
-      <button class="tab is-active" data-view="formView">新規申請</button>
-      <button class="tab" data-view="listView" data-list-mode="mine">自分の申請</button>
-      <button class="tab" data-view="listView" data-list-mode="pending">承認待ち</button>
-      <button class="tab admin-only" data-view="listView" data-list-mode="all">全申請</button>
-      <button class="tab admin-only" data-view="adminView">管理</button>
-    </nav>
-
-    <main class="app-shell">
-      <section id="alert" class="alert" hidden></section>
-
-      <section id="formView" class="view is-active">
-        <div class="section-heading">
-          <h2 id="formTitle">新規申請</h2>
-          <button id="resetFormButton" class="secondary" type="button">入力をクリア</button>
-        </div>
-
-        <form id="requestForm">
-          <input id="editingRequestId" type="hidden">
-          <div class="form-grid">
-            <label>
-              申請日
-              <input id="requestDate" type="date" required>
-            </label>
-            <label>
-              申請者
-              <input id="applicantName" type="text" required maxlength="100">
-            </label>
-            <label>
-              部署
-              <input id="department" type="text" list="departmentOptions" required maxlength="100">
-              <datalist id="departmentOptions"></datalist>
-            </label>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">貯</div>
+          <div class="brand-text">
+            <span class="co">STORAGE SUPPLIES REQUEST</span>
+            <span class="ti">貯蔵品購入申請</span>
           </div>
-
-          <div class="table-wrap">
-            <table class="items-table">
-              <thead>
-                <tr>
-                  <th>品名</th>
-                  <th>型式</th>
-                  <th>メーカー</th>
-                  <th>数量</th>
-                  <th>単価</th>
-                  <th>金額</th>
-                  <th>希望納期</th>
-                  <th>備考</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="itemsBody"></tbody>
-            </table>
+        </div>
+        <div class="topbar-right">
+          <div class="userbox">
+            <div class="meta">
+              <span class="n" id="userName">読み込み中</span>
+              <span class="e" id="userRole"></span>
+            </div>
+            <span class="avatar" id="userAvatar">…</span>
           </div>
-          <div class="table-actions">
-            <button id="addItemButton" class="secondary" type="button">明細行を追加</button>
-            <output id="totalAmount" class="total">¥0</output>
-          </div>
-
-          <fieldset class="reason-fieldset">
-            <legend>購入理由</legend>
-            <div id="reasonOptions" class="reason-options"></div>
-          </fieldset>
-
-          <label>
-            理由詳細
-            <textarea id="reasonDetail" rows="4" maxlength="2000"></textarea>
-          </label>
-
-          <div class="actions">
-            <button id="submitButton" class="primary" type="submit">申請する</button>
-          </div>
-        </form>
-      </section>
-
-      <section id="listView" class="view">
-        <div class="section-heading">
-          <h2 id="listTitle">自分の申請</h2>
-          <button id="refreshListButton" class="secondary" type="button">更新</button>
         </div>
-        <div class="filters">
-          <label>
-            状態
-            <select id="statusFilter">
-              <option value="">すべて</option>
-              <option value="IN_REVIEW">承認中</option>
-              <option value="RETURNED">差戻し</option>
-              <option value="COMPLETED">完了</option>
-            </select>
-          </label>
-          <label>
-            検索
-            <input id="queryFilter" type="search" placeholder="申請番号、部署、申請者">
-          </label>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>申請番号</th>
-                <th>申請日</th>
-                <th>申請者</th>
-                <th>部署</th>
-                <th>合計</th>
-                <th>状態</th>
-                <th>現在</th>
-              </tr>
-            </thead>
-            <tbody id="requestListBody"></tbody>
-          </table>
-        </div>
-      </section>
+      </header>
 
-      <section id="detailView" class="view">
-        <div class="section-heading">
-          <h2>申請詳細</h2>
-          <button id="backToListButton" class="secondary" type="button">一覧へ戻る</button>
-        </div>
-        <div id="detailContent"></div>
-      </section>
+      <nav class="tabs" id="tabs" aria-label="画面切替"></nav>
 
-      <section id="adminView" class="view">
-        <div class="section-heading">
-          <h2>管理</h2>
-          <button id="saveAdminButton" class="primary" type="button">保存</button>
-        </div>
+      <main class="main" id="main"></main>
+    </div>
 
-        <div class="admin-grid">
-          <label>
-            社長決裁しきい値
-            <input id="thresholdAmount" type="number" min="1" step="1">
-          </label>
-          <label>
-            PDF保存先フォルダID
-            <input id="pdfFolderId" type="text">
-          </label>
-          <label class="wide">
-            管理者メールアドレス
-            <input id="adminEmails" type="text" placeholder="admin@example.com, manager@example.com">
-          </label>
-          <label class="check">
-            <input id="enableEmailNotifications" type="checkbox">
-            メール通知を有効にする
-          </label>
-        </div>
+    <div class="toast-wrap" id="toasts"></div>
+    <div id="pmodeRoot"></div>
+    <div id="loading" class="loading" hidden>処理中…</div>
 
-        <div class="section-heading compact">
-          <h3>承認者マスタ</h3>
-          <button id="addApproverRowButton" class="secondary" type="button">行を追加</button>
-        </div>
-        <div class="table-wrap">
-          <table class="approver-table">
-            <thead>
-              <tr>
-                <th>部署</th>
-                <th>申請者メール</th>
-                <th>申請者名</th>
-                <th>上席者メール</th>
-                <th>上席者名</th>
-                <th>総務部長メール</th>
-                <th>総務部長名</th>
-                <th>社長メール</th>
-                <th>社長名</th>
-                <th>購買メール</th>
-                <th>購買名</th>
-                <th>有効</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="approverBody"></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-
-    <div id="loading" class="loading" hidden>処理中</div>
     <script>
       window.INITIAL_REQUEST_ID = '<?= initialRequestId ?>';
     </script>

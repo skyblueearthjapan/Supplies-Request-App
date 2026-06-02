@@ -18,6 +18,7 @@ function createRequestPdfInternal_(requestId, actor) {
   var detail = buildPdfDetail_(requestId);
   var template = HtmlService.createTemplateFromFile('PdfTemplate');
   template.detail = detail;
+  template.reasons = REASONS;
   template.helpers = {
     escapeHtml: escapeHtml_,
     currency: formatCurrency_,
@@ -29,6 +30,44 @@ function createRequestPdfInternal_(requestId, actor) {
     },
     actionLabel: function(action) {
       return ACTION_LABELS[action] || action;
+    },
+    surname: function(name) {
+      return String(name || '').trim().split(/\s+/)[0] || '';
+    },
+    dateOnly: function(value) {
+      return String(value || '').slice(0, 10);
+    },
+    stampFor: function(stepKey) {
+      var history = detail.history;
+      var i;
+      if (stepKey === STEPS.APPLICANT) {
+        for (i = history.length - 1; i >= 0; i--) {
+          if (history[i].action === ACTION.SUBMIT || history[i].action === ACTION.RESUBMIT) {
+            return { name: history[i].actorName || history[i].actorEmail, date: history[i].happenedAt, kind: 'apply' };
+          }
+        }
+        return null;
+      }
+      for (i = history.length - 1; i >= 0; i--) {
+        if (history[i].fromStep === stepKey &&
+          (history[i].action === ACTION.APPROVE || history[i].action === ACTION.COMPLETE || history[i].action === ACTION.RETURN)) {
+          return { name: history[i].actorName || history[i].actorEmail, date: history[i].happenedAt, kind: history[i].action === ACTION.RETURN ? 'ng' : 'approve' };
+        }
+      }
+      return null;
+    },
+    stampSteps: [STEPS.APPLICANT].concat(detail.request.route || []),
+    over: parseNumber_(detail.request.totalAmount) > parseNumber_(detail.thresholdAmount),
+    barcode: function(seed) {
+      var h = 7;
+      var s = String(seed);
+      var out = '';
+      for (var i = 0; i < 46; i++) {
+        h = (h * 31 + (s.charCodeAt(i % s.length) || 13)) >>> 0;
+        var w = (1 + (h % 3)) * 1.1;
+        out += '<i style="width:' + w.toFixed(2) + 'px;opacity:' + (i % 7 === 0 ? '0.35' : '1') + '"></i>';
+      }
+      return out;
     }
   };
 
