@@ -1,0 +1,473 @@
+<style>
+  :root {
+    --bg: #f5f7f9;
+    --surface: #ffffff;
+    --ink: #1f2933;
+    --muted: #657386;
+    --line: #d9e1ea;
+    --primary: #146c5f;
+    --primary-strong: #0f544a;
+    --accent: #b45309;
+    --danger: #b42318;
+    --success: #237a45;
+    --radius: 8px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    background: var(--bg);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    min-height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0 14px;
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  button:hover {
+    border-color: var(--primary);
+  }
+
+  button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  .button-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0 14px;
+    color: var(--primary);
+    background: #f8fafc;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .primary {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+  }
+
+  .primary:hover {
+    background: var(--primary-strong);
+  }
+
+  .secondary {
+    background: #f8fafc;
+  }
+
+  .danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 18px 28px;
+    background: #17212b;
+    color: #fff;
+  }
+
+  .eyebrow {
+    margin: 0 0 2px;
+    color: #a8bfba;
+    font-size: 12px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    line-height: 1.25;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  h2 {
+    font-size: 20px;
+  }
+
+  h3 {
+    font-size: 16px;
+  }
+
+  .user-box {
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+    min-width: 180px;
+    color: #d6e2e0;
+  }
+
+  #userName {
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 10px 28px 0;
+    background: #e9eef4;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .tab {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .tab.is-active {
+    border-color: var(--line);
+    border-bottom-color: var(--surface);
+    background: var(--surface);
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  .app-shell {
+    width: min(1440px, calc(100vw - 32px));
+    margin: 18px auto 40px;
+  }
+
+  .view {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+
+  .view.is-active {
+    display: block;
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .section-heading.compact {
+    margin-top: 22px;
+    margin-bottom: 12px;
+  }
+
+  .form-grid,
+  .admin-grid,
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+
+  label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  label.wide {
+    grid-column: 1 / -1;
+  }
+
+  label.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  input,
+  select,
+  textarea {
+    width: 100%;
+    min-height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 9px;
+    color: var(--ink);
+    background: #fff;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    background: #fff;
+  }
+
+  th,
+  td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #f3f6f9;
+    color: #3f4d5d;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  tr:last-child td {
+    border-bottom: 0;
+  }
+
+  tbody tr.clickable:hover {
+    background: #f6fbfa;
+    cursor: pointer;
+  }
+
+  .items-table input,
+  .approver-table input {
+    min-width: 96px;
+  }
+
+  .items-table .amount {
+    min-width: 92px;
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  .table-actions,
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 14px 0 18px;
+  }
+
+  .total {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--primary);
+  }
+
+  .reason-fieldset {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin: 0 0 18px;
+    padding: 14px;
+  }
+
+  .reason-fieldset legend {
+    padding: 0 8px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .reason-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+    gap: 10px;
+  }
+
+  .reason-options label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.45;
+  }
+
+  .reason-options input {
+    width: auto;
+    min-height: auto;
+    margin-top: 3px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    border-radius: 999px;
+    padding: 2px 10px;
+    background: #edf2f7;
+    color: #344054;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .badge.IN_REVIEW {
+    background: #e7f5f1;
+    color: var(--primary);
+  }
+
+  .badge.RETURNED {
+    background: #fff3e6;
+    color: var(--accent);
+  }
+
+  .badge.COMPLETED {
+    background: #e8f5ec;
+    color: var(--success);
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .detail-cell {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 10px;
+    background: #fbfcfd;
+  }
+
+  .detail-cell span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  .approval-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fbfcfd;
+  }
+
+  .history-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .history-item {
+    border-left: 4px solid var(--line);
+    padding: 8px 10px;
+    background: #fbfcfd;
+  }
+
+  .history-item strong {
+    display: inline-block;
+    min-width: 72px;
+  }
+
+  .alert {
+    margin-bottom: 12px;
+    border: 1px solid #f1c4c0;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    background: #fff5f4;
+    color: var(--danger);
+  }
+
+  .alert.success {
+    border-color: #bce3c8;
+    background: #f1fbf4;
+    color: var(--success);
+  }
+
+  .loading {
+    position: fixed;
+    inset: auto 24px 24px auto;
+    border-radius: 6px;
+    padding: 10px 14px;
+    background: #17212b;
+    color: #fff;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  }
+
+  .admin-only {
+    display: none;
+  }
+
+  body.is-admin .admin-only {
+    display: inline-flex;
+  }
+
+  @media (max-width: 800px) {
+    .app-header,
+    .section-heading,
+    .table-actions,
+    .actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .tabs {
+      overflow-x: auto;
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    .app-shell {
+      width: calc(100vw - 20px);
+      margin-top: 10px;
+    }
+
+    .view {
+      padding: 14px;
+    }
+
+    .form-grid,
+    .admin-grid,
+    .filters,
+    .reason-options,
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

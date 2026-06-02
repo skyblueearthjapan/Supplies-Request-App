@@ -1,0 +1,15 @@
+{
+  "name": "supplies-request-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Google Apps Script app for digital supplies purchase requests.",
+  "scripts": {
+    "check": "node tools/check-syntax.js",
+    "login": "clasp login",
+    "push": "clasp push",
+    "open": "clasp open"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.0.6-alpha"
+  }
+}

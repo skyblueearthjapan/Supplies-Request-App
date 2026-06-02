@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body {
+        color: #111827;
+        font-family: "Noto Sans JP", "Yu Gothic", sans-serif;
+        font-size: 11px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        text-align: center;
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      .box {
+        border: 1px solid #9ca3af;
+        padding: 6px;
+        min-height: 28px;
+      }
+
+      .box span {
+        display: block;
+        color: #6b7280;
+        font-size: 9px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+
+      th,
+      td {
+        border: 1px solid #9ca3af;
+        padding: 5px;
+        vertical-align: top;
+      }
+
+      th {
+        background: #eef2f7;
+      }
+
+      .right {
+        text-align: right;
+      }
+
+      .reason,
+      .history {
+        margin-top: 12px;
+      }
+
+      .approval {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .stamp {
+        border: 1px solid #9ca3af;
+        min-height: 58px;
+        padding: 6px;
+        text-align: center;
+      }
+
+      .stamp strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>貯蔵品購入申請書</h1>
+    <div class="meta">
+      <div class="box"><span>申請番号</span><?!= helpers.escapeHtml(detail.request.requestId) ?></div>
+      <div class="box"><span>申請日</span><?!= helpers.escapeHtml(detail.request.requestDate) ?></div>
+      <div class="box"><span>部署</span><?!= helpers.escapeHtml(detail.request.department) ?></div>
+      <div class="box"><span>状態</span><?!= helpers.escapeHtml(detail.request.statusLabel) ?></div>
+      <div class="box"><span>申請者</span><?!= helpers.escapeHtml(detail.request.applicantName) ?></div>
+      <div class="box"><span>メール</span><?!= helpers.escapeHtml(detail.request.applicantEmail) ?></div>
+      <div class="box"><span>合計金額</span><?= helpers.currency(detail.request.totalAmount) ?></div>
+      <div class="box"><span>PDF作成日時</span><?= helpers.escapeHtml(detail.generatedAt) ?></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>品名</th>
+          <th>型式</th>
+          <th>メーカー</th>
+          <th>数量</th>
+          <th>単価</th>
+          <th>金額</th>
+          <th>希望納期</th>
+          <th>備考</th>
+        </tr>
+      </thead>
+      <tbody>
+        <? for (var i = 0; i < detail.items.length; i++) { var item = detail.items[i]; ?>
+          <tr>
+            <td><?!= helpers.escapeHtml(item.name) ?></td>
+            <td><?!= helpers.escapeHtml(item.model) ?></td>
+            <td><?!= helpers.escapeHtml(item.maker) ?></td>
+            <td class="right"><?!= helpers.escapeHtml(item.quantity) ?></td>
+            <td class="right"><?= helpers.currency(item.unitPrice) ?></td>
+            <td class="right"><?= helpers.currency(item.amount) ?></td>
+            <td><?!= helpers.escapeHtml(item.desiredDeliveryDate) ?></td>
+            <td><?!= helpers.escapeHtml(item.note) ?></td>
+          </tr>
+        <? } ?>
+      </tbody>
+    </table>
+
+    <div class="reason">
+      <div class="box">
+        <span>購入理由</span>
+        <?!= helpers.escapeHtml(detail.request.reasonCode) ?>. <?!= helpers.escapeHtml(detail.request.reasonLabel) ?><br>
+        <?!= helpers.escapeHtml(detail.request.reasonDetail) ?>
+      </div>
+    </div>
+
+    <div class="approval">
+      <? for (var j = 0; j < detail.request.route.length; j++) { var step = detail.request.route[j]; ?>
+        <div class="stamp">
+          <strong><?!= helpers.escapeHtml(helpers.stepLabel(step)) ?></strong>
+          <? var latest = null; for (var k = 0; k < detail.history.length; k++) { if (detail.history[k].toStep === step || detail.history[k].fromStep === step) latest = detail.history[k]; } ?>
+          <? if (latest) { ?>
+            <?!= helpers.escapeHtml(latest.actorName || latest.actorEmail) ?><br>
+            <?!= helpers.escapeHtml(latest.happenedAt) ?>
+          <? } ?>
+        </div>
+      <? } ?>
+    </div>
+
+    <div class="history">
+      <table>
+        <thead>
+          <tr>
+            <th>日時</th>
+            <th>処理</th>
+            <th>担当</th>
+            <th>ステップ</th>
+            <th>コメント</th>
+          </tr>
+        </thead>
+        <tbody>
+          <? for (var h = 0; h < detail.history.length; h++) { var row = detail.history[h]; ?>
+            <tr>
+              <td><?!= helpers.escapeHtml(row.happenedAt) ?></td>
+              <td><?!= helpers.escapeHtml(helpers.actionLabel(row.action)) ?></td>
+              <td><?!= helpers.escapeHtml(row.actorName || row.actorEmail) ?></td>
+              <td><?!= helpers.escapeHtml(helpers.stepLabel(row.fromStep)) ?> → <?!= helpers.escapeHtml(helpers.stepLabel(row.toStep)) ?></td>
+              <td><?!= helpers.escapeHtml(row.comment) ?></td>
+            </tr>
+          <? } ?>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

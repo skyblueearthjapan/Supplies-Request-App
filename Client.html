@@ -1,0 +1,521 @@
+<script>
+  const state = {
+    bootstrap: null,
+    listMode: 'mine',
+    currentDetail: null
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    bindEvents();
+    initialize();
+  });
+
+  function bindEvents() {
+    document.querySelectorAll('.tab').forEach((button) => {
+      button.addEventListener('click', () => {
+        const listMode = button.dataset.listMode;
+        if (listMode) {
+          state.listMode = listMode;
+          loadRequests();
+        }
+        showView(button.dataset.view);
+      });
+    });
+
+    document.getElementById('addItemButton').addEventListener('click', () => addItemRow());
+    document.getElementById('resetFormButton').addEventListener('click', resetForm);
+    document.getElementById('requestForm').addEventListener('submit', submitRequestForm);
+    document.getElementById('refreshListButton').addEventListener('click', loadRequests);
+    document.getElementById('statusFilter').addEventListener('change', loadRequests);
+    document.getElementById('queryFilter').addEventListener('input', debounce(loadRequests, 300));
+    document.getElementById('backToListButton').addEventListener('click', () => {
+      showView('listView');
+      loadRequests();
+    });
+    document.getElementById('addApproverRowButton').addEventListener('click', () => addApproverRow({ active: true }));
+    document.getElementById('saveAdminButton').addEventListener('click', saveAdmin);
+  }
+
+  async function initialize() {
+    setBusy(true);
+    try {
+      state.bootstrap = await gas('getBootstrap');
+      renderBootstrap();
+      resetForm();
+      await loadRequests();
+      if (window.INITIAL_REQUEST_ID) {
+        await openDetail(window.INITIAL_REQUEST_ID);
+      }
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderBootstrap() {
+    const data = state.bootstrap;
+    document.getElementById('userName').textContent = data.user.name;
+    document.getElementById('userEmail').textContent = data.user.email;
+    document.body.classList.toggle('is-admin', data.isAdmin);
+
+    const departmentOptions = document.getElementById('departmentOptions');
+    departmentOptions.innerHTML = '';
+    data.departments.forEach((department) => {
+      const option = document.createElement('option');
+      option.value = department;
+      departmentOptions.appendChild(option);
+    });
+
+    const reasonOptions = document.getElementById('reasonOptions');
+    reasonOptions.innerHTML = '';
+    data.reasons.forEach((reason) => {
+      const label = document.createElement('label');
+      label.innerHTML = `<input type="radio" name="reasonCode" value="${escapeAttr(reason.code)}"> <span>${escapeHtml(reason.code)}. ${escapeHtml(reason.label)}</span>`;
+      reasonOptions.appendChild(label);
+    });
+
+    document.getElementById('thresholdAmount').value = data.settings.thresholdAmount;
+    document.getElementById('pdfFolderId').value = data.settings.pdfFolderId;
+    document.getElementById('adminEmails').value = data.settings.adminEmails;
+    document.getElementById('enableEmailNotifications').checked = data.settings.enableEmailNotifications;
+
+    renderApproverMaster(data.approvers);
+  }
+
+  function renderApproverMaster(rows) {
+    const body = document.getElementById('approverBody');
+    body.innerHTML = '';
+    rows.forEach(addApproverRow);
+    if (rows.length === 0) {
+      addApproverRow({ active: true });
+    }
+  }
+
+  function addApproverRow(row = {}) {
+    const body = document.getElementById('approverBody');
+    const tr = document.createElement('tr');
+    const fields = [
+      'department',
+      'applicantEmail',
+      'applicantName',
+      'supervisorEmail',
+      'supervisorName',
+      'generalManagerEmail',
+      'generalManagerName',
+      'presidentEmail',
+      'presidentName',
+      'purchasingEmail',
+      'purchasingName'
+    ];
+    tr.innerHTML = fields.map((field) => {
+      const type = field.toLowerCase().includes('email') ? 'email' : 'text';
+      return `<td><input data-field="${field}" type="${type}" value="${escapeAttr(row[field] || '')}"></td>`;
+    }).join('') +
+      `<td><input data-field="active" type="checkbox" ${row.active === false ? '' : 'checked'}></td>` +
+      `<td><button class="danger" type="button">削除</button></td>`;
+    tr.querySelector('button').addEventListener('click', () => tr.remove());
+    body.appendChild(tr);
+  }
+
+  function resetForm() {
+    document.getElementById('formTitle').textContent = '新規申請';
+    document.getElementById('submitButton').textContent = '申請する';
+    document.getElementById('editingRequestId').value = '';
+    document.getElementById('requestDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('applicantName').value = state.bootstrap ? state.bootstrap.user.name : '';
+    document.getElementById('department').value = state.bootstrap && state.bootstrap.myApproverRule ? state.bootstrap.myApproverRule.department : '';
+    document.getElementById('reasonDetail').value = '';
+    document.querySelectorAll('input[name="reasonCode"]').forEach((input) => {
+      input.checked = false;
+    });
+    document.getElementById('itemsBody').innerHTML = '';
+    addItemRow();
+    updateTotal();
+  }
+
+  function addItemRow(item = {}) {
+    const body = document.getElementById('itemsBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input data-field="name" type="text" required maxlength="200" value="${escapeAttr(item.name || '')}"></td>
+      <td><input data-field="model" type="text" maxlength="200" value="${escapeAttr(item.model || '')}"></td>
+      <td><input data-field="maker" type="text" maxlength="200" value="${escapeAttr(item.maker || '')}"></td>
+      <td><input data-field="quantity" type="number" min="0" step="1" required value="${escapeAttr(item.quantity || '')}"></td>
+      <td><input data-field="unitPrice" type="number" min="0" step="1" value="${escapeAttr(item.unitPrice || '')}"></td>
+      <td class="amount">¥0</td>
+      <td><input data-field="desiredDeliveryDate" type="date" value="${escapeAttr(item.desiredDeliveryDate || '')}"></td>
+      <td><input data-field="note" type="text" maxlength="500" value="${escapeAttr(item.note || '')}"></td>
+      <td><button class="danger" type="button">削除</button></td>
+    `;
+    tr.querySelectorAll('input').forEach((input) => {
+      input.addEventListener('input', updateTotal);
+    });
+    tr.querySelector('button').addEventListener('click', () => {
+      tr.remove();
+      if (!document.querySelector('#itemsBody tr')) {
+        addItemRow();
+      }
+      updateTotal();
+    });
+    body.appendChild(tr);
+    updateTotal();
+  }
+
+  function collectFormPayload() {
+    const reason = document.querySelector('input[name="reasonCode"]:checked');
+    return {
+      requestDate: document.getElementById('requestDate').value,
+      applicantName: document.getElementById('applicantName').value,
+      department: document.getElementById('department').value,
+      reasonCode: reason ? reason.value : '',
+      reasonDetail: document.getElementById('reasonDetail').value,
+      items: Array.from(document.querySelectorAll('#itemsBody tr')).map((tr) => {
+        const row = {};
+        tr.querySelectorAll('input[data-field]').forEach((input) => {
+          row[input.dataset.field] = input.value;
+        });
+        return row;
+      })
+    };
+  }
+
+  async function submitRequestForm(event) {
+    event.preventDefault();
+    clearAlert();
+    setBusy(true);
+    try {
+      const requestId = document.getElementById('editingRequestId').value;
+      const payload = collectFormPayload();
+      let detail;
+      if (requestId) {
+        await gas('updateRequestDraft', requestId, payload);
+        detail = await gas('resubmitRequest', requestId);
+        showAlert('再申請しました。', 'success');
+      } else {
+        detail = await gas('createRequest', payload);
+        showAlert('申請しました。', 'success');
+      }
+      resetForm();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateTotal() {
+    let total = 0;
+    document.querySelectorAll('#itemsBody tr').forEach((tr) => {
+      const quantity = Number(tr.querySelector('[data-field="quantity"]').value || 0);
+      const unitPrice = Number(tr.querySelector('[data-field="unitPrice"]').value || 0);
+      const amount = Math.round(quantity * unitPrice);
+      total += amount;
+      tr.querySelector('.amount').textContent = formatCurrency(amount);
+    });
+    document.getElementById('totalAmount').textContent = formatCurrency(total);
+  }
+
+  async function loadRequests() {
+    if (!state.bootstrap) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const mode = state.listMode;
+      document.getElementById('listTitle').textContent = mode === 'pending' ? '承認待ち' : mode === 'all' ? '全申請' : '自分の申請';
+      const rows = await gas('getRequests', {
+        mode,
+        status: document.getElementById('statusFilter').value,
+        query: document.getElementById('queryFilter').value
+      });
+      renderRequestList(rows);
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderRequestList(rows) {
+    const body = document.getElementById('requestListBody');
+    body.innerHTML = '';
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="7">該当する申請はありません。</td></tr>';
+      return;
+    }
+    rows.forEach((request) => {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.innerHTML = `
+        <td>${escapeHtml(request.requestId)}</td>
+        <td>${escapeHtml(request.requestDate)}</td>
+        <td>${escapeHtml(request.applicantName)}</td>
+        <td>${escapeHtml(request.department)}</td>
+        <td>${formatCurrency(request.totalAmount)}</td>
+        <td><span class="badge ${escapeAttr(request.status)}">${escapeHtml(request.statusLabel)}</span></td>
+        <td>${escapeHtml(request.currentStepLabel)} ${escapeHtml(request.currentApproverName || '')}</td>
+      `;
+      tr.addEventListener('click', () => openDetail(request.requestId));
+      body.appendChild(tr);
+    });
+  }
+
+  async function openDetail(requestId) {
+    setBusy(true);
+    try {
+      const detail = await gas('getRequestDetail', requestId);
+      state.currentDetail = detail;
+      renderDetail(detail);
+      showView('detailView');
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderDetail(detail) {
+    const request = detail.request;
+    const content = document.getElementById('detailContent');
+    content.innerHTML = `
+      <div class="detail-grid">
+        ${detailCell('申請番号', request.requestId)}
+        ${detailCell('状態', `<span class="badge ${escapeAttr(request.status)}">${escapeHtml(request.statusLabel)}</span>`, true)}
+        ${detailCell('現在ステップ', `${request.currentStepLabel} ${request.currentApproverName || ''}`)}
+        ${detailCell('合計金額', formatCurrency(request.totalAmount))}
+        ${detailCell('申請日', request.requestDate)}
+        ${detailCell('申請者', `${request.applicantName}<br>${request.applicantEmail}`, true)}
+        ${detailCell('部署', request.department)}
+        ${detailCell('購入理由', `${request.reasonCode}. ${request.reasonLabel}`)}
+      </div>
+      <label>
+        理由詳細
+        <textarea rows="3" readonly>${escapeHtml(request.reasonDetail || '')}</textarea>
+      </label>
+      <div class="table-wrap" style="margin-top: 14px;">
+        <table>
+          <thead>
+            <tr>
+              <th>品名</th><th>型式</th><th>メーカー</th><th>数量</th><th>単価</th><th>金額</th><th>希望納期</th><th>備考</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detail.items.map((item) => `
+              <tr>
+                <td>${escapeHtml(item.name)}</td>
+                <td>${escapeHtml(item.model)}</td>
+                <td>${escapeHtml(item.maker)}</td>
+                <td>${escapeHtml(item.quantity)}</td>
+                <td>${formatCurrency(item.unitPrice)}</td>
+                <td>${formatCurrency(item.amount)}</td>
+                <td>${escapeHtml(item.desiredDeliveryDate)}</td>
+                <td>${escapeHtml(item.note)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <div>
+          ${request.pdfUrl ? `<a class="button-link" href="${escapeAttr(request.pdfUrl)}" target="_blank" rel="noopener">PDFを開く</a>` : ''}
+        </div>
+        <div>
+          ${detail.permissions.canEdit ? '<button id="editReturnedButton" class="secondary" type="button">修正して再申請</button>' : ''}
+          ${detail.permissions.canGeneratePdf ? '<button id="generatePdfButton" class="secondary" type="button">PDF再作成</button>' : ''}
+        </div>
+      </div>
+      ${detail.permissions.canApprove ? approvalPanel() : ''}
+      <h3 style="margin-top: 20px;">履歴</h3>
+      <div class="history-list">
+        ${detail.history.map((history) => `
+          <div class="history-item">
+            <strong>${escapeHtml(history.actionLabel)}</strong>
+            ${escapeHtml(history.happenedAt)} / ${escapeHtml(history.actorName || history.actorEmail)}
+            <div>${escapeHtml(history.fromStepLabel || '')} → ${escapeHtml(history.toStepLabel || '')}</div>
+            ${history.comment ? `<div>${escapeHtml(history.comment)}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    const approveButton = document.getElementById('approveButton');
+    if (approveButton) {
+      approveButton.addEventListener('click', () => approveCurrent());
+    }
+    const returnButton = document.getElementById('returnButton');
+    if (returnButton) {
+      returnButton.addEventListener('click', () => returnCurrent());
+    }
+    const editButton = document.getElementById('editReturnedButton');
+    if (editButton) {
+      editButton.addEventListener('click', () => loadDetailIntoForm(detail));
+    }
+    const pdfButton = document.getElementById('generatePdfButton');
+    if (pdfButton) {
+      pdfButton.addEventListener('click', () => regeneratePdf(request.requestId));
+    }
+  }
+
+  function detailCell(label, value, raw = false) {
+    return `<div class="detail-cell"><span>${escapeHtml(label)}</span>${raw ? value : escapeHtml(value || '')}</div>`;
+  }
+
+  function approvalPanel() {
+    return `
+      <div class="approval-panel">
+        <label>
+          承認・差戻しコメント
+          <textarea id="approvalComment" rows="3" maxlength="1000"></textarea>
+        </label>
+        <div class="actions">
+          <button id="returnButton" class="danger" type="button">差戻し</button>
+          <button id="approveButton" class="primary" type="button">承認</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function approveCurrent() {
+    await runDetailAction('approveRequest', '承認しました。');
+  }
+
+  async function returnCurrent() {
+    await runDetailAction('returnRequest', '差戻ししました。');
+  }
+
+  async function runDetailAction(functionName, message) {
+    clearAlert();
+    setBusy(true);
+    try {
+      const comment = document.getElementById('approvalComment').value;
+      const detail = await gas(functionName, state.currentDetail.request.requestId, comment);
+      renderDetail(detail);
+      await loadRequests();
+      showAlert(message, 'success');
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function loadDetailIntoForm(detail) {
+    const request = detail.request;
+    resetForm();
+    document.getElementById('formTitle').textContent = '差戻し申請の修正';
+    document.getElementById('submitButton').textContent = '再申請する';
+    document.getElementById('editingRequestId').value = request.requestId;
+    document.getElementById('requestDate').value = request.requestDate;
+    document.getElementById('applicantName').value = request.applicantName;
+    document.getElementById('department').value = request.department;
+    document.getElementById('reasonDetail').value = request.reasonDetail || '';
+    document.querySelectorAll('input[name="reasonCode"]').forEach((input) => {
+      input.checked = input.value === request.reasonCode;
+    });
+    document.getElementById('itemsBody').innerHTML = '';
+    detail.items.forEach(addItemRow);
+    updateTotal();
+    showView('formView');
+  }
+
+  async function regeneratePdf(requestId) {
+    setBusy(true);
+    try {
+      const detail = await gas('generateRequestPdf', requestId);
+      renderDetail(detail);
+      showAlert('PDFを作成しました。', 'success');
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAdmin() {
+    clearAlert();
+    setBusy(true);
+    try {
+      const settings = {
+        thresholdAmount: document.getElementById('thresholdAmount').value,
+        pdfFolderId: document.getElementById('pdfFolderId').value,
+        adminEmails: document.getElementById('adminEmails').value,
+        enableEmailNotifications: document.getElementById('enableEmailNotifications').checked
+      };
+      const rows = Array.from(document.querySelectorAll('#approverBody tr')).map((tr) => {
+        const row = {};
+        tr.querySelectorAll('[data-field]').forEach((input) => {
+          row[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+        });
+        return row;
+      });
+      state.bootstrap = await gas('saveApproverMaster', rows);
+      state.bootstrap = await gas('saveSettings', settings);
+      renderBootstrap();
+      showAlert('管理設定を保存しました。', 'success');
+    } catch (error) {
+      showAlert(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function showView(viewId) {
+    document.querySelectorAll('.view').forEach((view) => view.classList.toggle('is-active', view.id === viewId));
+    document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === viewId && (!tab.dataset.listMode || tab.dataset.listMode === state.listMode)));
+  }
+
+  function gas(name, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(error && error.message ? error.message : error))
+        [name](...args);
+    });
+  }
+
+  function showAlert(value, type = '') {
+    const alert = document.getElementById('alert');
+    alert.textContent = value && value.message ? value.message : String(value);
+    alert.className = `alert ${type}`;
+    alert.hidden = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearAlert() {
+    document.getElementById('alert').hidden = true;
+  }
+
+  function setBusy(busy) {
+    document.getElementById('loading').hidden = !busy;
+    document.querySelectorAll('button').forEach((button) => {
+      button.disabled = busy;
+    });
+  }
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value || 0));
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function debounce(fn, wait) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), wait);
+    };
+  }
+</script>
