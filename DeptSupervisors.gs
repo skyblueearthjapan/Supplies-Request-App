@@ -1,4 +1,4 @@
-// DeptSupervisors.gs - 部署別 上長マスタ（部署ごとに複数の上長を許可し、誰でも承認できる）
+// DeptSupervisors.gs - 部署別 上席マスタ（部署ごとに複数の上席を許可し、誰でも承認できる）
 
 function getDeptSupervisors_() {
   return readObjects_(SHEETS.DEPT_SUPERVISORS, DEPT_SUPERVISOR_COLUMNS)
@@ -7,13 +7,14 @@ function getDeptSupervisors_() {
         department: sanitizeText_(row.department, 100),
         email: normalizeEmail_(row.email),
         name: sanitizeText_(row.name, 100),
+        title: sanitizeText_(row.title, 40),
         active: row.active === '' ? true : parseBoolean_(row.active)
       };
     });
 }
 
-// 申請者・部署に対応する上長集合を解決する。
-// 優先順位: DeptSupervisors の部署一致 → '*'（全社）→ ApproverMaster の上長へフォールバック。
+// 申請者・部署に対応する上席集合を解決する。
+// 優先順位: DeptSupervisors の部署一致 → '*'（全社）→ ApproverMaster の上席へフォールバック。
 function resolveSupervisors_(applicantEmail, department) {
   var normalizedDepartment = sanitizeText_(department, 100);
   var active = getDeptSupervisors_().filter(function(row) {
@@ -31,14 +32,14 @@ function resolveSupervisors_(applicantEmail, department) {
 
   if (matched.length > 0) {
     return matched.map(function(row) {
-      return { email: row.email, name: row.name || '上長' };
+      return { email: row.email, name: row.name || '上席', title: row.title || '' };
     });
   }
 
-  // フォールバック: 承認者マスタの上長（単一）。
+  // フォールバック: 承認者マスタの上席（単一）。
   var rule = findApproverRule_(applicantEmail, department);
   if (rule && rule.supervisorEmail) {
-    return [{ email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上長' }];
+    return [{ email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上席', title: rule.supervisorTitle || '' }];
   }
   return [];
 }
@@ -48,6 +49,15 @@ function isSupervisorFor_(email, applicantEmail, department) {
   return resolveSupervisors_(applicantEmail, department).some(function(s) {
     return s.email === target;
   });
+}
+
+// 指定メールの上席の役職を、申請者・部署のコンテキストで解決する（印影下段用）。
+function supervisorTitleByEmail_(email, applicantEmail, department) {
+  var target = normalizeEmail_(email);
+  var hit = resolveSupervisors_(applicantEmail, department).filter(function(s) {
+    return s.email === target;
+  })[0];
+  return hit ? (hit.title || '') : '';
 }
 
 // 管理者による全置換保存。saveApproverMaster の delete-descending-then-append を踏襲する。
@@ -112,8 +122,9 @@ function syncDeptSupervisorsMaster() {
   });
   var idx = {
     dept: findHeaderIndex_(header, ['部署', 'dept', 'department']),
-    email: findHeaderIndex_(header, ['承認者メール', 'メール', 'mail', 'email', 'approver']),
-    name: findHeaderIndex_(header, ['氏名', '名前', 'name']),
+    email: findHeaderIndex_(header, ['承認者メール', 'メール', 'mail', 'email', 'approveremail', 'approver']),
+    name: findHeaderIndex_(header, ['氏名', '名前', 'approvername', 'name']),
+    title: findHeaderIndex_(header, ['役職', 'title', 'position']),
     active: findHeaderIndex_(header, ['有効', 'active', 'enabled'])
   };
   if (idx.dept < 0) { idx.dept = 0; }
@@ -131,11 +142,13 @@ function syncDeptSupervisorsMaster() {
       }
     }
     var name = idx.name >= 0 ? sanitizeText_(row[idx.name], 100) : '';
+    var title = idx.title >= 0 ? sanitizeText_(row[idx.title], 40) : '';
     var emailsRaw = String(row[idx.email] === null || row[idx.email] === undefined ? '' : row[idx.email]);
     emailsRaw.split(/[,;\n]/).forEach(function(part) {
       var email = normalizeEmail_(part);
       if (email) {
-        rows.push([dept, email, name, 'true']);
+        // 列順 [department, email, name, active, title]
+        rows.push([dept, email, name, 'true', title]);
       }
     });
   }

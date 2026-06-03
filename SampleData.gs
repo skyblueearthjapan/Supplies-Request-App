@@ -83,7 +83,7 @@ function seedApproversIfEmpty_(user) {
     applicantEmail: '',
     applicantName: '',
     supervisorEmail: user.email,
-    supervisorName: user.name + '（上長）',
+    supervisorName: user.name + '（上席）',
     generalManagerEmail: user.email,
     generalManagerName: user.name + '（総務部長）',
     presidentEmail: user.email,
@@ -103,12 +103,13 @@ function seedDeptSupervisorsIfEmpty_(user) {
   if (existing.length > 0) {
     return;
   }
-  // 単独テスト用に、全社（'*'）の上長を現在のユーザーに割り当てる。
+  // 単独テスト用に、全社（'*'）の上席を現在のユーザーに割り当てる。
   appendObject_(SHEETS.DEPT_SUPERVISORS, {
     department: '*',
     email: user.email,
-    name: user.name + '（上長）',
-    active: 'true'
+    name: user.name + '（上席）',
+    active: 'true',
+    title: '係長'
   }, DEPT_SUPERVISOR_COLUMNS);
 }
 
@@ -214,11 +215,11 @@ function buildSampleRequests_(user) {
 
   return [
     {
-      // 上長承認待ち。現在ユーザーが部署の上長として承認できる。金額・amount は未確定（0）。
+      // 上席承認待ち。現在ユーザーが部署の上席として承認できる。金額・amount は未確定（0）。
       requestId: 'SAMPLE-2026-0014', requestDate: '2026-05-29', updatedAt: '2026-05-29 09:20:00',
       applicantEmail: 'takahashi@example.com', applicantName: '高橋 美咲', department: '総務部',
-      reasonCode: 'A', reasonDetail: '事務用消耗品の補充です。上長承認をお待ちしています。',
-      status: 'IN_REVIEW', currentStep: 'SUPERVISOR', currentApproverEmail: me, currentApproverName: meName + '（上長）',
+      reasonCode: 'A', reasonDetail: '事務用消耗品の補充です。上席承認をお待ちしています。',
+      status: 'IN_REVIEW', currentStep: 'SUPERVISOR', currentApproverEmail: me, currentApproverName: meName + '（上席）',
       route: STD, confirmedAmount: 0,
       items: [
         { name: 'ボールペン（黒）', model: 'BP-100', maker: 'ゼブラ', quantity: 50, desiredDeliveryDate: '2026-06-12', note: '' },

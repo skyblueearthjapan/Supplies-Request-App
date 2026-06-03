@@ -149,7 +149,7 @@ function buildPdfDetail_(requestId) {
     request: toClientRequest_(request),
     items: items,
     history: history,
-    stepTitles: resolveStepTitles_(request),
+    stepTitles: resolveStepTitles_(request, history),
     generatedAt: nowString_(),
     thresholdAmount: getThresholdAmount_()
   };

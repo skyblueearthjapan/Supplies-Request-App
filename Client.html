@@ -11,7 +11,7 @@
 
   const STEP_DESC = {
     APPLICANT: '申請内容の作成',
-    SUPERVISOR: '上長確認',
+    SUPERVISOR: '上席確認',
     PURCHASING_QUOTE: '見積・金額入力',
     GENERAL_MANAGER: '部門承認',
     PRESIDENT: '社長決裁',
@@ -22,7 +22,7 @@
 
   const TAB_DEFS = [
     { key: 'form', view: 'formView', label: '新規申請' },
-    { key: 'supervisor', view: 'listView', mode: 'supervisor', label: '上長承認待ち', countKey: 'supervisor' },
+    { key: 'supervisor', view: 'listView', mode: 'supervisor', label: '上席承認待ち', countKey: 'supervisor' },
     { key: 'quote', view: 'listView', mode: 'quote', label: '購買見積金額入力待ち', countKey: 'quote' },
     { key: 'gm', view: 'listView', mode: 'gm', label: '総務部長承認待ち', countKey: 'gm' },
     { key: 'president', view: 'listView', mode: 'president', label: '社長承認待ち', countKey: 'president' },
@@ -289,10 +289,10 @@
   /* ---------- 一覧 ---------- */
   async function renderList() {
     const mode = state.listMode;
-    const titleMap = { supervisor: '上長承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
+    const titleMap = { supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
     const eyebrow = { supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
     const subMap = {
-      supervisor: 'あなたが上長として承認すべき案件です（担当部署の案件のみ表示）。',
+      supervisor: 'あなたが上席として承認すべき案件です（担当部署の案件のみ表示）。',
       quote: '購買が各明細の単価を入力する案件です。',
       gm: 'あなたが総務部長として承認すべき案件です。',
       president: '社長決裁を待っている案件です。タブレットで提示し、その場で承認・差戻しを記録できます。',
@@ -360,7 +360,7 @@
     const inReview = rows.filter(r => r.status === 'IN_REVIEW').length;
     const returned = rows.filter(r => r.status === 'RETURNED').length;
     const amount = rows.filter(r => r.status !== 'COMPLETED').reduce((t, r) => t + (r.totalAmount || 0), 0);
-    const totalLabelMap = { supervisor: '上長承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '要対応件数' };
+    const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '要対応件数' };
     const totalLabel = totalLabelMap[state.listMode] || '件数';
     host.innerHTML =
       '<div class="stats">' +
@@ -449,7 +449,7 @@
     const isArrange = r.currentStep === 'PURCHASING';
     const approveWord = isArrange ? '手配完了' : '承認する';
 
-    // タブレット（全画面）CTAは上長・総務部長・社長のみ。見積／手配ステップでは出さない。
+    // タブレット（全画面）CTAは上席・総務部長・社長のみ。見積／手配ステップでは出さない。
     if ((p.canTabletApprove || p.canPresident) && !p.canQuote && !p.canArrange) {
       const isPres = p.canPresident && !p.canApprove;
       const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して承認';
@@ -842,7 +842,7 @@
     window.addEventListener('resize', measure);
   }
 
-  /* ---------- 全画面承認モード（社長決裁・上長ほか現承認者） ---------- */
+  /* ---------- 全画面承認モード（社長決裁・上席ほか現承認者） ---------- */
   const pmodeState = { detail: null, phase: 'view', comment: '', chips: [], canApprove: false, canPresident: false };
 
   // 一覧の「社長決裁」ボタン互換: 社長決裁ステップ限定で開く。
@@ -994,7 +994,7 @@
     try {
       let updated;
       if (pmodeState.canApprove) {
-        // ログインユーザー自身が現承認者（上長・総務部長・購買 等）。
+        // ログインユーザー自身が現承認者（上席・総務部長・購買 等）。
         updated = decision === 'approve'
           ? await gas('approveRequest', r.requestId, comment)
           : await gas('returnRequest', r.requestId, comment);
@@ -1034,15 +1034,15 @@
           field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
           field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
         '</div></div></div>' +
-        '<div class="card"><div class="card-head"><h3>部署別 上長マスタ（外部 DeptApprovers と同期・読み取り専用）</h3><button class="btn sm" id="syncDeptSupBtn">↻ 外部シートから同期</button></div>' +
+        '<div class="card"><div class="card-head"><h3>部署別 上席マスタ（外部 DeptApprovers と同期・読み取り専用）</h3><button class="btn sm" id="syncDeptSupBtn">↻ 外部シートから同期</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>有効</th>' +
+            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>役職</th><th>有効</th>' +
           '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上長です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上長なら誰でも承認、各上長は自部署の案件のみ「上長承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上長にフォールバックします。</span></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span></div>' +
         '</div>' +
         '<div class="card"><div class="card-head"><h3>承認者マスタ</h3><button class="btn sm" id="addApproverBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>申請者メール</th><th>申請者名</th><th>上長メール</th><th>上長名</th><th>上長役職</th><th>総務部長メール</th><th>総務部長名</th><th>総務部長役職</th><th>社長メール</th><th>社長名</th><th>社長役職</th><th>購買メール</th><th>購買名</th><th>購買役職</th><th>有効</th><th></th>' +
+            '<th>部署</th><th>申請者メール</th><th>申請者名</th><th>上席メール</th><th>上席名</th><th>上席役職</th><th>総務部長メール</th><th>総務部長名</th><th>総務部長役職</th><th>社長メール</th><th>社長名</th><th>社長役職</th><th>購買メール</th><th>購買名</th><th>購買役職</th><th>有効</th><th></th>' +
           '</tr></thead><tbody id="approverBody"></tbody></table></div>' +
           '<div class="card-pad" style="padding-top:14px"><span class="hint">部署単位（部署名を指定）または申請者単位（申請者メールを指定）でルートを設定できます。「*」は全体デフォルトです。役職は決裁印（PDF）の下段に表示されます（空欄なら役割名で表示）。</span></div>' +
         '</div>' +
@@ -1093,17 +1093,17 @@
     body.appendChild(tr);
   }
 
-  // 部署別 上長マスタは外部 DeptApprovers シートの読み取り専用ミラー。
+  // 部署別 上席マスタは外部 DeptApprovers シートの読み取り専用ミラー。
   function renderDeptSupervisorRows() {
     const body = document.getElementById('deptSupervisorBody');
     if (!body) { return; }
     const rows = state.bootstrap.deptSupervisors || [];
     if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="4"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上長はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上長にフォールバックします）。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="5"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上席はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上席にフォールバックします）。</div></td></tr>';
       return;
     }
     body.innerHTML = rows.map(r =>
-      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
+      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + escapeHtml(r.title || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
     ).join('');
   }
 
@@ -1114,7 +1114,7 @@
       state.bootstrap = await gas('getBootstrap');
       renderDeptSupervisorRows();
       const n = result && typeof result.count === 'number' ? result.count : null;
-      toast(n !== null ? ('上長マスタを同期しました（' + n + '件）') : '上長マスタを同期しました', 'ok');
+      toast(n !== null ? ('上席マスタを同期しました（' + n + '件）') : '上席マスタを同期しました', 'ok');
     } catch (error) {
       toast(errText(error), 'err');
     } finally {
@@ -1206,7 +1206,7 @@
     if (r.status === 'RETURNED') { return '差戻し'; }
     if (r.status === 'COMPLETED') { return '完了'; }
     const byStep = {
-      SUPERVISOR: '上長承認待ち',
+      SUPERVISOR: '上席承認待ち',
       PURCHASING_QUOTE: '見積金額待ち',
       GENERAL_MANAGER: '総務部長承認待ち',
       PRESIDENT: '社長承認待ち',

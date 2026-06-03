@@ -42,7 +42,7 @@ function createRequest(payload) {
     if (firstStep === STEPS.SUPERVISOR) {
       supervisors = resolveSupervisors_(user.email, normalized.department);
       if (supervisors.length === 0) {
-        throw new Error('上長承認者が未設定です。部署別 上長マスタ（または承認者マスタの上長）を設定してください。');
+        throw new Error('上席承認者が未設定です。部署別 上席マスタ（または承認者マスタの上席）を設定してください。');
       }
       firstApprover = { email: supervisors[0].email, name: supervisors[0].name };
     } else {
@@ -163,7 +163,7 @@ function resubmitRequest(requestId) {
     if (firstStep === STEPS.SUPERVISOR) {
       supervisors = resolveSupervisors_(request.applicantEmail, request.department);
       if (supervisors.length === 0) {
-        throw new Error('上長承認者が未設定です。部署別 上長マスタ（または承認者マスタの上長）を設定してください。');
+        throw new Error('上席承認者が未設定です。部署別 上席マスタ（または承認者マスタの上席）を設定してください。');
       }
       firstApprover = { email: supervisors[0].email, name: supervisors[0].name };
     } else {
@@ -220,7 +220,7 @@ function getRequests(filter) {
     .filter(function(request) {
       if (mode === 'pending') {
         // 自分が承認者の案件 ＋ 社長承認待ち（総務部長/管理者が社長へ提示すべき案件）も残す
-        // ＋ 上長ステップは部署の上長集合の誰でも承認待ちに含める
+        // ＋ 上席ステップは部署の上席集合の誰でも承認待ちに含める
         if (normalizeEmail_(request.currentApproverEmail) === user.email) {
           return true;
         }
@@ -319,7 +319,7 @@ function getRequestDetail(requestId) {
       canQuote: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING_QUOTE,
       canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
     },
-    stepTitles: resolveStepTitles_(request)
+    stepTitles: resolveStepTitles_(request, history)
   };
 }
 
@@ -401,7 +401,7 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
   }
 
   if (nextStep === STEPS.PURCHASING_QUOTE) {
-    // 上長承認後、購買(見積)ステップへ。押印済PDFを生成し購買へ見積依頼を送付。
+    // 上席承認後、購買(見積)ステップへ。押印済PDFを生成し購買へ見積依頼を送付。
     var quoteFile = createRequestPdfInternal_(updated.requestId, user);
     updated = getRequestById_(updated.requestId);
     sendQuoteRequestEmail_(updated, quoteFile);
@@ -893,12 +893,12 @@ function normalizeRequestPayload_(payload, user) {
 }
 
 function buildRoute_(totalAmount, approverRule) {
-  // 申請時は金額未確定。経路は 上長→購買(見積)→総務部長→購買(手配)。
+  // 申請時は金額未確定。経路は 上席→購買(見積)→総務部長→購買(手配)。
   // 社長決裁は購買が見積金額を入力した時点で 10万円以上の場合に confirmQuote が
   // 総務部長と購買(手配)の間へ追加する。
   var route = [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
 
-  // 上長(SUPERVISOR)の承認者は DeptSupervisors に存在しうる（ApproverMaster.supervisorEmail は空可）。
+  // 上席(SUPERVISOR)の承認者は DeptSupervisors に存在しうる（ApproverMaster.supervisorEmail は空可）。
   // 存在検証は createRequest/resubmitRequest が resolveSupervisors_ で行うため、ここでは検証しない。
   route.forEach(function(step) {
     if (step === STEPS.SUPERVISOR) {
@@ -952,7 +952,7 @@ function canApprove_(request, user) {
     return false;
   }
   if (request.currentStep === STEPS.SUPERVISOR) {
-    // 上長ステップは部署の上長集合の誰でも承認できる。
+    // 上席ステップは部署の上席集合の誰でも承認できる。
     return isSupervisorFor_(user.email, request.applicantEmail, request.department) ||
       normalizeEmail_(request.currentApproverEmail) === user.email;
   }
@@ -996,7 +996,7 @@ function findApproverRule_(applicantEmail, department) {
 
 function getApproverForStep_(rule, step) {
   var map = {};
-  map[STEPS.SUPERVISOR] = { email: rule.supervisorEmail, name: rule.supervisorName || '上長' };
+  map[STEPS.SUPERVISOR] = { email: rule.supervisorEmail, name: rule.supervisorName || '上席' };
   map[STEPS.GENERAL_MANAGER] = { email: rule.generalManagerEmail, name: rule.generalManagerName || '総務部長' };
   map[STEPS.PRESIDENT] = { email: rule.presidentEmail, name: rule.presidentName || '社長' };
   map[STEPS.PURCHASING] = { email: rule.purchasingEmail, name: rule.purchasingName || '購買' };
@@ -1048,19 +1048,38 @@ function toClientApprover_(row) {
 
 // 決裁印の下段に出す役職を、申請の承認者ルールから解決する。
 // 未設定や該当ルールなしのステップは空（描画側で役割名にフォールバック）。
-function resolveStepTitles_(request) {
+function resolveStepTitles_(request, history) {
   var titles = {};
+  var rule = null;
   try {
-    var rule = findApproverRule_(request.applicantEmail, request.department);
-    if (rule) {
-      titles[STEPS.SUPERVISOR] = rule.supervisorTitle || '';
-      titles[STEPS.GENERAL_MANAGER] = rule.generalManagerTitle || '';
-      titles[STEPS.PRESIDENT] = rule.presidentTitle || '';
-      titles[STEPS.PURCHASING] = rule.purchasingTitle || '';
-    }
+    rule = findApproverRule_(request.applicantEmail, request.department);
   } catch (error) {
-    // ルール未設定でも印影は役割名にフォールバックする。
+    rule = null;
   }
+  if (rule) {
+    titles[STEPS.GENERAL_MANAGER] = rule.generalManagerTitle || '';
+    titles[STEPS.PRESIDENT] = rule.presidentTitle || '';
+    titles[STEPS.PURCHASING] = rule.purchasingTitle || '';
+  }
+  // 上席は本人別の役職（DeptSupervisors）を優先。押印者→現承認者の順で解決し、無ければ承認者マスタの上席役職。
+  var supEmail = '';
+  var hist = history || [];
+  for (var i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].fromStep === STEPS.SUPERVISOR && (hist[i].action === ACTION.APPROVE || hist[i].action === ACTION.RETURN)) {
+      supEmail = hist[i].actorEmail;
+      break;
+    }
+  }
+  if (!supEmail && request.currentStep === STEPS.SUPERVISOR) {
+    supEmail = request.currentApproverEmail;
+  }
+  var supTitle = '';
+  try {
+    supTitle = supEmail ? supervisorTitleByEmail_(supEmail, request.applicantEmail, request.department) : '';
+  } catch (error2) {
+    supTitle = '';
+  }
+  titles[STEPS.SUPERVISOR] = supTitle || (rule ? (rule.supervisorTitle || '') : '');
   return titles;
 }
 
