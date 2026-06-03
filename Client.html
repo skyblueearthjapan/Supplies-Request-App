@@ -73,10 +73,22 @@
     const admin = !!state.bootstrap.isAdmin;
     const tabs = document.getElementById('tabs');
     tabs.innerHTML = '';
+    let subStarted = false;
     TAB_DEFS.filter(t => !t.admin || admin).forEach(t => {
+      // 新規申請は左で主役。それ以外（承認・処理系）は右へ寄せ、区切りラベルを挟んで淡色表示。
+      if (t.key !== 'form' && !subStarted) {
+        subStarted = true;
+        const spacer = document.createElement('div');
+        spacer.className = 'tab-spacer';
+        tabs.appendChild(spacer);
+        const label = document.createElement('span');
+        label.className = 'tab-grouplabel';
+        label.textContent = '承認・処理';
+        tabs.appendChild(label);
+      }
       const active = t.view === 'listView' ? (state.view === 'listView' && state.listMode === t.mode) : (state.view === t.view);
       const btn = document.createElement('button');
-      btn.className = 'tab' + (active ? ' on' : '');
+      btn.className = 'tab' + (t.key === 'form' ? ' tab-primary' : ' tab-sub') + (active ? ' on' : '');
       const count = t.countKey ? state.counts[t.countKey] : null;
       btn.innerHTML = escapeHtml(t.label) + (typeof count === 'number' ? ' <span class="count">' + count + '</span>' : '');
       btn.addEventListener('click', () => {

@@ -114,6 +114,14 @@
     content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2.5px;
     background: var(--primary); border-radius: 3px 3px 0 0;
   }
+  /* 新規申請を主役に（左・塗りボタン）／承認・処理系は右寄せ・淡色で副次 */
+  .tab-spacer { flex: 1 1 auto; min-width: 12px; }
+  .tab-grouplabel { align-self: center; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--muted); padding: 0 8px 8px 12px; border-left: 1px solid var(--line); }
+  .tab.tab-primary { background: var(--primary); color: #fff; border-radius: 10px; padding: 9px 18px; margin: 6px 6px 8px 0; }
+  .tab.tab-primary:hover { color: #fff; filter: brightness(1.08); }
+  .tab.tab-primary.on::after { display: none; }
+  .tab.tab-sub { font-size: 12.5px; padding: 14px 12px; opacity: .92; }
+  .tab.tab-sub:not(.on) { color: var(--muted); }
 
   /* ---------- Main ---------- */
   .main { flex: 1; width: min(1320px, calc(100vw - 40px)); margin: 0 auto; padding: 26px 0 60px; }
