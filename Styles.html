@@ -316,6 +316,13 @@
   .approver-tbl .iinput { width: 100%; min-width: 96px; min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface); color: var(--ink); }
   .approver-tbl .iinput:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-tint); }
 
+  /* 社長カードだけリッチ表示 */
+  .approver-card-rich { border: 1.5px solid var(--primary); box-shadow: 0 12px 30px -14px rgba(66, 80, 214, .35); }
+  .approver-card-rich .rich-head { background: linear-gradient(180deg, var(--primary-tint), var(--surface)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .approver-card-rich .rich-head h3 { color: var(--primary); display: inline-flex; align-items: center; gap: 8px; }
+  .approver-card-rich .rich-ic { width: 24px; height: 24px; border-radius: 7px; background: var(--primary); color: #fff; display: inline-grid; place-items: center; font-size: 13px; }
+  .approver-card-rich .rich-sub { font-size: 11px; font-weight: 700; color: var(--primary); background: var(--primary-tint); border-radius: 999px; padding: 2px 9px; }
+
   .fade-in { animation: fadein .3s ease both; }
   @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
   @keyframes fadein { from { transform: translateY(7px); } to { transform: translateY(0); } }
