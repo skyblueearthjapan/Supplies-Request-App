@@ -1042,12 +1042,18 @@
           '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
           '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span></div>' +
         '</div>' +
-        '<div class="card"><div class="card-head"><h3>承認者マスタ</h3><button class="btn sm" id="addApproverBtn">＋ 行を追加</button></div>' +
-          '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>申請者メール</th><th>申請者名</th><th>上席メール</th><th>上席名</th><th>上席役職</th><th>総務部長メール</th><th>総務部長名</th><th>総務部長役職</th><th>社長メール</th><th>社長名</th><th>社長役職</th><th>購買メール</th><th>購買名</th><th>購買役職</th><th>有効</th><th></th>' +
-          '</tr></thead><tbody id="approverBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">部署単位（部署名を指定）または申請者単位（申請者メールを指定）でルートを設定できます。「*」は全体デフォルトです。役職は決裁印（PDF）の下段に表示されます（空欄なら役割名で表示）。</span></div>' +
-        '</div>' +
+        APPROVER_ROLES.map(function(role, i) {
+          return '<div class="card"><div class="card-head"><h3>承認者：' + role.title + '</h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>' +
+            '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+              '<th>部署</th><th>メールアドレス</th><th>氏名</th><th>役職</th><th></th>' +
+            '</tr></thead><tbody id="' + role.body + '"></tbody></table></div>' +
+            '<div class="card-pad" style="padding-top:14px"><span class="hint">' +
+              (i === 0
+                ? '各承認者を役職カードごとに設定します。「*」は全体デフォルト（全部署共通）。特定部署だけ変える場合のみ部署名で行を追加してください。役職は決裁印（PDF）の下段に表示されます。上席はこのマスタではなく外部「DeptApprovers」で管理します。'
+                : '「*」は全体デフォルト。部署別に分ける場合のみ部署名で追加。') +
+            '</span></div>' +
+          '</div>';
+        }).join('') +
         '<div class="card"><div class="card-head"><h3>通知宛先マスタ</h3><button class="btn sm" id="addRecipientBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
             '<th>種別</th><th>送信区分</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
@@ -1068,10 +1074,21 @@
     document.getElementById('syncDeptSupBtn').addEventListener('click', syncDeptSupervisors);
     renderDeptSupervisorRows();
 
-    document.getElementById('addApproverBtn').addEventListener('click', () => addApproverRow({ active: true }));
-    const rows = state.bootstrap.approvers || [];
-    rows.forEach(addApproverRow);
-    if (rows.length === 0) { addApproverRow({ active: true }); }
+    const approverRows = state.bootstrap.approvers || [];
+    APPROVER_ROLES.forEach(role => {
+      document.getElementById(role.addBtn).addEventListener('click', () => addRoleApproverRow(role, {}));
+      const seen = approverRows.filter(r => (r.department || '') !== '');
+      if (seen.length === 0) {
+        addRoleApproverRow(role, { department: '*' });
+      } else {
+        seen.forEach(r => addRoleApproverRow(role, {
+          department: r.department,
+          email: r[role.key + 'Email'] || '',
+          name: r[role.key + 'Name'] || '',
+          title: r[role.key + 'Title'] || ''
+        }));
+      }
+    });
 
     document.getElementById('addRecipientBtn').addEventListener('click', () => addRecipientRow({ type: 'GENERAL_AFFAIRS', active: true }));
     const recipients = state.bootstrap.recipients || [];
@@ -1135,20 +1152,22 @@
     }
   }
 
-  const APPROVER_FIELDS = ['department', 'applicantEmail', 'applicantName', 'supervisorEmail', 'supervisorName', 'supervisorTitle', 'generalManagerEmail', 'generalManagerName', 'generalManagerTitle', 'presidentEmail', 'presidentName', 'presidentTitle', 'purchasingEmail', 'purchasingName', 'purchasingTitle'];
+  // 承認者マスタを役職ごとのカードに分割。各カードは部署/メール/氏名/役職。
+  const APPROVER_ROLES = [
+    { key: 'generalManager', title: '総務部長', body: 'gmApproverBody', addBtn: 'addGmApproverBtn' },
+    { key: 'president', title: '社長', body: 'presApproverBody', addBtn: 'addPresApproverBtn' },
+    { key: 'purchasing', title: '購買', body: 'purApproverBody', addBtn: 'addPurApproverBtn' }
+  ];
 
-  function addApproverRow(row) {
+  function addRoleApproverRow(role, row) {
     row = row || {};
-    const body = document.getElementById('approverBody');
+    const body = document.getElementById(role.body);
     const tr = document.createElement('tr');
-    const placeholders = { department: '* で全体', applicantEmail: '空欄=部署単位' };
-    tr.innerHTML = APPROVER_FIELDS.map(f => {
-      const type = f.toLowerCase().indexOf('email') >= 0 ? 'email' : 'text';
-      const phText = placeholders[f] || (/Title$/.test(f) ? '役職（任意・例:部長）' : '');
-      const ph = phText ? ' placeholder="' + escapeAttr(phText) + '"' : '';
-      return '<td><input class="iinput" data-field="' + f + '" type="' + type + '" value="' + escapeAttr(row[f] || '') + '"' + ph + '></td>';
-    }).join('') +
-      '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
+    tr.innerHTML =
+      '<td><input class="iinput" data-field="department" type="text" value="' + escapeAttr(row.department || '') + '" placeholder="* で全体"></td>' +
+      '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="example@company.co.jp"></td>' +
+      '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
+      '<td><input class="iinput" data-field="title" type="text" value="' + escapeAttr(row.title || '') + '" placeholder="役職（任意・例:部長）"></td>' +
       '<td><button class="row-del" type="button">✕</button></td>';
     tr.querySelector('.row-del').addEventListener('click', () => tr.remove());
     body.appendChild(tr);
@@ -1163,13 +1182,21 @@
         adminEmails: document.getElementById('a-admins').value,
         enableEmailNotifications: document.getElementById('a-notify').checked
       };
-      const rows = Array.from(document.querySelectorAll('#approverBody tr')).map(tr => {
-        const obj = {};
-        tr.querySelectorAll('[data-field]').forEach(input => {
-          obj[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+      // 役職カード3つを部署キーで1行に統合（撤去した上席/申請者列は送らない＝空欄化）。
+      const byDept = {};
+      APPROVER_ROLES.forEach(role => {
+        Array.from(document.querySelectorAll('#' + role.body + ' tr')).forEach(tr => {
+          const o = {};
+          tr.querySelectorAll('[data-field]').forEach(input => { o[input.dataset.field] = input.value; });
+          const dept = (o.department || '').trim();
+          if (!dept) { return; }
+          if (!byDept[dept]) { byDept[dept] = { department: dept, active: true }; }
+          byDept[dept][role.key + 'Email'] = o.email || '';
+          byDept[dept][role.key + 'Name'] = o.name || '';
+          byDept[dept][role.key + 'Title'] = o.title || '';
         });
-        return obj;
       });
+      const rows = Object.keys(byDept).map(d => byDept[d]);
       const recipientRows = Array.from(document.querySelectorAll('#recipientBody tr')).map(tr => {
         const obj = {};
         tr.querySelectorAll('[data-field]').forEach(input => {
