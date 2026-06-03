@@ -59,6 +59,13 @@
   /* ---------- App shell ---------- */
   .shell { min-height: 100vh; display: flex; flex-direction: column; }
 
+  /* トップバー＋タブを上部に固定し、スクロールはその下から */
+  .appbar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg);
+    box-shadow: 0 8px 18px -14px rgba(40, 46, 90, .35);
+  }
+
   .topbar {
     display: flex; align-items: center; justify-content: space-between; gap: 24px;
     padding: 0 28px; height: 64px;
