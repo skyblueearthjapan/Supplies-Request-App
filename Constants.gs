@@ -136,6 +136,7 @@ var ACTION = Object.freeze({
   RESUBMIT: 'RESUBMIT',
   UPDATE: 'UPDATE',
   COMPLETE: 'COMPLETE',
+  ESCALATE: 'ESCALATE',
   PDF_GENERATE: 'PDF_GENERATE'
 });
 
@@ -146,6 +147,7 @@ var ACTION_LABELS = Object.freeze({
   RESUBMIT: '再申請',
   UPDATE: '更新',
   COMPLETE: '完了',
+  ESCALATE: '社長決裁へ',
   PDF_GENERATE: 'PDF作成'
 });
 

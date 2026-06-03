@@ -16,7 +16,7 @@
     PRESIDENT: '社長決裁',
     PURCHASING: '発注手配'
   };
-  const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓' };
+  const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓', ESCALATE: '⤴' };
   const NG_REASONS = ['金額が過大', '用途・必要性が不明確', '見積書の添付が必要', '時期尚早・要再検討', '他部署と要調整'];
 
   const TAB_DEFS = [
@@ -93,7 +93,7 @@
   }
 
   /* ---------- 新規申請フォーム ---------- */
-  function emptyItem() { return { name: '', model: '', maker: '', quantity: '', unitPrice: '', desiredDeliveryDate: '', note: '' }; }
+  function emptyItem() { return { name: '', model: '', maker: '', quantity: '', desiredDeliveryDate: '', note: '' }; }
 
   function uniqueSorted(values) {
     return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
@@ -125,7 +125,7 @@
     formState.reasonCode = draft ? draft.request.reasonCode : '';
     formState.reasonDetail = draft ? draft.request.reasonDetail : '';
     formState.items = draft ? draft.items.map(it => ({
-      name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity, unitPrice: it.unitPrice,
+      name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
       desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
     })) : [emptyItem()];
 
@@ -146,7 +146,7 @@
           '<div class="title-wrap">' +
             '<span class="eyebrow">' + (editing ? 'Resubmit' : 'New Request') + '</span>' +
             '<h2>' + (editing ? '差戻し申請の修正' : '新規申請') + '</h2>' +
-            '<span class="sub">必要事項を入力し、申請してください。' + escapeHtml(yen(threshold())) + 'を超える場合は社長決裁が必要です。</span>' +
+            '<span class="sub">必要事項を入力し、申請してください。金額は購買での確定後に決まります。</span>' +
           '</div>' +
           '<div class="head-actions"><button class="btn ghost" id="clearFormBtn">入力をクリア</button></div>' +
         '</div>' +
@@ -158,14 +158,10 @@
         '</div></div></div>' +
 
         '<div class="card">' +
-          '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・数量・単価を入力すると金額が自動計算されます</span></div>' +
+          '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・数量・希望納期などを入力してください</span></div>' +
           '<div class="card-pad items-section">' +
             '<div class="icards" id="icards"></div>' +
             '<div style="margin-top:14px"><button class="btn sm" id="addItemBtn">＋ 明細行を追加</button></div>' +
-            '<div class="items-foot">' +
-              '<div class="threshold-note" id="thresholdNote"></div>' +
-              '<div class="total-box"><span class="tl">合計金額</span><span class="tv" id="formTotal">¥0</span></div>' +
-            '</div>' +
           '</div>' +
         '</div>' +
 
@@ -226,8 +222,7 @@
         '<div class="icard-top">' +
           '<span class="icard-no">' + (i + 1) + '</span>' +
           '<span style="font-weight:700;font-size:13px;color:var(--ink-soft)">明細 ' + (i + 1) + '</span>' +
-          '<span class="line-amt-b" id="lineamt-' + i + '">' + escapeHtml(lineAmt(it)) + '</span>' +
-          '<button class="row-del" data-del="' + i + '" style="margin-left:10px" title="削除">✕</button>' +
+          '<button class="row-del" data-del="' + i + '" style="margin-left:auto" title="削除">✕</button>' +
         '</div>' +
         '<div class="icard-grid">' +
           '<div><span class="mini-lbl">品名</span><input class="control" data-f="name" value="' + escapeAttr(it.name) + '" placeholder="品名" maxlength="200"></div>' +
@@ -235,7 +230,6 @@
           '<div><span class="mini-lbl">メーカー</span><input class="control" data-f="maker" value="' + escapeAttr(it.maker) + '" maxlength="200"></div>' +
           '<div class="sub">' +
             '<div><span class="mini-lbl">数量</span><input class="control num" data-f="quantity" type="number" min="0" value="' + escapeAttr(it.quantity) + '"></div>' +
-            '<div><span class="mini-lbl">単価</span><input class="control num" data-f="unitPrice" type="number" min="0" value="' + escapeAttr(it.unitPrice) + '"></div>' +
             '<div><span class="mini-lbl">希望納期</span><input class="control" data-f="desiredDeliveryDate" type="date" value="' + escapeAttr(it.desiredDeliveryDate) + '"></div>' +
             '<div style="grid-column:1 / -1"><span class="mini-lbl">備考</span><input class="control" data-f="note" value="' + escapeAttr(it.note) + '" maxlength="500"></div>' +
           '</div>' +
@@ -248,8 +242,6 @@
       card.querySelectorAll('input[data-f]').forEach(input => {
         input.addEventListener('input', () => {
           formState.items[idx][input.dataset.f] = input.value;
-          document.getElementById('lineamt-' + idx).textContent = lineAmt(formState.items[idx]);
-          recomputeTotal();
         });
       });
       card.querySelector('[data-del]').addEventListener('click', () => {
@@ -258,19 +250,6 @@
         renderItemCards();
       });
     });
-    recomputeTotal();
-  }
-
-  function recomputeTotal() {
-    const total = formState.items.reduce((t, it) => t + Math.round((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)), 0);
-    const over = total > threshold();
-    const totalEl = document.getElementById('formTotal');
-    if (totalEl) { totalEl.textContent = yen(total); }
-    const note = document.getElementById('thresholdNote');
-    if (note) {
-      note.className = 'threshold-note' + (over ? ' over' : '');
-      note.textContent = over ? '※ ' + yen(threshold()) + '超のため社長決裁ルートになります' : 'しきい値：' + yen(threshold()) + '（超過で社長決裁）';
-    }
   }
 
   async function submitForm() {
@@ -333,7 +312,7 @@
             field('検索', false, '<input class="control" type="search" id="queryFilter" placeholder="申請番号・部署・申請者" style="min-width:220px">') +
           '</div></div>' +
           '<div class="table-wrap"><table class="tbl"><thead><tr>' +
-            '<th>申請番号</th><th>申請日</th><th>申請者</th><th>部署</th><th class="r">合計金額</th><th>状態</th><th>現在ステップ</th><th></th>' +
+            '<th>申請番号</th><th>申請日</th><th>申請者</th><th>部署</th><th class="r">確定金額</th><th>状態</th><th>現在ステップ</th><th></th>' +
           '</tr></thead><tbody id="listBody"><tr><td colspan="8"><div class="empty">読み込み中…</div></td></tr></tbody></table></div>' +
         '</div>' +
       '</div>';
@@ -393,7 +372,6 @@
     }
     const admin = !!state.bootstrap.isAdmin;
     body.innerHTML = rows.map(r => {
-      const over = r.totalAmount > threshold();
       const stepCell = r.status === 'COMPLETED'
         ? '<span style="color:var(--muted)">—</span>'
         : '<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>' + escapeHtml(r.currentStepLabel) + '</b>' +
@@ -407,7 +385,7 @@
         '<td class="num" style="color:var(--muted)">' + escapeHtml(r.requestDate) + '</td>' +
         '<td><div class="who"><span class="av" style="background:' + avColor(r.applicantName) + '">' + escapeHtml(initials(r.applicantName)) + '</span><div><div class="nm">' + escapeHtml(r.applicantName) + '</div></div></div></td>' +
         '<td>' + escapeHtml(r.department) + '</td>' +
-        '<td class="cell-amt">' + escapeHtml(yen(r.totalAmount)) + (over ? '<span class="badge soft" style="margin-left:6px;height:18px;font-size:10px">社長決裁</span>' : '') + '</td>' +
+        '<td class="cell-amt">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
         '<td>' + badge(r.status, r.statusLabel) + '</td>' +
         '<td>' + stepCell + '</td>' +
         '<td style="text-align:right;white-space:nowrap">' + action + '</td>' +
@@ -441,7 +419,7 @@
   function renderDetail(detail) {
     const r = detail.request;
     const p = detail.permissions;
-    const over = r.totalAmount > threshold();
+    const over = (r.route || []).indexOf('PRESIDENT') !== -1;
 
     let html = '<div class="fade-in">';
     html += '<div class="page-head"><div class="title-wrap">' +
@@ -455,13 +433,13 @@
         (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
       '</div></div>';
 
-    html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート（' + yen(threshold()) + '超）' : '標準ルート') + '</span></div>' +
+    html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
       '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
 
     const isPurchasing = r.currentStep === 'PURCHASING';
     const approveWord = isPurchasing ? '手配完了' : '承認する';
 
-    if (p.canTabletApprove || p.canPresident) {
+    if ((p.canTabletApprove || p.canPresident) && !p.canPurchasingConfirm) {
       const isPres = p.canPresident && !p.canApprove;
       const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して' + (isPurchasing ? '手配完了' : '承認');
       const ctaDesc = isPres
@@ -473,7 +451,18 @@
         '<button class="btn primary lg" id="presBtn">' + escapeHtml(ctaBtn) + '</button></div>';
     }
 
-    if (p.canApprove) {
+    if (p.canPurchasingConfirm) {
+      const amtVal = r.totalAmount > 0 ? r.totalAmount : '';
+      html += '<div class="approve-panel"><div class="ap-head">' +
+        '<span class="badge IN_REVIEW"><span class="dot"></span>購買確定待ち</span>' +
+        '<span class="pill">確定金額を入力して手配を確定、またはコメント付きで差戻しできます</span></div>' +
+        field('確定金額', true, '<input class="control num" type="number" min="1" id="purchaseAmount" value="' + escapeAttr(amtVal) + '" placeholder="例）80000">', '10万円以上を入力すると社長決裁へ自動で回ります。10万円未満はそのまま手配完了です。') +
+        field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+          '<button class="btn primary lg" id="purchaseBtn">✓ 確定して手配</button>' +
+        '</div></div>';
+    } else if (p.canApprove) {
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
         '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として' + (isPurchasing ? '手配完了またはコメント付きで差戻し' : '承認またはコメント付きで差戻し') + 'できます</span></div>' +
@@ -488,7 +477,7 @@
       dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
       dcell('申請者', escapeHtml(r.applicantName)) +
       dcell('部署', escapeHtml(r.department)) +
-      dcell('合計金額', '<span class="big">' + escapeHtml(yen(r.totalAmount)) + '</span>') +
+      dcell('確定金額', '<span class="big">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</span>') +
       '<div class="dcell" style="grid-column:span 2"><div class="dl">購入理由</div><div class="dv">' + escapeHtml(r.reasonCode) + '. ' + escapeHtml(r.reasonLabel) + '</div></div>' +
       dcell('現在ステップ', escapeHtml(r.status === 'COMPLETED' ? '完了' : r.currentStepLabel)) +
       dcell('承認者', escapeHtml(r.currentApproverName || '—')) +
@@ -503,22 +492,16 @@
       '<div class="pdf-preview-body"><div id="pdfPreviewWrap" style="width:100%;display:flex;justify-content:center"></div></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>申請明細</h3><span class="hint">' + detail.items.length + ' 件</span></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価</th><th class="r">金額</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map(it =>
         '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.maker || '—') + '</td>' +
         '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
-        '<td class="cell-amt">' + escapeHtml(yen(it.unitPrice)) + '</td>' +
-        '<td class="cell-amt">' + escapeHtml(yen(it.amount)) + '</td>' +
         '<td class="num" style="color:var(--muted)">' + escapeHtml(it.desiredDeliveryDate || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody><tfoot><tr>' +
-        '<td colspan="5" style="text-align:right;font-weight:700;padding:14px;border-top:2px solid var(--line)">合計</td>' +
-        '<td class="cell-amt" style="font-size:16px;padding:14px;border-top:2px solid var(--line);color:var(--primary)">' + escapeHtml(yen(r.totalAmount)) + '</td>' +
-        '<td colspan="2" style="border-top:2px solid var(--line)"></td>' +
-      '</tr></tfoot></table></div></div>';
+      '</tbody></table></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認履歴</h3><span class="hint">' + detail.history.length + ' 件のアクション</span></div>' +
       '<div class="card-pad">' + historyHtml(detail.history) + '</div></div>';
@@ -533,6 +516,7 @@
     bind('presBtn', () => openTabletMode(r.requestId));
     bind('presBtn2', () => openTabletMode(r.requestId));
     bind('approveBtn', () => detailAction('approveRequest', isPurchasing ? '手配完了を記録しました' : '承認しました'));
+    bind('purchaseBtn', purchasingConfirmAction);
     bind('returnBtn', () => detailAction('returnRequest', '差戻ししました'));
 
     renderScaledPreview('pdfPreviewWrap', detail, {});
@@ -552,6 +536,27 @@
       renderDetail(detail);
       renderTabs();
       toast(message, 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function purchasingConfirmAction() {
+    const input = document.getElementById('purchaseAmount');
+    const amount = input ? Number(input.value) : NaN;
+    if (!isFinite(amount) || amount <= 0) { toast('確定金額を正しく入力してください', 'err'); return; }
+    setBusy(true);
+    try {
+      const comment = (document.getElementById('approveComment') || {}).value || '';
+      const detail = await gas('purchasingConfirm', state.currentDetail.request.requestId, amount, comment);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast('購買内容を確定しました', 'ok');
       window.scrollTo(0, 0);
     } catch (error) {
       toast(errText(error), 'err');
@@ -628,7 +633,7 @@
     const o = opts || {};
     const decision = o.variant === 'decision';
     const r = detail.request;
-    const over = r.totalAmount > threshold();
+    const over = (r.route || []).indexOf('PRESIDENT') !== -1;
     const dateOnly = d => String(d || '').slice(0, 10);
     const stampKeys = ['APPLICANT'].concat(r.route || []);
     const wm = decision ? '' : (r.status === 'COMPLETED' ? '完了' : r.status === 'RETURNED' ? '差戻' : '');
@@ -667,22 +672,21 @@
       '<div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt">' + escapeHtml(r.applicantEmail) + '</div></div>' +
       mcell('明細件数', '<span class="mono">' + detail.items.length + ' 件</span>') +
       mcell('状態', escapeHtml(r.statusLabel)) +
-      '<div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt">' + escapeHtml(yen(r.totalAmount)) + '</div></div>' +
+      '<div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</div></div>' +
       '</div>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
       '<table class="items"><thead><tr>' +
-      '<th style="width:5%">No.</th><th style="width:26%">品名 / 型式・メーカー</th><th class="r" style="width:8%">数量</th>' +
-      '<th class="r" style="width:13%">単価</th><th class="r" style="width:14%">金額</th><th style="width:13%">希望納期</th><th>備考</th></tr></thead><tbody>' +
+      '<th style="width:6%">No.</th><th style="width:40%">品名 / 型式・メーカー</th><th class="r" style="width:12%">数量</th>' +
+      '<th style="width:18%">希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map((it, i) =>
         '<tr><td class="no">' + (i + 1) + '</td>' +
         '<td><div class="nm">' + escapeHtml(it.name) + '</div><div class="sub">' + escapeHtml([it.model, it.maker].filter(Boolean).join('・') || '—') + '</div></td>' +
-        '<td class="r">' + escapeHtml(it.quantity) + '</td><td class="r">' + escapeHtml(yen(it.unitPrice)) + '</td>' +
-        '<td class="r"><b>' + escapeHtml(yen(it.amount)) + '</b></td>' +
+        '<td class="r">' + escapeHtml(it.quantity) + '</td>' +
         '<td class="mono" style="font-size:8pt">' + escapeHtml(dateOnly(it.desiredDeliveryDate) || '—') + '</td>' +
         '<td style="font-size:8pt;color:var(--gray)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody><tfoot><tr><td colspan="4" class="tl">合　計</td><td class="tv">' + escapeHtml(yen(r.totalAmount)) + '</td><td colspan="2"></td></tr></tfoot></table>';
+      '</tbody></table>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div><div class="reasons-grid">' +
       state.bootstrap.reasons.map(x =>
@@ -827,7 +831,7 @@
       const sheetSub = isPurchasing ? '記録後、総務部へ通知されます。' : (isPres ? '承認後、購買へ進みます。' : '承認後、次のステップへ進みます。');
       const confirmWord = isPurchasing ? '手配完了を確定' : '承認を確定';
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ok">✓</div>' +
-        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + escapeHtml(yen(r.totalAmount)) + '<br>' + escapeHtml(sheetSub) + '</p>' +
+        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '<br>' + escapeHtml(sheetSub) + '</p>' +
         '<input class="psheet-input" id="pmComment" placeholder="コメント（任意）" value="' + escapeAttr(pmodeState.comment) + '">' +
         '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ok" id="pmConfirmOk">' + escapeHtml(confirmWord) + '</button></div></div></div>';
     } else if (pmodeState.phase === 'confirm-return') {
@@ -852,7 +856,7 @@
       '<div class="pmode-bar"><div class="pmode-bar-l"><span class="pmode-kicker">' + escapeHtml(kicker) + '</span>' +
         '<span class="pmode-id mono">' + escapeHtml(r.requestId) + '</span>' +
         '<span class="pmode-meta">' + escapeHtml(r.applicantName) + '（' + escapeHtml(r.department) + '）</span></div>' +
-        '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">合計</span><span class="pa-v mono">' + escapeHtml(yen(r.totalAmount)) + '</span></div>' +
+        '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">確定金額</span><span class="pa-v mono">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</span></div>' +
         '<button class="pmode-close" id="pmClose">閉じる ✕</button></div></div>' +
       '<div class="pmode-stage" id="pmStage"><div class="pmode-paper" id="pmPaper"><div class="pmode-paper-inner" id="pmPaperInner">' + pdfDocHtml(detail, { variant: 'decision' }) + '</div></div></div>' +
       actions + sheet + '</div>';
@@ -1079,7 +1083,6 @@
   function badge(status, label) { return '<span class="badge ' + escapeAttr(status) + '"><span class="dot"></span>' + escapeHtml(label || status) + '</span>'; }
   function stepLabel(key) { return (state.bootstrap.stepLabels && state.bootstrap.stepLabels[key]) || key || ''; }
   function threshold() { return Number((state.bootstrap.settings || {}).thresholdAmount) || 100000; }
-  function lineAmt(it) { return yen(Math.round((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0))); }
   function surname(name) { return String(name || '').trim().split(/\s+/)[0] || ''; }
 
   /* ---------- 基盤ヘルパー ---------- */

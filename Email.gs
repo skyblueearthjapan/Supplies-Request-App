@@ -12,7 +12,7 @@ function sendApprovalRequestEmail_(request, approver) {
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
     '部署: ' + request.department,
-    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '確定金額: ' + amountText_(request),
     '現在ステップ: ' + clientRequest.currentStepLabel,
     '',
     getRequestUrl_(request.requestId)
@@ -45,7 +45,7 @@ function sendCompletedEmail_(request) {
     '貯蔵品購入申請が完了しました。',
     '',
     '申請番号: ' + request.requestId,
-    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '確定金額: ' + amountText_(request),
     request.pdfUrl ? 'PDF: ' + request.pdfUrl : '',
     '',
     getRequestUrl_(request.requestId)
@@ -64,7 +64,7 @@ function buildGeneralAffairsBody_(request, heading) {
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
     '部署: ' + request.department,
-    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '確定金額: ' + amountText_(request),
     '現在ステップ: ' + clientRequest.currentStepLabel,
     '',
     getRequestUrl_(request.requestId)
@@ -126,7 +126,7 @@ function sendPurchasingPdfEmail_(request, pdfFile) {
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
     '部署: ' + request.department,
-    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '確定金額: ' + amountText_(request),
     '',
     getRequestUrl_(request.requestId)
   ].join('\n');
@@ -165,6 +165,13 @@ function resolvePurchasingEmail_(request) {
     // ignore
   }
   return '';
+}
+
+// 確定金額の表記。購買確定前（0）は「未確定（購買確定前）」を返す。
+function amountText_(request) {
+  return parseNumber_(request.totalAmount) > 0
+    ? formatCurrency_(request.totalAmount)
+    : '未確定（購買確定前）';
 }
 
 function sendEmail_(to, subject, body) {

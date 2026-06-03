@@ -57,7 +57,7 @@ function createRequestPdfInternal_(requestId, actor) {
       return null;
     },
     stampSteps: [STEPS.APPLICANT].concat(detail.request.route || []),
-    over: parseNumber_(detail.request.totalAmount) > parseNumber_(detail.thresholdAmount),
+    over: (detail.request.route || []).indexOf(STEPS.PRESIDENT) !== -1,
     barcode: function(seed) {
       var h = 7;
       var s = String(seed);

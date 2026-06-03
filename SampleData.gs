@@ -124,9 +124,9 @@ function isSampleRow_(request) {
 }
 
 function insertSampleRequest_(sample) {
-  var total = sample.items.reduce(function(sum, item) {
-    return sum + Math.round(item.quantity * item.unitPrice);
-  }, 0);
+  // 価格概念を撤去したため明細から合計を計算せず、確定金額（購買入力）を直接設定する。
+  // 0 は未確定。明細の金額は常に0で保存する。
+  var total = parseNumber_(sample.confirmedAmount);
 
   appendObject_(SHEETS.REQUESTS, {
     requestId: sample.requestId,
@@ -157,8 +157,8 @@ function insertSampleRequest_(sample) {
       model: item.model || '',
       maker: item.maker || '',
       quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      amount: Math.round(item.quantity * item.unitPrice),
+      unitPrice: 0,
+      amount: 0,
       desiredDeliveryDate: item.desiredDeliveryDate || '',
       note: item.note || ''
     };
@@ -195,11 +195,11 @@ function buildSampleRequests_(user) {
       applicantEmail: 'tanaka@example.com', applicantName: '田中 健太', department: '製造一課',
       reasonCode: 'A', reasonDetail: '通常ラインで使用する消耗品の補充です。在庫が残り僅かのため。',
       status: 'IN_REVIEW', currentStep: 'GENERAL_MANAGER', currentApproverEmail: me, currentApproverName: meName + '（総務部長）',
-      route: STD,
+      route: STD, confirmedAmount: 0,
       items: [
-        { name: '工業用ウエス', model: 'WES-50', maker: '東洋ウエス', quantity: 20, unitPrice: 980, desiredDeliveryDate: '2026-06-10', note: 'まとめ買い' },
-        { name: '切削油', model: 'CUT-OIL2', maker: '日本グリス', quantity: 6, unitPrice: 2400, desiredDeliveryDate: '2026-06-10', note: '18L缶' },
-        { name: '軍手', model: 'GUN-12', maker: '丸和', quantity: 50, unitPrice: 240, desiredDeliveryDate: '2026-06-12', note: '' }
+        { name: '工業用ウエス', model: 'WES-50', maker: '東洋ウエス', quantity: 20, desiredDeliveryDate: '2026-06-10', note: 'まとめ買い' },
+        { name: '切削油', model: 'CUT-OIL2', maker: '日本グリス', quantity: 6, desiredDeliveryDate: '2026-06-10', note: '18L缶' },
+        { name: '軍手', model: 'GUN-12', maker: '丸和', quantity: 50, desiredDeliveryDate: '2026-06-12', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: 'tanaka@example.com', actorName: '田中 健太', at: '2026-05-28 09:14:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' },
@@ -210,17 +210,20 @@ function buildSampleRequests_(user) {
       requestId: 'SAMPLE-2026-0011', requestDate: '2026-05-27', updatedAt: '2026-05-27 16:48:00',
       applicantEmail: 'suzuki@example.com', applicantName: '鈴木 一郎', department: '製造二課',
       reasonCode: 'B', reasonDetail: '特殊案件 工番 K-2261 専用の治具部材。既存在庫では対応不可。',
+      // 購買が確定金額を入力し10万円以上だったためエスカレーションされ、総務部長が再承認、現在は社長決裁待ち。
       status: 'IN_REVIEW', currentStep: 'PRESIDENT', currentApproverEmail: me, currentApproverName: meName + '（社長）',
-      route: PRES,
+      route: PRES, confirmedAmount: 182000,
       items: [
-        { name: '精密バイス', model: 'PV-160', maker: 'スーパーツール', quantity: 1, unitPrice: 86000, desiredDeliveryDate: '2026-06-20', note: '工番K-2261' },
-        { name: '超硬エンドミル', model: 'EM-6F', maker: '三菱マテリアル', quantity: 8, unitPrice: 9500, desiredDeliveryDate: '2026-06-18', note: '6mm 4枚刃' },
-        { name: 'ダイヤル測定器', model: 'DG-30', maker: 'ミツトヨ', quantity: 1, unitPrice: 20000, desiredDeliveryDate: '2026-06-20', note: '' }
+        { name: '精密バイス', model: 'PV-160', maker: 'スーパーツール', quantity: 1, desiredDeliveryDate: '2026-06-20', note: '工番K-2261' },
+        { name: '超硬エンドミル', model: 'EM-6F', maker: '三菱マテリアル', quantity: 8, desiredDeliveryDate: '2026-06-18', note: '6mm 4枚刃' },
+        { name: 'ダイヤル測定器', model: 'DG-30', maker: 'ミツトヨ', quantity: 1, desiredDeliveryDate: '2026-06-20', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: 'suzuki@example.com', actorName: '鈴木 一郎', at: '2026-05-27 10:02:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' },
         { action: 'APPROVE', actorEmail: 'watanabe@example.com', actorName: '渡辺 浩', at: '2026-05-27 11:20:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'SUPERVISOR', toStep: 'GENERAL_MANAGER', comment: '案件対応に必要と判断。' },
-        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-27 16:48:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PRESIDENT', comment: '10万円超のため社長決裁へ回します。' }
+        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-27 11:40:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PURCHASING', comment: '手配をお願いします。' },
+        { action: 'ESCALATE', actorEmail: me, actorName: meName, at: '2026-05-27 15:10:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'PURCHASING', toStep: 'GENERAL_MANAGER', comment: '確定金額 ¥182,000が10万円以上のため社長決裁へ。' },
+        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-27 16:48:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PRESIDENT', comment: '確定金額を確認、社長決裁へ回します。' }
       ]
     },
     {
@@ -228,10 +231,10 @@ function buildSampleRequests_(user) {
       applicantEmail: 'ito@example.com', applicantName: '伊藤 さくら', department: '品質保証部',
       reasonCode: 'C', reasonDetail: '年度末に使い切った検査用消耗品の補充。',
       status: 'IN_REVIEW', currentStep: 'SUPERVISOR', currentApproverEmail: me, currentApproverName: meName + '（上席者）',
-      route: STD,
+      route: STD, confirmedAmount: 0,
       items: [
-        { name: '検査用手袋', model: 'NBR-M', maker: '川西工業', quantity: 10, unitPrice: 590, desiredDeliveryDate: '2026-06-08', note: 'ニトリル Mサイズ' },
-        { name: '精密拭き取り紙', model: 'KW-300', maker: '日本製紙', quantity: 6, unitPrice: 500, desiredDeliveryDate: '2026-06-08', note: '' }
+        { name: '検査用手袋', model: 'NBR-M', maker: '川西工業', quantity: 10, desiredDeliveryDate: '2026-06-08', note: 'ニトリル Mサイズ' },
+        { name: '精密拭き取り紙', model: 'KW-300', maker: '日本製紙', quantity: 6, desiredDeliveryDate: '2026-06-08', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: 'ito@example.com', actorName: '伊藤 さくら', at: '2026-05-27 08:51:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' }
@@ -241,11 +244,12 @@ function buildSampleRequests_(user) {
       requestId: 'SAMPLE-2026-0009', requestDate: '2026-05-26', updatedAt: '2026-05-26 09:31:00',
       applicantEmail: me, applicantName: meName, department: '総務部',
       reasonCode: 'A', reasonDetail: '事務消耗品および清掃用品の月次補充です。',
+      // 購買ステップ。purchasingConfirm で確定金額を入力できる（10万円未満で完了 / 以上でエスカレーション）。
       status: 'IN_REVIEW', currentStep: 'PURCHASING', currentApproverEmail: me, currentApproverName: meName + '（購買）',
-      route: STD,
+      route: STD, confirmedAmount: 0,
       items: [
-        { name: 'コピー用紙 A4', model: 'PPC-A4', maker: '日本製紙', quantity: 30, unitPrice: 480, desiredDeliveryDate: '2026-06-05', note: '500枚×箱' },
-        { name: 'トナーカートリッジ', model: 'TN-291', maker: 'ブラザー', quantity: 4, unitPrice: 2100, desiredDeliveryDate: '2026-06-05', note: '' }
+        { name: 'コピー用紙 A4', model: 'PPC-A4', maker: '日本製紙', quantity: 30, desiredDeliveryDate: '2026-06-05', note: '500枚×箱' },
+        { name: 'トナーカートリッジ', model: 'TN-291', maker: 'ブラザー', quantity: 4, desiredDeliveryDate: '2026-06-05', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: me, actorName: meName, at: '2026-05-26 09:30:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' },
@@ -258,10 +262,10 @@ function buildSampleRequests_(user) {
       applicantEmail: 'tanaka@example.com', applicantName: '田中 健太', department: '製造一課',
       reasonCode: 'E', reasonDetail: '使用中の電動ドリルが故障。修理より新規購入が安価と判断。',
       status: 'RETURNED', currentStep: 'APPLICANT', currentApproverEmail: '', currentApproverName: '',
-      route: STD,
+      route: STD, confirmedAmount: 0,
       items: [
-        { name: '充電式ドリルドライバ', model: 'DD-18V', maker: 'マキタ', quantity: 2, unitPrice: 24800, desiredDeliveryDate: '2026-06-15', note: 'バッテリ2個付' },
-        { name: 'ドリルビットセット', model: 'BIT-21', maker: 'ボッシュ', quantity: 1, unitPrice: 17400, desiredDeliveryDate: '2026-06-15', note: '' }
+        { name: '充電式ドリルドライバ', model: 'DD-18V', maker: 'マキタ', quantity: 2, desiredDeliveryDate: '2026-06-15', note: 'バッテリ2個付' },
+        { name: 'ドリルビットセット', model: 'BIT-21', maker: 'ボッシュ', quantity: 1, desiredDeliveryDate: '2026-06-15', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: 'tanaka@example.com', actorName: '田中 健太', at: '2026-05-25 14:10:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' },
@@ -273,16 +277,19 @@ function buildSampleRequests_(user) {
       requestId: 'SAMPLE-2026-0007', requestDate: '2026-05-20', updatedAt: '2026-05-22 11:15:00', completedAt: '2026-05-22 11:15:00',
       applicantEmail: me, applicantName: meName, department: '総務部',
       reasonCode: 'D', reasonDetail: '受付エリアの空調フィルタ交換および関連部材。',
+      // 確定金額が10万円以上だったため社長決裁を経て完了したケース。
       status: 'COMPLETED', currentStep: 'DONE', currentApproverEmail: '', currentApproverName: '',
-      route: PRES,
+      route: PRES, confirmedAmount: 120000,
       items: [
-        { name: '空調フィルタ', model: 'AF-90', maker: 'ダイキン', quantity: 6, unitPrice: 12000, desiredDeliveryDate: '2026-05-28', note: '' },
-        { name: '交換工具一式', model: 'TK-5', maker: 'KTC', quantity: 1, unitPrice: 48000, desiredDeliveryDate: '2026-05-28', note: '' }
+        { name: '空調フィルタ', model: 'AF-90', maker: 'ダイキン', quantity: 6, desiredDeliveryDate: '2026-05-28', note: '' },
+        { name: '交換工具一式', model: 'TK-5', maker: 'KTC', quantity: 1, desiredDeliveryDate: '2026-05-28', note: '' }
       ],
       history: [
         { action: 'SUBMIT', actorEmail: me, actorName: meName, at: '2026-05-20 09:00:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' },
         { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-20 09:05:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'SUPERVISOR', toStep: 'GENERAL_MANAGER', comment: '' },
-        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-20 09:06:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PRESIDENT', comment: '' },
+        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-20 09:06:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PURCHASING', comment: '' },
+        { action: 'ESCALATE', actorEmail: me, actorName: meName, at: '2026-05-20 14:30:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'PURCHASING', toStep: 'GENERAL_MANAGER', comment: '確定金額 ¥120,000が10万円以上のため社長決裁へ。' },
+        { action: 'APPROVE', actorEmail: me, actorName: meName, at: '2026-05-20 16:00:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'GENERAL_MANAGER', toStep: 'PRESIDENT', comment: '' },
         { action: 'APPROVE', actorEmail: 'yamamoto@example.com', actorName: '山本 弘', at: '2026-05-21 08:40:00', fromStatus: 'IN_REVIEW', toStatus: 'IN_REVIEW', fromStep: 'PRESIDENT', toStep: 'PURCHASING', comment: '了承。' },
         { action: 'COMPLETE', actorEmail: me, actorName: meName, at: '2026-05-22 11:15:00', fromStatus: 'IN_REVIEW', toStatus: 'COMPLETED', fromStep: 'PURCHASING', toStep: 'DONE', comment: '発注完了。納期5/28。' }
       ]

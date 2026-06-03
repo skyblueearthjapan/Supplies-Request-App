@@ -143,16 +143,15 @@
         <div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt"><?!= helpers.escapeHtml(req.applicantEmail) ?></div></div>
         <div class="mcell"><div class="mk">明細件数</div><div class="mv mono"><?!= detail.items.length ?> 件</div></div>
         <div class="mcell"><div class="mk">状態</div><div class="mv"><?!= helpers.escapeHtml(helpers.statusLabel(req.status)) ?></div></div>
-        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><?= helpers.currency(req.totalAmount) ?></div></div>
+        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else { ?>未確定<? } ?></div></div>
       </div>
 
       <div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount"><?!= detail.items.length ?> ITEMS</span></div>
       <table class="items">
         <thead>
           <tr>
-            <th style="width:5%">No.</th><th style="width:26%">品名 / 型式・メーカー</th>
-            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価</th>
-            <th class="r" style="width:14%">金額</th><th style="width:13%">希望納期</th><th>備考</th>
+            <th style="width:6%">No.</th><th style="width:40%">品名 / 型式・メーカー</th>
+            <th class="r" style="width:12%">数量</th><th style="width:18%">希望納期</th><th>備考</th>
           </tr>
         </thead>
         <tbody>
@@ -161,16 +160,11 @@
               <td class="no"><?!= (i + 1) ?></td>
               <td><div class="nm"><?!= helpers.escapeHtml(item.name) ?></div><div class="sub"><?!= helpers.escapeHtml(sub) ?></div></td>
               <td class="r"><?!= helpers.escapeHtml(item.quantity) ?></td>
-              <td class="r"><?= helpers.currency(item.unitPrice) ?></td>
-              <td class="r"><b><?= helpers.currency(item.amount) ?></b></td>
               <td class="mono" style="font-size:8pt"><?!= helpers.escapeHtml(helpers.dateOnly(item.desiredDeliveryDate) || '—') ?></td>
               <td style="font-size:8pt;color:#6b6b6b"><?!= helpers.escapeHtml(item.note || '—') ?></td>
             </tr>
           <? } ?>
         </tbody>
-        <tfoot>
-          <tr><td colspan="4" class="tl">合　計</td><td class="tv"><?= helpers.currency(req.totalAmount) ?></td><td colspan="2"></td></tr>
-        </tfoot>
       </table>
 
       <div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div>
