@@ -230,8 +230,17 @@ function getRequests(filter) {
         }
         return admin && isPresidentPendingRow_(request);
       }
+      if (mode === 'supervisor') {
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR &&
+          (admin || normalizeEmail_(request.currentApproverEmail) === user.email ||
+            isSupervisorFor_(user.email, request.applicantEmail, request.department));
+      }
       if (mode === 'quote') {
         return request.currentStep === STEPS.PURCHASING_QUOTE &&
+          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+      }
+      if (mode === 'gm') {
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.GENERAL_MANAGER &&
           (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
       }
       if (mode === 'president') {
@@ -614,23 +623,32 @@ function getTabCounts() {
   var pending = 0;
   var president = 0;
   var quote = 0;
+  var supervisor = 0;
+  var gm = 0;
   readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
+    var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
     var isQuote = request.currentStep === STEPS.PURCHASING_QUOTE;
     var mineApprove = normalizeEmail_(request.currentApproverEmail) === user.email;
-    var mineSupervisor = request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR &&
+    var mineSupervisor = inReview && request.currentStep === STEPS.SUPERVISOR &&
       isSupervisorFor_(user.email, request.applicantEmail, request.department);
     if (mineApprove || mineSupervisor || (admin && isPres)) {
       pending++;
     }
-    if (isPres && (admin || mineApprove)) {
-      president++;
+    if (inReview && request.currentStep === STEPS.SUPERVISOR && (admin || mineApprove || mineSupervisor)) {
+      supervisor++;
     }
     if (isQuote && (admin || mineApprove)) {
       quote++;
     }
+    if (inReview && request.currentStep === STEPS.GENERAL_MANAGER && (admin || mineApprove)) {
+      gm++;
+    }
+    if (isPres && (admin || mineApprove)) {
+      president++;
+    }
   });
-  return { pending: pending, president: president, quote: quote };
+  return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm };
 }
 
 function recordPresidentDecision(requestId, decision, comment) {
