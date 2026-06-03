@@ -796,10 +796,9 @@ function saveApproverMaster(rows) {
       .forEach(function(row) {
         sheet.deleteRow(row._rowNumber);
       });
+    invalidateCache_();
 
-    normalizedRows.forEach(function(row) {
-      appendObject_(SHEETS.APPROVERS, row, APPROVER_COLUMNS);
-    });
+    appendRows_(SHEETS.APPROVERS, normalizedRows, APPROVER_COLUMNS);
 
     return getBootstrap();
   } finally {

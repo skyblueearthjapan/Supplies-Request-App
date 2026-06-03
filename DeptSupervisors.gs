@@ -85,10 +85,9 @@ function saveDeptSupervisors_(rows) {
     .forEach(function(row) {
       sheet.deleteRow(row._rowNumber);
     });
+  invalidateCache_();
 
-  normalizedRows.forEach(function(row) {
-    appendObject_(SHEETS.DEPT_SUPERVISORS, row, DEPT_SUPERVISOR_COLUMNS);
-  });
+  appendRows_(SHEETS.DEPT_SUPERVISORS, normalizedRows, DEPT_SUPERVISOR_COLUMNS);
 }
 
 // ===== 外部 DeptApprovers シートからの同期（作業員マスタ同様の読み取り専用ミラー） =====
@@ -200,6 +199,7 @@ function writeDeptSupervisorsCache_(rows) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, DEPT_SUPERVISOR_COLUMNS.length).setValues(rows);
   }
+  invalidateCache_();
 }
 
 function ensureDeptSupervisorSyncTrigger_() {

@@ -52,6 +52,7 @@ function writeWorkersCache_(rows) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, WORKER_CACHE_COLUMNS.length).setValues(rows);
   }
+  invalidateCache_();
 }
 
 function getMasterSheetByGid_(gid) {

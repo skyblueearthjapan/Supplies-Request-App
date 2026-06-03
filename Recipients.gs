@@ -62,8 +62,7 @@ function saveRecipients_(rows) {
     .forEach(function(row) {
       sheet.deleteRow(row._rowNumber);
     });
+  invalidateCache_();
 
-  normalizedRows.forEach(function(row) {
-    appendObject_(SHEETS.RECIPIENTS, row, RECIPIENT_COLUMNS);
-  });
+  appendRows_(SHEETS.RECIPIENTS, normalizedRows, RECIPIENT_COLUMNS);
 }

@@ -70,6 +70,7 @@ function seedWorkersIfEmpty_() {
   }
   var sheet = getSheet_(SHEETS.WORKERS_CACHE);
   sheet.getRange(2, 1, SAMPLE_WORKERS.length, WORKER_CACHE_COLUMNS.length).setValues(SAMPLE_WORKERS);
+  invalidateCache_();
 }
 
 function seedApproversIfEmpty_(user) {
