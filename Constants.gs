@@ -31,7 +31,7 @@ var DEPT_APPROVER_SHEET_NAME = 'DeptApprovers';
 
 var WORKER_CACHE_COLUMNS = ['workerCode', 'name', 'dept', 'location', 'staffType'];
 
-var RECIPIENT_COLUMNS = ['type', 'email', 'name', 'active'];
+var RECIPIENT_COLUMNS = ['type', 'email', 'name', 'active', 'sendAs'];
 
 var RECIPIENT_TYPES = Object.freeze({
   GENERAL_AFFAIRS: 'GENERAL_AFFAIRS',

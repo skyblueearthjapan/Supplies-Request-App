@@ -10,7 +10,8 @@ function getRecipients_() {
         type: sanitizeText_(row.type, 50),
         email: normalizeEmail_(row.email),
         name: sanitizeText_(row.name, 100),
-        active: row.active === '' ? true : parseBoolean_(row.active)
+        active: row.active === '' ? true : parseBoolean_(row.active),
+        sendAs: String(row.sendAs).toUpperCase() === 'CC' ? 'CC' : 'TO'
       };
     });
 }
@@ -33,6 +34,29 @@ function getRecipientEmails_(type) {
     });
 }
 
+// 指定種別の有効宛先を To / CC に振り分けて返す（重複除去・同一メールは先勝ち）。
+function getRecipientsSplit_(type) {
+  var to = [];
+  var cc = [];
+  var seen = {};
+  getRecipients_()
+    .filter(function(row) {
+      return row.active && row.type === type && row.email;
+    })
+    .forEach(function(row) {
+      if (seen[row.email]) {
+        return;
+      }
+      seen[row.email] = true;
+      if (row.sendAs === 'CC') {
+        cc.push(row.email);
+      } else {
+        to.push(row.email);
+      }
+    });
+  return { to: to, cc: cc };
+}
+
 function saveRecipients_(rows) {
   var normalizedRows = (rows || [])
     .map(function(row) {
@@ -49,7 +73,8 @@ function saveRecipients_(rows) {
         type: type,
         email: email,
         name: sanitizeText_(input.name, 100),
-        active: String(input.active === '' || input.active === undefined ? true : parseBoolean_(input.active))
+        active: String(input.active === '' || input.active === undefined ? true : parseBoolean_(input.active)),
+        sendAs: String(input.sendAs).toUpperCase() === 'CC' ? 'CC' : 'TO'
       };
     });
 

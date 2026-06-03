@@ -71,52 +71,51 @@ function buildGeneralAffairsBody_(request, heading) {
   ].join('\n');
 }
 
-function notifyGeneralAffairs_(request, subject, body, pdfFile) {
+// 通知宛先マスタの種別ごとに、To / CC を振り分けて1通送信する共通処理。
+// 宛先が無ければ fallbackEmail を To に。To が空（CCのみ）の場合は CC を To に昇格して必ず送信先を確保する。
+function sendTypedNotification_(type, fallbackEmail, subject, body, pdfFile) {
   var settings = getSettings_();
   if (String(settings.enableEmailNotifications || 'true') === 'false') {
     return;
   }
 
-  var recipients = getRecipientEmails_(RECIPIENT_TYPES.GENERAL_AFFAIRS);
-  if (recipients.length === 0) {
-    var fallback = resolveGeneralManagerEmail_(request);
-    if (fallback) {
-      recipients = [fallback];
+  var split = getRecipientsSplit_(type);
+  var to = split.to.slice();
+  var cc = split.cc.slice();
+
+  if (to.length === 0 && cc.length === 0) {
+    if (fallbackEmail) {
+      to = [fallbackEmail];
+    } else {
+      return;
     }
   }
-  if (recipients.length === 0) {
-    return;
+  if (to.length === 0) {
+    // CC のみ設定のとき、MailApp は To を必須とするため CC を To に昇格。
+    to = cc;
+    cc = [];
   }
 
   var options = {
-    to: recipients.join(','),
+    to: to.join(','),
     subject: subject,
     body: body,
     name: APP.NAME
   };
+  if (cc.length > 0) {
+    options.cc = cc.join(',');
+  }
   if (pdfFile) {
     options.attachments = [pdfFile.getBlob()];
   }
   MailApp.sendEmail(options);
 }
 
+function notifyGeneralAffairs_(request, subject, body, pdfFile) {
+  sendTypedNotification_(RECIPIENT_TYPES.GENERAL_AFFAIRS, resolveGeneralManagerEmail_(request), subject, body, pdfFile);
+}
+
 function sendPurchasingPdfEmail_(request, pdfFile) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
-    return;
-  }
-
-  var recipients = getRecipientEmails_(RECIPIENT_TYPES.PURCHASING);
-  if (recipients.length === 0) {
-    var fallback = resolvePurchasingEmail_(request);
-    if (fallback) {
-      recipients = [fallback];
-    }
-  }
-  if (recipients.length === 0) {
-    return;
-  }
-
   var subject = '[貯蔵品購入申請] 手配依頼 ' + request.requestId;
   var body = [
     '購買 ご担当者 様',
@@ -130,36 +129,10 @@ function sendPurchasingPdfEmail_(request, pdfFile) {
     '',
     getRequestUrl_(request.requestId)
   ].join('\n');
-
-  var options = {
-    to: recipients.join(','),
-    subject: subject,
-    body: body,
-    name: APP.NAME
-  };
-  if (pdfFile) {
-    options.attachments = [pdfFile.getBlob()];
-  }
-  MailApp.sendEmail(options);
+  sendTypedNotification_(RECIPIENT_TYPES.PURCHASING, resolvePurchasingEmail_(request), subject, body, pdfFile);
 }
 
 function sendQuoteRequestEmail_(request, pdfFile) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
-    return;
-  }
-
-  var recipients = getRecipientEmails_(RECIPIENT_TYPES.PURCHASING);
-  if (recipients.length === 0) {
-    var fallback = resolvePurchasingEmail_(request);
-    if (fallback) {
-      recipients = [fallback];
-    }
-  }
-  if (recipients.length === 0) {
-    return;
-  }
-
   var subject = '[貯蔵品購入申請] 見積依頼 ' + request.requestId;
   var body = [
     '購買 ご担当者 様',
@@ -174,17 +147,7 @@ function sendQuoteRequestEmail_(request, pdfFile) {
     '',
     getRequestUrl_(request.requestId)
   ].join('\n');
-
-  var options = {
-    to: recipients.join(','),
-    subject: subject,
-    body: body,
-    name: APP.NAME
-  };
-  if (pdfFile) {
-    options.attachments = [pdfFile.getBlob()];
-  }
-  MailApp.sendEmail(options);
+  sendTypedNotification_(RECIPIENT_TYPES.PURCHASING, resolvePurchasingEmail_(request), subject, body, pdfFile);
 }
 
 function resolveGeneralManagerEmail_(request) {

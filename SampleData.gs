@@ -119,8 +119,8 @@ function seedRecipientsIfEmpty_(user) {
   if (existing.length > 0) {
     return;
   }
-  appendObject_(SHEETS.RECIPIENTS, { type: RECIPIENT_TYPES.GENERAL_AFFAIRS, email: user.email, name: '総務部（サンプル）', active: 'true' }, RECIPIENT_COLUMNS);
-  appendObject_(SHEETS.RECIPIENTS, { type: RECIPIENT_TYPES.PURCHASING, email: user.email, name: '購買担当（サンプル）', active: 'true' }, RECIPIENT_COLUMNS);
+  appendObject_(SHEETS.RECIPIENTS, { type: RECIPIENT_TYPES.GENERAL_AFFAIRS, email: user.email, name: '総務部（サンプル）', active: 'true', sendAs: 'TO' }, RECIPIENT_COLUMNS);
+  appendObject_(SHEETS.RECIPIENTS, { type: RECIPIENT_TYPES.PURCHASING, email: user.email, name: '購買担当（サンプル）', active: 'true', sendAs: 'TO' }, RECIPIENT_COLUMNS);
 }
 
 function ensureThresholdSetting_() {

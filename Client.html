@@ -1050,9 +1050,9 @@
         '</div>' +
         '<div class="card"><div class="card-head"><h3>通知宛先マスタ</h3><button class="btn sm" id="addRecipientBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>種別</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
+            '<th>種別</th><th>送信区分</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
           '</tr></thead><tbody id="recipientBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先、購買＝押印済PDFの送付先。同一種別に複数宛先を登録できます。</span></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先、購買＝押印済PDFの送付先。同一種別に複数宛先を登録でき、同じ1通のメールに送られます。送信区分で To / CC を選べます（CC のみの場合は To に昇格して送信）。</span></div>' +
         '</div>' +
       '</div>';
 
@@ -1085,8 +1085,13 @@
     const typeOptions = RECIPIENT_TYPES.map(t =>
       '<option value="' + t[0] + '"' + (row.type === t[0] ? ' selected' : '') + '>' + escapeHtml(t[1]) + '</option>'
     ).join('');
+    const sendAs = String(row.sendAs || 'TO').toUpperCase() === 'CC' ? 'CC' : 'TO';
+    const sendAsOptions = [['TO', 'To'], ['CC', 'CC']].map(s =>
+      '<option value="' + s[0] + '"' + (sendAs === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'
+    ).join('');
     tr.innerHTML =
       '<td><select class="iinput" data-field="type">' + typeOptions + '</select></td>' +
+      '<td><select class="iinput" data-field="sendAs">' + sendAsOptions + '</select></td>' +
       '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="example@company.co.jp"></td>' +
       '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
       '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
