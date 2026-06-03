@@ -37,6 +37,29 @@ function createRequestPdfInternal_(requestId, actor) {
     dateOnly: function(value) {
       return String(value || '').slice(0, 10);
     },
+    // データネーム印の中央帯（元号年.月.日）。例: 2026-05-27 → 令8. 5. 27
+    eraDate: function(value) {
+      var s = String(value || '').slice(0, 10);
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+      if (!m) {
+        return '';
+      }
+      var y = Number(m[1]);
+      var n = y - 2018; // 令和元年 = 2019
+      var era = n >= 1 ? ('令' + n) : String(y % 100);
+      return era + '. ' + Number(m[2]) + '. ' + Number(m[3]);
+    },
+    // 印面に収まるよう文字数で氏名フォントを縮小。
+    nameFont: function(name) {
+      var n = String(name || '').replace(/\s+/g, '').length;
+      if (n <= 2) {
+        return '9pt';
+      }
+      if (n === 3) {
+        return '7.6pt';
+      }
+      return '6.4pt';
+    },
     stampFor: function(stepKey) {
       var history = detail.history;
       var i;

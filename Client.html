@@ -657,8 +657,11 @@
           if (st) {
             const ng = st.kind === 'ng' ? ' ng' : '';
             return '<div class="stamp acted' + ng + '"><div class="s-role">' + escapeHtml(stepLabel(key)) + '</div>' +
-              '<div class="s-ring"><span class="s-name">' + escapeHtml(surname(st.name)) + '</span></div>' +
-              '<div class="s-date">' + escapeHtml(dateOnly(st.date)) + '</div></div>';
+              '<div class="dnstamp">' +
+                '<div class="dn-name" style="font-size:' + nameFont(st.name) + '">' + escapeHtml(st.name) + '</div>' +
+                '<div class="dn-date">' + escapeHtml(eraDate(st.date)) + '</div>' +
+                '<div class="dn-role">' + escapeHtml(stepLabel(key)) + '</div>' +
+              '</div></div>';
           }
           const pendName = approverNameForStep(detail, key);
           return '<div class="stamp"><div class="s-role">' + escapeHtml(stepLabel(key)) + '</div>' +
@@ -1084,6 +1087,23 @@
   function stepLabel(key) { return (state.bootstrap.stepLabels && state.bootstrap.stepLabels[key]) || key || ''; }
   function threshold() { return Number((state.bootstrap.settings || {}).thresholdAmount) || 100000; }
   function surname(name) { return String(name || '').trim().split(/\s+/)[0] || ''; }
+  // データネーム印の中央帯（元号年.月.日）。例: 2026-05-27 → 令8. 5. 27
+  function eraDate(value) {
+    const s = String(value || '').slice(0, 10);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) { return ''; }
+    const y = Number(m[1]);
+    const n = y - 2018;
+    const era = n >= 1 ? ('令' + n) : String(y % 100);
+    return era + '. ' + Number(m[2]) + '. ' + Number(m[3]);
+  }
+  // 印面に収まるよう文字数で氏名フォントを縮小。
+  function nameFont(name) {
+    const n = String(name || '').replace(/\s+/g, '').length;
+    if (n <= 2) { return '9pt'; }
+    if (n === 3) { return '7.6pt'; }
+    return '6.4pt';
+  }
 
   /* ---------- 基盤ヘルパー ---------- */
   function gas(name) {

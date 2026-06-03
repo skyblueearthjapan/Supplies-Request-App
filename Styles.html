@@ -415,6 +415,7 @@
     --fill: #f1f1ef;
     --fill-2: #e6e6e3;
     --paper: #ffffff;
+    --seal: #c0392b;
     --sans: 'Noto Sans JP', system-ui, sans-serif;
     --serif: 'Noto Serif JP', serif;
     --mono: 'Roboto Mono', ui-monospace, monospace;
@@ -452,13 +453,13 @@
   .pdf-doc .stamp { flex: 1; text-align: center; padding: 5px 4px 7px; position: relative; border-right: .6pt solid var(--hair-2); }
   .pdf-doc .stamp:last-child { border-right: 0; }
   .pdf-doc .stamp .s-role { font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding-bottom: 4px; border-bottom: .5pt solid var(--hair); margin-bottom: 6px; }
-  .pdf-doc .stamp .s-ring { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; display: grid; place-items: center; position: relative; }
-  .pdf-doc .stamp.acted .s-ring { border: 1.4pt solid var(--ink); }
-  .pdf-doc .stamp.acted .s-ring::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; border: .6pt solid var(--ink); }
-  .pdf-doc .stamp.acted .s-name { font-family: var(--serif); font-weight: 700; font-size: 10.5pt; line-height: 1; z-index: 1; }
-  .pdf-doc .stamp.acted.ng .s-ring { border-style: dashed; }
-  .pdf-doc .stamp .s-empty { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
-  .pdf-doc .stamp .s-date { font-family: var(--mono); font-size: 6.8pt; color: var(--gray); }
+  /* データネーム印（朱色・単一円・氏名/令X.M.D/役職・微傾き） */
+  .pdf-doc .stamp .dnstamp { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: 1.5pt solid var(--seal); color: var(--seal); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; transform: rotate(-2.5deg); overflow: hidden; line-height: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdf-doc .stamp .dn-name { font-family: var(--serif); font-weight: 700; line-height: 1; white-space: nowrap; }
+  .pdf-doc .stamp .dn-date { font-family: var(--sans); font-size: 5.2pt; font-weight: 700; letter-spacing: .02em; padding: 1.2px 0; margin: 1.6px 0; width: 82%; text-align: center; border-top: .5pt solid var(--seal); border-bottom: .5pt solid var(--seal); }
+  .pdf-doc .stamp .dn-role { font-family: var(--sans); font-size: 5pt; font-weight: 600; line-height: 1; }
+  .pdf-doc .stamp.acted.ng .dnstamp { border-style: dashed; }
+  .pdf-doc .stamp .s-empty { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
   .pdf-doc .stamp .s-pending { font-size: 6.8pt; color: var(--hair-2); letter-spacing: .1em; }
 
   .pdf-doc .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; border: .8pt solid var(--ink); }

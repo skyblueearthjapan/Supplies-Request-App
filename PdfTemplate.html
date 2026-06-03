@@ -10,6 +10,7 @@
       .pdf-doc {
         --ink: #0e0e0e; --ink-2: #3a3a3a; --gray: #6b6b6b; --hair: #c4c4c4; --hair-2: #9a9a9a;
         --fill: #f1f1ef; --fill-2: #e6e6e3; --paper: #ffffff;
+        --seal: #c0392b;
         --sans: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
         --serif: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
         --mono: "Roboto Mono", "Consolas", monospace;
@@ -37,12 +38,13 @@
       .stamp { flex: 1; text-align: center; padding: 5px 4px 7px; position: relative; border-right: .6pt solid var(--hair-2); }
       .stamp:last-child { border-right: 0; }
       .stamp .s-role { font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding-bottom: 4px; border-bottom: .5pt solid var(--hair); margin-bottom: 6px; }
-      .stamp .s-ring { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; display: table-cell; vertical-align: middle; text-align: center; position: relative; }
-      .stamp.acted .s-ring { border: 1.4pt solid var(--ink); }
-      .stamp.acted .s-name { font-family: var(--serif); font-weight: 700; font-size: 10.5pt; line-height: 40px; }
-      .stamp.acted.ng .s-ring { border-style: dashed; }
-      .stamp .s-empty { width: 40px; height: 40px; margin: 0 auto 4px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
-      .stamp .s-date { font-family: var(--mono); font-size: 6.8pt; color: var(--gray); }
+      /* データネーム印（朱色・単一円・氏名/令X.M.D/役職・微傾き） */
+      .stamp .dnstamp { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: 1.5pt solid var(--seal); color: var(--seal); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; transform: rotate(-2.5deg); overflow: hidden; line-height: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .stamp .dn-name { font-family: var(--serif); font-weight: 700; line-height: 1; white-space: nowrap; }
+      .stamp .dn-date { font-family: var(--sans); font-size: 5.2pt; font-weight: 700; letter-spacing: .02em; padding: 1.2px 0; margin: 1.6px 0; width: 82%; text-align: center; border-top: .5pt solid var(--seal); border-bottom: .5pt solid var(--seal); }
+      .stamp .dn-role { font-family: var(--sans); font-size: 5pt; font-weight: 600; line-height: 1; }
+      .stamp.acted.ng .dnstamp { border-style: dashed; }
+      .stamp .s-empty { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
       .stamp .s-pending { font-size: 6.8pt; color: var(--hair-2); letter-spacing: .1em; }
 
       .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; border: .8pt solid var(--ink); }
@@ -123,8 +125,11 @@
             <? if (st) { ?>
               <div class="stamp acted<?!= st.kind === 'ng' ? ' ng' : '' ?>">
                 <div class="s-role"><?!= helpers.escapeHtml(helpers.stepLabel(sk)) ?></div>
-                <div class="s-ring"><span class="s-name"><?!= helpers.escapeHtml(helpers.surname(st.name)) ?></span></div>
-                <div class="s-date"><?!= helpers.escapeHtml(helpers.dateOnly(st.date)) ?></div>
+                <div class="dnstamp">
+                  <div class="dn-name" style="font-size:<?!= helpers.nameFont(st.name) ?>"><?!= helpers.escapeHtml(st.name) ?></div>
+                  <div class="dn-date"><?!= helpers.escapeHtml(helpers.eraDate(st.date)) ?></div>
+                  <div class="dn-role"><?!= helpers.escapeHtml(helpers.stepLabel(sk)) ?></div>
+                </div>
               </div>
             <? } else { ?>
               <div class="stamp">
