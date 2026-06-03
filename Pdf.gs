@@ -84,15 +84,16 @@ function createRequestPdfInternal_(requestId, actor) {
     pdfFileId: file.getId(),
     pdfUrl: file.getUrl()
   });
+  // PDFは購買到達時（IN_REVIEW/PURCHASING）にも生成するため、履歴は実際の状態を記録する。
   addHistory_({
     requestId: requestId,
     actorEmail: actor ? actor.email : '',
     actorName: actor ? actor.name : '',
     action: ACTION.PDF_GENERATE,
-    fromStatus: STATUS.COMPLETED,
-    toStatus: STATUS.COMPLETED,
-    fromStep: STEPS.DONE,
-    toStep: STEPS.DONE,
+    fromStatus: detail.request.status,
+    toStatus: detail.request.status,
+    fromStep: detail.request.currentStep,
+    toStep: detail.request.currentStep,
     comment: file.getUrl()
   });
 

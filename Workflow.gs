@@ -20,6 +20,8 @@ function getBootstrap() {
     stepLabels: STEP_LABELS,
     actionLabels: ACTION_LABELS,
     approvers: admin ? approvers : [],
+    recipients: admin ? getRecipients_() : [],
+    workers: getWorkers_(),
     departments: getDepartments_(approvers),
     myApproverRule: findApproverRule_(user.email, '')
   };
@@ -260,7 +262,8 @@ function getRequestDetail(requestId) {
       canReturn: canApprove_(request, user),
       canEdit: canEdit_(request, user),
       canGeneratePdf: canGeneratePdf_(request, user),
-      canPresident: canPresident_(request, user)
+      canPresident: canPresident_(request, user),
+      canTabletApprove: canApprove_(request, user)
     }
   };
 }
@@ -281,6 +284,7 @@ function approveRequest(requestId, comment) {
       throw new Error('承認経路が不正です。管理者に確認してください。');
     }
 
+    var curKey = request.currentStep;
     var now = nowString_();
     var nextStep = route[currentIndex + 1] || STEPS.DONE;
     var patch = {
@@ -317,17 +321,41 @@ function approveRequest(requestId, comment) {
     });
 
     var updated = getRequestById_(requestId);
-    if (nextStep === STEPS.DONE) {
-      createRequestPdfInternal_(requestId, user);
-      updated = getRequestById_(requestId);
-      sendCompletedEmail_(updated);
-    } else {
-      sendApprovalRequestEmail_(updated, nextApprover);
-    }
+    dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover, user);
 
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
+  }
+}
+
+// 承認後の通知振り分け（approveRequest と recordPresidentDecision の承認パスで共用）
+// curKey: 今回承認したステップ / nextStep: 遷移先 / nextApprover: 次承認者
+function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover, user) {
+  if (nextStep === STEPS.DONE) {
+    // 手配完了 → 完了。購買印を含めてPDFを再生成し、総務部へ通知（PDF添付）。
+    var doneFile = createRequestPdfInternal_(updated.requestId, user);
+    updated = getRequestById_(updated.requestId);
+    var doneBody = buildGeneralAffairsBody_(updated, '貯蔵品購入申請の手配が完了しました。');
+    notifyGeneralAffairs_(updated, '[貯蔵品購入申請] 手配完了 ' + updated.requestId, doneBody, doneFile);
+    // 申請者へも完了を通知（従来挙動を維持）。
+    sendCompletedEmail_(updated);
+    return;
+  }
+
+  if (nextStep === STEPS.PURCHASING) {
+    // 購買ステップに入った（総務部長または社長の承認後）。押印済PDFを生成し購買へ送付。
+    var purchasingFile = createRequestPdfInternal_(updated.requestId, user);
+    updated = getRequestById_(updated.requestId);
+    sendPurchasingPdfEmail_(updated, purchasingFile);
+  } else {
+    sendApprovalRequestEmail_(updated, nextApprover);
+  }
+
+  if (curKey === STEPS.SUPERVISOR) {
+    // 上席者承認時は次承認者（総務部長）依頼に加えて総務部へも通知。
+    var supervisorBody = buildGeneralAffairsBody_(updated, '貯蔵品購入申請が上席者により承認されました。');
+    notifyGeneralAffairs_(updated, '[貯蔵品購入申請] 上席者承認 ' + updated.requestId, supervisorBody, null);
   }
 }
 
@@ -477,13 +505,7 @@ function recordPresidentDecision(requestId, decision, comment) {
     });
 
     var updated = getRequestById_(requestId);
-    if (nextStep === STEPS.DONE) {
-      createRequestPdfInternal_(requestId, user);
-      updated = getRequestById_(requestId);
-      sendCompletedEmail_(updated);
-    } else {
-      sendApprovalRequestEmail_(updated, nextApprover);
-    }
+    dispatchApprovalNotifications_(updated, STEPS.PRESIDENT, nextStep, nextApprover, user);
 
     return getRequestDetail(requestId);
   } finally {
@@ -547,6 +569,19 @@ function saveApproverMaster(rows) {
       appendObject_(SHEETS.APPROVERS, row, APPROVER_COLUMNS);
     });
 
+    return getBootstrap();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function saveNotificationRecipients(rows) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    assertAdmin_(user);
+    saveRecipients_(rows);
     return getBootstrap();
   } finally {
     lock.releaseLock();

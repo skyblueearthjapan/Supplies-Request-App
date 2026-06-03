@@ -20,6 +20,8 @@ function ensureSchema_(spreadsheet) {
   ensureSheet_(spreadsheet, SHEETS.APPROVERS, APPROVER_COLUMNS);
   ensureSheet_(spreadsheet, SHEETS.HISTORY, HISTORY_COLUMNS);
   ensureSheet_(spreadsheet, SHEETS.SETTINGS, SETTING_COLUMNS);
+  ensureSheet_(spreadsheet, SHEETS.WORKERS_CACHE, WORKER_CACHE_COLUMNS);
+  ensureSheet_(spreadsheet, SHEETS.RECIPIENTS, RECIPIENT_COLUMNS);
   seedSettings_(spreadsheet);
 }
 

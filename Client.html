@@ -95,6 +95,27 @@
   /* ---------- 新規申請フォーム ---------- */
   function emptyItem() { return { name: '', model: '', maker: '', quantity: '', unitPrice: '', desiredDeliveryDate: '', note: '' }; }
 
+  function uniqueSorted(values) {
+    return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+  }
+
+  function deptSelectOptions(workers, selectedDept) {
+    const depts = uniqueSorted(workers.map(w => w.dept));
+    if (selectedDept && depts.indexOf(selectedDept) < 0) { depts.unshift(selectedDept); }
+    return depts.map(d =>
+      '<option value="' + escapeAttr(d) + '"' + (d === selectedDept ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'
+    ).join('');
+  }
+
+  function applicantSelectOptions(workers, dept, selectedName) {
+    const names = uniqueSorted(workers.filter(w => w.dept === dept).map(w => w.name));
+    if (selectedName && names.indexOf(selectedName) < 0) { names.unshift(selectedName); }
+    if (names.length === 0) { return '<option value="">（該当者なし）</option>'; }
+    return names.map(n =>
+      '<option value="' + escapeAttr(n) + '"' + (n === selectedName ? ' selected' : '') + '>' + escapeHtml(n) + '</option>'
+    ).join('');
+  }
+
   function renderForm(draft) {
     const data = state.bootstrap;
     formState.editingId = draft ? draft.request.requestId : '';
@@ -110,6 +131,14 @@
 
     const editing = !!draft;
     const deptOptions = (data.departments || []).map(d => '<option value="' + escapeAttr(d) + '">').join('');
+    const workers = (data.workers || []).filter(w => w && w.name);
+    const useMaster = workers.length > 0;
+    const applicantDeptCell = useMaster
+      ? field('部署', true, '<select class="control" id="f-dept">' + deptSelectOptions(workers, formState.department) + '</select>')
+      : field('部署', true, '<input class="control" type="text" id="f-dept" list="deptOptions" value="' + escapeAttr(formState.department) + '" maxlength="100"><datalist id="deptOptions">' + deptOptions + '</datalist>');
+    const applicantNameCell = useMaster
+      ? field('申請者', true, '<select class="control" id="f-applicant">' + applicantSelectOptions(workers, formState.department, formState.applicantName) + '</select>')
+      : field('申請者', true, '<input class="control" type="text" id="f-applicant" value="' + escapeAttr(formState.applicantName) + '" readonly>');
 
     document.getElementById('main').innerHTML =
       '<div class="fade-in">' +
@@ -124,8 +153,8 @@
 
         '<div class="card"><div class="card-pad"><div class="grid-3">' +
           field('申請日', true, '<input class="control" type="date" id="f-date" value="' + escapeAttr(formState.requestDate) + '">') +
-          field('申請者', true, '<input class="control" type="text" id="f-applicant" value="' + escapeAttr(formState.applicantName) + '" readonly>') +
-          field('部署', true, '<input class="control" type="text" id="f-dept" list="deptOptions" value="' + escapeAttr(formState.department) + '" maxlength="100"><datalist id="deptOptions">' + deptOptions + '</datalist>') +
+          applicantDeptCell +
+          applicantNameCell +
         '</div></div></div>' +
 
         '<div class="card">' +
@@ -156,7 +185,20 @@
       '</div>';
 
     document.getElementById('f-date').addEventListener('input', e => { formState.requestDate = e.target.value; });
-    document.getElementById('f-dept').addEventListener('input', e => { formState.department = e.target.value; });
+    if (useMaster) {
+      const deptSel = document.getElementById('f-dept');
+      const applicantSel = document.getElementById('f-applicant');
+      formState.department = deptSel.value;
+      formState.applicantName = applicantSel.value;
+      deptSel.addEventListener('change', e => {
+        formState.department = e.target.value;
+        applicantSel.innerHTML = applicantSelectOptions(workers, formState.department, '');
+        formState.applicantName = applicantSel.value;
+      });
+      applicantSel.addEventListener('change', e => { formState.applicantName = e.target.value; });
+    } else {
+      document.getElementById('f-dept').addEventListener('input', e => { formState.department = e.target.value; });
+    }
     document.getElementById('f-reasonDetail').addEventListener('input', e => { formState.reasonDetail = e.target.value; });
     document.getElementById('clearFormBtn').addEventListener('click', () => renderForm(null));
     document.getElementById('addItemBtn').addEventListener('click', () => { formState.items.push(emptyItem()); renderItemCards(); });
@@ -416,20 +458,29 @@
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート（' + yen(threshold()) + '超）' : '標準ルート') + '</span></div>' +
       '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
 
-    if (p.canPresident) {
+    const isPurchasing = r.currentStep === 'PURCHASING';
+    const approveWord = isPurchasing ? '手配完了' : '承認する';
+
+    if (p.canTabletApprove || p.canPresident) {
+      const isPres = p.canPresident && !p.canApprove;
+      const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して' + (isPurchasing ? '手配完了' : '承認');
+      const ctaDesc = isPres
+        ? 'タブレットで申請書を提示し、その場で承認・差戻しを記録できます。'
+        : '申請書を全画面で確認し、その場で' + (isPurchasing ? '手配完了' : '承認') + '・差戻しを記録できます。';
+      const ctaBtn = isPres ? '➤ 社長決裁モードを開く' : '➤ 全画面で確認して' + (isPurchasing ? '手配完了' : '承認');
       html += '<div class="president-cta"><div class="pc-l"><div class="pc-ic">▣</div><div class="pc-t">' +
-        '<b>社長決裁を受ける</b><div>タブレットで申請書を提示し、その場で承認・差戻しを記録できます。</div></div></div>' +
-        '<button class="btn primary lg" id="presBtn">➤ 社長決裁モードを開く</button></div>';
+        '<b>' + escapeHtml(ctaTitle) + '</b><div>' + escapeHtml(ctaDesc) + '</div></div></div>' +
+        '<button class="btn primary lg" id="presBtn">' + escapeHtml(ctaBtn) + '</button></div>';
     }
 
     if (p.canApprove) {
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
-        '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として承認またはコメント付きで差戻しできます</span></div>' +
+        '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として' + (isPurchasing ? '手配完了またはコメント付きで差戻し' : '承認またはコメント付きで差戻し') + 'できます</span></div>' +
         field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
-          '<button class="btn primary lg" id="approveBtn">✓ 承認する</button>' +
+          '<button class="btn primary lg" id="approveBtn">✓ ' + escapeHtml(approveWord) + '</button>' +
         '</div></div>';
     }
 
@@ -479,9 +530,9 @@
     bind('backBtn', () => showView('listView'));
     bind('editBtn', () => renderForm(detail));
     bind('genPdfBtn', () => regeneratePdf(r.requestId));
-    bind('presBtn', () => openPresident(r.requestId));
-    bind('presBtn2', () => openPresident(r.requestId));
-    bind('approveBtn', () => detailAction('approveRequest', '承認しました'));
+    bind('presBtn', () => openTabletMode(r.requestId));
+    bind('presBtn2', () => openTabletMode(r.requestId));
+    bind('approveBtn', () => detailAction('approveRequest', isPurchasing ? '手配完了を記録しました' : '承認しました'));
     bind('returnBtn', () => detailAction('returnRequest', '差戻ししました'));
 
     renderScaledPreview('pdfPreviewWrap', detail, {});
@@ -707,21 +758,29 @@
     window.addEventListener('resize', measure);
   }
 
-  /* ---------- 社長決裁モード ---------- */
-  const pmodeState = { detail: null, phase: 'view', comment: '', chips: [] };
+  /* ---------- 全画面承認モード（社長決裁・上席者ほか現承認者） ---------- */
+  const pmodeState = { detail: null, phase: 'view', comment: '', chips: [], canApprove: false, canPresident: false };
 
+  // 一覧の「社長決裁」ボタン互換: 社長決裁ステップ限定で開く。
   async function openPresident(requestId) {
+    return openTabletMode(requestId);
+  }
+
+  async function openTabletMode(requestId) {
     setBusy(true);
     try {
       const detail = await gas('getRequestDetail', requestId);
-      if (!detail.permissions.canPresident) {
-        toast('社長決裁ステップの案件ではありません。', 'err');
+      const p = detail.permissions || {};
+      if (!p.canApprove && !p.canPresident) {
+        toast('この案件を承認できる権限がありません。', 'err');
         return;
       }
       pmodeState.detail = detail;
       pmodeState.phase = 'view';
       pmodeState.comment = '';
       pmodeState.chips = [];
+      pmodeState.canApprove = !!p.canApprove;
+      pmodeState.canPresident = !!p.canPresident;
       renderPmode();
     } catch (error) {
       toast(errText(error), 'err');
@@ -745,22 +804,32 @@
     if (!detail) { return; }
     const r = detail.request;
     const root = document.getElementById('pmodeRoot');
+    const isPres = pmodeState.canPresident && !pmodeState.canApprove;
+    const isPurchasing = r.currentStep === 'PURCHASING';
+    const stepLbl = r.currentStepLabel || stepLabel(r.currentStep);
+    const kicker = isPres ? '社長決裁モード' : (stepLbl + ' モード');
+    const approveWord = isPurchasing ? '手配完了' : '承認する';
+    const approveSmall = isPres ? '社長決裁' : (isPurchasing ? '発注手配' : stepLbl);
 
     let actions = '';
     if (pmodeState.phase === 'view') {
-      actions = '<div class="pmode-actions"><div class="pmode-prompt"><span class="pp-dot"></span>この申請を承認してよろしいでしょうか？</div>' +
+      const prompt = isPurchasing ? 'この申請の手配が完了しましたか？' : 'この申請を承認してよろしいでしょうか？';
+      actions = '<div class="pmode-actions"><div class="pmode-prompt"><span class="pp-dot"></span>' + escapeHtml(prompt) + '</div>' +
         '<div class="pmode-btns">' +
           '<button class="pbtn ng" id="pmNg"><span class="pbtn-ic">✕</span><span><b>差し戻す</b><small>NG・要修正</small></span></button>' +
-          '<button class="pbtn ok" id="pmOk"><span class="pbtn-ic">✓</span><span><b>承認する</b><small>社長決裁</small></span></button>' +
+          '<button class="pbtn ok" id="pmOk"><span class="pbtn-ic">✓</span><span><b>' + escapeHtml(approveWord) + '</b><small>' + escapeHtml(approveSmall) + '</small></span></button>' +
         '</div></div>';
     }
 
     let sheet = '';
     if (pmodeState.phase === 'confirm-approve') {
+      const sheetTitle = isPurchasing ? 'この申請の手配を完了します' : 'この申請を承認します';
+      const sheetSub = isPurchasing ? '記録後、総務部へ通知されます。' : (isPres ? '承認後、購買へ進みます。' : '承認後、次のステップへ進みます。');
+      const confirmWord = isPurchasing ? '手配完了を確定' : '承認を確定';
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ok">✓</div>' +
-        '<h3>この申請を承認します</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + escapeHtml(yen(r.totalAmount)) + '<br>承認後、購買へ進みます。</p>' +
+        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + escapeHtml(yen(r.totalAmount)) + '<br>' + escapeHtml(sheetSub) + '</p>' +
         '<input class="psheet-input" id="pmComment" placeholder="コメント（任意）" value="' + escapeAttr(pmodeState.comment) + '">' +
-        '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ok" id="pmConfirmOk">承認を確定</button></div></div></div>';
+        '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ok" id="pmConfirmOk">' + escapeHtml(confirmWord) + '</button></div></div></div>';
     } else if (pmodeState.phase === 'confirm-return') {
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ng">✕</div>' +
         '<h3>この申請を差し戻します</h3><p class="psheet-sub">理由を選択または入力してください（申請者へ通知されます）。</p>' +
@@ -769,14 +838,18 @@
         '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ng" id="pmConfirmNg">差戻しを確定</button></div></div></div>';
     } else if (pmodeState.phase === 'done-approve' || pmodeState.phase === 'done-return') {
       const ok = pmodeState.phase === 'done-approve';
+      const doneTitle = ok ? (isPurchasing ? '手配完了を記録しました' : '承認しました') : '差し戻しました';
+      const doneSub = ok
+        ? (isPurchasing ? '総務部へ通知されました。記録に残りました。' : '次のステップへ進みます。記録に残りました。')
+        : '申請者へ通知されました。';
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '✓' : '✕') + '</div>' +
-        '<h3>' + (ok ? '承認しました' : '差し戻しました') + '</h3>' +
-        '<p class="psheet-sub">' + (ok ? '購買へ進みます。記録に残りました。' : '申請者へ通知されました。') + '</p>' +
+        '<h3>' + escapeHtml(doneTitle) + '</h3>' +
+        '<p class="psheet-sub">' + escapeHtml(doneSub) + '</p>' +
         '<div class="psheet-btns"><button class="pbtn2 ok" id="pmCloseDone">閉じる</button></div></div></div>';
     }
 
     root.innerHTML = '<div class="pmode">' +
-      '<div class="pmode-bar"><div class="pmode-bar-l"><span class="pmode-kicker">社長決裁モード</span>' +
+      '<div class="pmode-bar"><div class="pmode-bar-l"><span class="pmode-kicker">' + escapeHtml(kicker) + '</span>' +
         '<span class="pmode-id mono">' + escapeHtml(r.requestId) + '</span>' +
         '<span class="pmode-meta">' + escapeHtml(r.applicantName) + '（' + escapeHtml(r.department) + '）</span></div>' +
         '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">合計</span><span class="pa-v mono">' + escapeHtml(yen(r.totalAmount)) + '</span></div>' +
@@ -826,6 +899,8 @@
 
   async function decidePresident(decision) {
     const detail = pmodeState.detail;
+    const r = detail.request;
+    const isPurchasing = r.currentStep === 'PURCHASING';
     let comment = pmodeState.comment;
     if (decision === 'return') {
       comment = [pmodeState.chips.join('、'), pmodeState.comment].filter(Boolean).join(' / ');
@@ -833,11 +908,23 @@
     }
     setBusy(true);
     try {
-      const updated = await gas('recordPresidentDecision', detail.request.requestId, decision, comment);
+      let updated;
+      if (pmodeState.canApprove) {
+        // ログインユーザー自身が現承認者（上席者・総務部長・購買 等）。
+        updated = decision === 'approve'
+          ? await gas('approveRequest', r.requestId, comment)
+          : await gas('returnRequest', r.requestId, comment);
+      } else {
+        // 管理者が社長の代理として決裁を記録。
+        updated = await gas('recordPresidentDecision', r.requestId, decision, comment);
+      }
       pmodeState.detail = updated;
       pmodeState.phase = decision === 'approve' ? 'done-approve' : 'done-return';
       renderPmode();
-      toast('社長決裁の結果を記録しました', 'ok');
+      const okMsg = pmodeState.canApprove
+        ? (decision === 'approve' ? (isPurchasing ? '手配完了を記録しました' : '承認しました') : '差戻ししました')
+        : '社長決裁の結果を記録しました';
+      toast(okMsg, 'ok');
     } catch (error) {
       toast(errText(error), 'err');
     } finally {
@@ -865,6 +952,12 @@
           '</tr></thead><tbody id="approverBody"></tbody></table></div>' +
           '<div class="card-pad" style="padding-top:14px"><span class="hint">部署単位（部署名を指定）または申請者単位（申請者メールを指定）でルートを設定できます。「*」は全体デフォルトです。</span></div>' +
         '</div>' +
+        '<div class="card"><div class="card-head"><h3>通知宛先マスタ</h3><button class="btn sm" id="addRecipientBtn">＋ 行を追加</button></div>' +
+          '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+            '<th>種別</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
+          '</tr></thead><tbody id="recipientBody"></tbody></table></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先、購買＝押印済PDFの送付先。同一種別に複数宛先を登録できます。</span></div>' +
+        '</div>' +
       '</div>';
 
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
@@ -872,6 +965,33 @@
     const rows = state.bootstrap.approvers || [];
     rows.forEach(addApproverRow);
     if (rows.length === 0) { addApproverRow({ active: true }); }
+
+    document.getElementById('addRecipientBtn').addEventListener('click', () => addRecipientRow({ type: 'GENERAL_AFFAIRS', active: true }));
+    const recipients = state.bootstrap.recipients || [];
+    recipients.forEach(addRecipientRow);
+    if (recipients.length === 0) {
+      addRecipientRow({ type: 'GENERAL_AFFAIRS', active: true });
+      addRecipientRow({ type: 'PURCHASING', active: true });
+    }
+  }
+
+  const RECIPIENT_TYPES = [['GENERAL_AFFAIRS', '総務部'], ['PURCHASING', '購買']];
+
+  function addRecipientRow(row) {
+    row = row || {};
+    const body = document.getElementById('recipientBody');
+    const tr = document.createElement('tr');
+    const typeOptions = RECIPIENT_TYPES.map(t =>
+      '<option value="' + t[0] + '"' + (row.type === t[0] ? ' selected' : '') + '>' + escapeHtml(t[1]) + '</option>'
+    ).join('');
+    tr.innerHTML =
+      '<td><select class="iinput" data-field="type">' + typeOptions + '</select></td>' +
+      '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="example@company.co.jp"></td>' +
+      '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
+      '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
+      '<td><button class="row-del" type="button">✕</button></td>';
+    tr.querySelector('.row-del').addEventListener('click', () => tr.remove());
+    body.appendChild(tr);
   }
 
   const APPROVER_FIELDS = ['department', 'applicantEmail', 'applicantName', 'supervisorEmail', 'supervisorName', 'generalManagerEmail', 'generalManagerName', 'presidentEmail', 'presidentName', 'purchasingEmail', 'purchasingName'];
@@ -908,9 +1028,18 @@
         });
         return obj;
       });
+      const recipientRows = Array.from(document.querySelectorAll('#recipientBody tr')).map(tr => {
+        const obj = {};
+        tr.querySelectorAll('[data-field]').forEach(input => {
+          obj[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+        });
+        return obj;
+      }).filter(row => row.email);
       await gas('saveApproverMaster', rows);
+      await gas('saveNotificationRecipients', recipientRows);
       state.bootstrap = await gas('saveSettings', settings);
       renderTopbar();
+      renderAdmin();
       toast('管理設定を保存しました', 'ok');
     } catch (error) {
       toast(errText(error), 'err');

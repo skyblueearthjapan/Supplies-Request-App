@@ -54,6 +54,119 @@ function sendCompletedEmail_(request) {
   sendEmail_(request.applicantEmail, subject, body);
 }
 
+function buildGeneralAffairsBody_(request, heading) {
+  var clientRequest = toClientRequest_(request);
+  return [
+    '総務部 ご担当者 様',
+    '',
+    heading,
+    '',
+    '申請番号: ' + request.requestId,
+    '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
+    '部署: ' + request.department,
+    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '現在ステップ: ' + clientRequest.currentStepLabel,
+    '',
+    getRequestUrl_(request.requestId)
+  ].join('\n');
+}
+
+function notifyGeneralAffairs_(request, subject, body, pdfFile) {
+  var settings = getSettings_();
+  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+    return;
+  }
+
+  var recipients = getRecipientEmails_(RECIPIENT_TYPES.GENERAL_AFFAIRS);
+  if (recipients.length === 0) {
+    var fallback = resolveGeneralManagerEmail_(request);
+    if (fallback) {
+      recipients = [fallback];
+    }
+  }
+  if (recipients.length === 0) {
+    return;
+  }
+
+  var options = {
+    to: recipients.join(','),
+    subject: subject,
+    body: body,
+    name: APP.NAME
+  };
+  if (pdfFile) {
+    options.attachments = [pdfFile.getBlob()];
+  }
+  MailApp.sendEmail(options);
+}
+
+function sendPurchasingPdfEmail_(request, pdfFile) {
+  var settings = getSettings_();
+  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+    return;
+  }
+
+  var recipients = getRecipientEmails_(RECIPIENT_TYPES.PURCHASING);
+  if (recipients.length === 0) {
+    var fallback = resolvePurchasingEmail_(request);
+    if (fallback) {
+      recipients = [fallback];
+    }
+  }
+  if (recipients.length === 0) {
+    return;
+  }
+
+  var subject = '[貯蔵品購入申請] 手配依頼 ' + request.requestId;
+  var body = [
+    '購買 ご担当者 様',
+    '',
+    '押印済の申請書PDFを添付します。手配をお願いします。',
+    '',
+    '申請番号: ' + request.requestId,
+    '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
+    '部署: ' + request.department,
+    '合計金額: ' + formatCurrency_(request.totalAmount),
+    '',
+    getRequestUrl_(request.requestId)
+  ].join('\n');
+
+  var options = {
+    to: recipients.join(','),
+    subject: subject,
+    body: body,
+    name: APP.NAME
+  };
+  if (pdfFile) {
+    options.attachments = [pdfFile.getBlob()];
+  }
+  MailApp.sendEmail(options);
+}
+
+function resolveGeneralManagerEmail_(request) {
+  try {
+    var rule = findApproverRule_(request.applicantEmail, request.department);
+    if (rule && rule.generalManagerEmail) {
+      return normalizeEmail_(rule.generalManagerEmail);
+    }
+  } catch (error) {
+    // ignore
+  }
+  return '';
+}
+
+function resolvePurchasingEmail_(request) {
+  try {
+    var rule = findApproverRule_(request.applicantEmail, request.department);
+    if (rule && rule.purchasingEmail) {
+      return normalizeEmail_(rule.purchasingEmail);
+    }
+  } catch (error) {
+    // ignore
+  }
+  return '';
+}
+
 function sendEmail_(to, subject, body) {
   var settings = getSettings_();
   if (String(settings.enableEmailNotifications || 'true') === 'false') {

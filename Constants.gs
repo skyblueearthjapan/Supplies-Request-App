@@ -13,7 +13,22 @@ var SHEETS = Object.freeze({
   ITEMS: 'RequestItems',
   APPROVERS: 'ApproverMaster',
   HISTORY: 'StatusHistory',
-  SETTINGS: 'Settings'
+  SETTINGS: 'Settings',
+  WORKERS_CACHE: 'WorkersCache',
+  RECIPIENTS: 'NotificationRecipients'
+});
+
+// 外部マスタシート（読み取り専用、作業員マスタのソース）
+var EXTERNAL_MASTER_SPREADSHEET_ID = '1iu5HoaknlW1W1HheeYv0jqcRq-aY0SyEE2seQd2pHkQ';
+var MASTER_WORKER_GID = 684189184;
+
+var WORKER_CACHE_COLUMNS = ['workerCode', 'name', 'dept', 'location', 'staffType'];
+
+var RECIPIENT_COLUMNS = ['type', 'email', 'name', 'active'];
+
+var RECIPIENT_TYPES = Object.freeze({
+  GENERAL_AFFAIRS: 'GENERAL_AFFAIRS',
+  PURCHASING: 'PURCHASING'
 });
 
 var REQUEST_COLUMNS = [
