@@ -143,6 +143,50 @@ function sendPurchasingPdfEmail_(request, pdfFile) {
   MailApp.sendEmail(options);
 }
 
+function sendQuoteRequestEmail_(request, pdfFile) {
+  var settings = getSettings_();
+  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+    return;
+  }
+
+  var recipients = getRecipientEmails_(RECIPIENT_TYPES.PURCHASING);
+  if (recipients.length === 0) {
+    var fallback = resolvePurchasingEmail_(request);
+    if (fallback) {
+      recipients = [fallback];
+    }
+  }
+  if (recipients.length === 0) {
+    return;
+  }
+
+  var subject = '[貯蔵品購入申請] 見積依頼 ' + request.requestId;
+  var body = [
+    '購買 ご担当者 様',
+    '',
+    '見積をお願いします。金額確定後、アプリ内で各明細の単価をご入力ください。',
+    '押印済の申請書PDFを添付します。',
+    '',
+    '申請番号: ' + request.requestId,
+    '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
+    '部署: ' + request.department,
+    '確定金額: ' + amountText_(request),
+    '',
+    getRequestUrl_(request.requestId)
+  ].join('\n');
+
+  var options = {
+    to: recipients.join(','),
+    subject: subject,
+    body: body,
+    name: APP.NAME
+  };
+  if (pdfFile) {
+    options.attachments = [pdfFile.getBlob()];
+  }
+  MailApp.sendEmail(options);
+}
+
 function resolveGeneralManagerEmail_(request) {
   try {
     var rule = findApproverRule_(request.applicantEmail, request.department);

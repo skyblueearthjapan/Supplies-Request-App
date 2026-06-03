@@ -155,21 +155,31 @@
       <table class="items">
         <thead>
           <tr>
-            <th style="width:6%">No.</th><th style="width:40%">品名 / 型式・メーカー</th>
-            <th class="r" style="width:12%">数量</th><th style="width:18%">希望納期</th><th>備考</th>
+            <th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th>
+            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価</th><th class="r" style="width:14%">金額</th>
+            <th style="width:14%">希望納期</th><th>備考</th>
           </tr>
         </thead>
         <tbody>
-          <? for (var i = 0; i < detail.items.length; i++) { var item = detail.items[i]; var sub = [item.model, item.maker].filter(Boolean).join('・') || '—'; ?>
+          <? for (var i = 0; i < detail.items.length; i++) { var item = detail.items[i]; var sub = [item.model, item.maker].filter(Boolean).join('・') || '—'; var unitPrice = Number(item.unitPrice) || 0; var amount = Number(item.amount) || 0; ?>
             <tr>
               <td class="no"><?!= (i + 1) ?></td>
               <td><div class="nm"><?!= helpers.escapeHtml(item.name) ?></div><div class="sub"><?!= helpers.escapeHtml(sub) ?></div></td>
               <td class="r"><?!= helpers.escapeHtml(item.quantity) ?></td>
+              <td class="r"><? if (unitPrice > 0) { ?><?= helpers.currency(unitPrice) ?><? } else { ?>未定<? } ?></td>
+              <td class="r"><? if (amount > 0) { ?><?= helpers.currency(amount) ?><? } else { ?>未定<? } ?></td>
               <td class="mono" style="font-size:8pt"><?!= helpers.escapeHtml(helpers.dateOnly(item.desiredDeliveryDate) || '—') ?></td>
               <td style="font-size:8pt;color:#6b6b6b"><?!= helpers.escapeHtml(item.note || '—') ?></td>
             </tr>
           <? } ?>
         </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" class="tl">合計金額（税込）</td>
+            <td class="tv"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else { ?>未確定<? } ?></td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
       </table>
 
       <div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div>

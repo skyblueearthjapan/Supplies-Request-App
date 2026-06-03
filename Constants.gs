@@ -117,6 +117,7 @@ var STATUS_LABELS = Object.freeze({
 
 var STEPS = Object.freeze({
   SUPERVISOR: 'SUPERVISOR',
+  PURCHASING_QUOTE: 'PURCHASING_QUOTE',
   GENERAL_MANAGER: 'GENERAL_MANAGER',
   PRESIDENT: 'PRESIDENT',
   PURCHASING: 'PURCHASING',
@@ -126,6 +127,7 @@ var STEPS = Object.freeze({
 
 var STEP_LABELS = Object.freeze({
   SUPERVISOR: '上席者',
+  PURCHASING_QUOTE: '購買（見積）',
   GENERAL_MANAGER: '総務部長',
   PRESIDENT: '社長',
   PURCHASING: '購買',
@@ -141,6 +143,7 @@ var ACTION = Object.freeze({
   UPDATE: 'UPDATE',
   COMPLETE: 'COMPLETE',
   ESCALATE: 'ESCALATE',
+  QUOTE: 'QUOTE',
   PDF_GENERATE: 'PDF_GENERATE'
 });
 
@@ -152,6 +155,7 @@ var ACTION_LABELS = Object.freeze({
   UPDATE: '更新',
   COMPLETE: '完了',
   ESCALATE: '社長決裁へ',
+  QUOTE: '金額確定',
   PDF_GENERATE: 'PDF作成'
 });
 

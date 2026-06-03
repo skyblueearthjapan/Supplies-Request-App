@@ -192,6 +192,10 @@ function getRequests(filter) {
         }
         return admin && isPresidentPendingRow_(request);
       }
+      if (mode === 'quote') {
+        return request.currentStep === STEPS.PURCHASING_QUOTE &&
+          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+      }
       if (mode === 'president') {
         return isPresidentPendingRow_(request) &&
           (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
@@ -265,7 +269,8 @@ function getRequestDetail(requestId) {
       canGeneratePdf: canGeneratePdf_(request, user),
       canPresident: canPresident_(request, user),
       canTabletApprove: canApprove_(request, user),
-      canPurchasingConfirm: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
+      canQuote: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING_QUOTE,
+      canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
     },
     stepTitles: resolveStepTitles_(request)
   };
@@ -280,9 +285,13 @@ function approveRequest(requestId, comment) {
     if (!canApprove_(request, user)) {
       throw new Error('現在の承認者のみ承認できます。');
     }
-    // 購買ステップは確定金額の入力が必須のため purchasingConfirm 経由のみ許可する。
+    // 購買(見積)は金額入力が必須のため confirmQuote 経由のみ許可する。
+    if (request.currentStep === STEPS.PURCHASING_QUOTE) {
+      throw new Error('購買（見積）ステップでは見積金額を入力してください。');
+    }
+    // 購買(手配)は arrangeComplete 経由のみ許可する。
     if (request.currentStep === STEPS.PURCHASING) {
-      throw new Error('購買ステップでは確定金額を入力して手配してください。');
+      throw new Error('購買ステップでは手配完了を実行してください。');
     }
 
     var route = jsonParse_(request.routeJson, []);
@@ -344,24 +353,27 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
     return;
   }
 
+  if (nextStep === STEPS.PURCHASING_QUOTE) {
+    // 上席者承認後、購買(見積)ステップへ。押印済PDFを生成し購買へ見積依頼を送付。
+    var quoteFile = createRequestPdfInternal_(updated.requestId, user);
+    updated = getRequestById_(updated.requestId);
+    sendQuoteRequestEmail_(updated, quoteFile);
+    return;
+  }
+
   if (nextStep === STEPS.PURCHASING) {
-    // 購買ステップに入った（総務部長または社長の承認後）。押印済PDFを生成し購買へ送付。
+    // 購買(手配)ステップに入った（総務部長または社長の承認後）。押印済PDFを生成し購買へ送付。
     var purchasingFile = createRequestPdfInternal_(updated.requestId, user);
     updated = getRequestById_(updated.requestId);
     sendPurchasingPdfEmail_(updated, purchasingFile);
-  } else {
-    sendApprovalRequestEmail_(updated, nextApprover);
+    return;
   }
 
-  if (curKey === STEPS.SUPERVISOR) {
-    // 上席者承認時は次承認者（総務部長）依頼に加えて総務部へも通知。
-    var supervisorBody = buildGeneralAffairsBody_(updated, '貯蔵品購入申請が上席者により承認されました。');
-    notifyGeneralAffairs_(updated, '[貯蔵品購入申請] 上席者承認 ' + updated.requestId, supervisorBody, null);
-  }
+  sendApprovalRequestEmail_(updated, nextApprover);
 }
 
 // 手配完了 → 完了 時の副作用（PDF再生成・総務部通知・申請者完了メール）。
-// dispatchApprovalNotifications_ の DONE 分岐と purchasingConfirm の完了分岐で共用する。
+// dispatchApprovalNotifications_ の DONE 分岐と arrangeComplete の完了分岐で共用する。
 function completeAndNotify_(updated, user) {
   var doneFile = createRequestPdfInternal_(updated.requestId, user);
   updated = getRequestById_(updated.requestId);
@@ -371,79 +383,131 @@ function completeAndNotify_(updated, user) {
   sendCompletedEmail_(updated);
 }
 
-// 購買ステップの操作。確定金額を入力し、10万円以上なら社長決裁へエスカレーション、
-// それ以外（または既にエスカレーション済みの2回目購買）は手配完了とする。
-function purchasingConfirm(requestId, amount, comment) {
+// 購買(見積)ステップの操作。各明細の単価を入力し金額を確定する。
+// 合計が10万円以上なら社長決裁を経路へ追加し、総務部長承認へ進める。
+// items = [{ itemId, unitPrice }]
+function confirmQuote(requestId, items, comment) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    if (!canApprove_(request, user) || request.currentStep !== STEPS.PURCHASING_QUOTE) {
+      throw new Error('購買担当者のみ見積金額を入力できます。');
+    }
+
+    var priceMap = {};
+    (items || []).forEach(function(input) {
+      if (input && input.itemId) {
+        priceMap[input.itemId] = parseNumber_(input.unitPrice);
+      }
+    });
+
+    var existingItems = readObjects_(SHEETS.ITEMS, ITEM_COLUMNS)
+      .filter(function(item) {
+        return item.requestId === requestId;
+      })
+      .sort(function(a, b) {
+        return parseNumber_(a.lineNo) - parseNumber_(b.lineNo);
+      });
+
+    var total = 0;
+    var rebuilt = existingItems.map(function(item) {
+      var quantity = parseNumber_(item.quantity);
+      var unitPrice = Object.prototype.hasOwnProperty.call(priceMap, item.itemId)
+        ? priceMap[item.itemId]
+        : parseNumber_(item.unitPrice);
+      var amount = Math.round(quantity * unitPrice);
+      total += amount;
+      return {
+        name: item.name,
+        model: item.model,
+        maker: item.maker,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        amount: amount,
+        desiredDeliveryDate: item.desiredDeliveryDate,
+        note: item.note
+      };
+    });
+
+    if (!(total > 0)) {
+      throw new Error('金額を入力してください。');
+    }
+
+    replaceItems_(requestId, rebuilt);
+
+    var threshold = getThresholdAmount_();
+    var over = total >= threshold;
+    var newRoute = over
+      ? [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT, STEPS.PURCHASING]
+      : [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
+
+    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+    var gm = getApproverForStep_(approverRule, STEPS.GENERAL_MANAGER);
+    var cleanComment = sanitizeText_(comment, 1000);
+    var now = nowString_();
+
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+      updatedAt: now,
+      totalAmount: total,
+      routeJson: JSON.stringify(newRoute),
+      status: STATUS.IN_REVIEW,
+      currentStep: STEPS.GENERAL_MANAGER,
+      currentApproverEmail: gm.email,
+      currentApproverName: gm.name
+    });
+    addHistory_({
+      requestId: requestId,
+      actorEmail: user.email,
+      actorName: user.name,
+      action: ACTION.QUOTE,
+      fromStatus: STATUS.IN_REVIEW,
+      toStatus: STATUS.IN_REVIEW,
+      fromStep: STEPS.PURCHASING_QUOTE,
+      toStep: STEPS.GENERAL_MANAGER,
+      comment: ['見積金額 ' + formatCurrency_(total) + (over ? '（10万円以上）' : ''), cleanComment].filter(Boolean).join(' ')
+    });
+
+    var updated = getRequestById_(requestId);
+    notifyGeneralAffairs_(
+      updated,
+      '[貯蔵品購入申請] 金額確定 ' + updated.requestId,
+      buildGeneralAffairsBody_(updated, '購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。総務部長承認をお願いします。'),
+      null
+    );
+    sendApprovalRequestEmail_(updated, gm);
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 購買(手配)ステップの操作。承認が揃った案件の手配を完了し、案件をクローズする。
+function arrangeComplete(requestId, comment) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
     if (!canApprove_(request, user) || request.currentStep !== STEPS.PURCHASING) {
-      throw new Error('購買担当者のみ確定金額を入力できます。');
+      throw new Error('購買担当者のみ手配完了できます。');
+    }
+    // 手配完了時点で確定金額が必須（旧フローで見積を経ていない案件の¥0完了・社長決裁迂回を防ぐ）。
+    if (!(parseNumber_(request.totalAmount) > 0)) {
+      throw new Error('確定金額が未入力です。見積（金額入力）が未完了の案件は、差戻し→再申請してください。');
     }
 
-    var amt = parseNumber_(amount);
-    if (!(amt > 0)) {
-      throw new Error('確定金額を入力してください。');
-    }
-    var threshold = getThresholdAmount_();
-    var route = jsonParse_(request.routeJson, []);
-    var alreadyEscalated = route.indexOf(STEPS.PRESIDENT) !== -1;
     var cleanComment = sanitizeText_(comment, 1000);
     var now = nowString_();
-
-    if (!alreadyEscalated && amt >= threshold) {
-      // 10万円以上 → 社長決裁へエスカレーション（総務部長から再承認）。
-      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-      var gm = getApproverForStep_(approverRule, STEPS.GENERAL_MANAGER);
-      var escalatedRoute = [STEPS.SUPERVISOR, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT, STEPS.PURCHASING];
-
-      updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
-        updatedAt: now,
-        totalAmount: amt,
-        routeJson: JSON.stringify(escalatedRoute),
-        status: STATUS.IN_REVIEW,
-        currentStep: STEPS.GENERAL_MANAGER,
-        currentApproverEmail: gm.email,
-        currentApproverName: gm.name
-      });
-      addHistory_({
-        requestId: requestId,
-        actorEmail: user.email,
-        actorName: user.name,
-        action: ACTION.ESCALATE,
-        fromStatus: STATUS.IN_REVIEW,
-        toStatus: STATUS.IN_REVIEW,
-        fromStep: STEPS.PURCHASING,
-        toStep: STEPS.GENERAL_MANAGER,
-        comment: ['確定金額 ' + formatCurrency_(amt) + 'が10万円以上のため社長決裁へ。', cleanComment].filter(Boolean).join(' ')
-      });
-
-      var escalated = getRequestById_(requestId);
-      sendApprovalRequestEmail_(escalated, gm);
-      notifyGeneralAffairs_(
-        escalated,
-        '[貯蔵品購入申請] 社長決裁エスカレーション ' + escalated.requestId,
-        buildGeneralAffairsBody_(escalated, '購入申請が確定金額 ' + formatCurrency_(amt) + '（10万円以上）のため社長決裁へ回りました。'),
-        null
-      );
-      return getRequestDetail(requestId);
-    }
-
-    // 10万円未満、または既にエスカレーション済みの2回目購買 → 手配完了。
-    var patch = {
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
       updatedAt: now,
       status: STATUS.COMPLETED,
       currentStep: STEPS.DONE,
       currentApproverEmail: '',
       currentApproverName: '',
       completedAt: now
-    };
-    if (amt > 0) {
-      patch.totalAmount = amt;
-    }
-    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, patch);
+    });
     addHistory_({
       requestId: requestId,
       actorEmail: user.email,
@@ -511,8 +575,10 @@ function getTabCounts() {
   var admin = isAdmin_(user.email);
   var pending = 0;
   var president = 0;
+  var quote = 0;
   readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
     var isPres = isPresidentPendingRow_(request);
+    var isQuote = request.currentStep === STEPS.PURCHASING_QUOTE;
     var mineApprove = normalizeEmail_(request.currentApproverEmail) === user.email;
     if (mineApprove || (admin && isPres)) {
       pending++;
@@ -520,8 +586,11 @@ function getTabCounts() {
     if (isPres && (admin || mineApprove)) {
       president++;
     }
+    if (isQuote && (admin || mineApprove)) {
+      quote++;
+    }
   });
-  return { pending: pending, president: president };
+  return { pending: pending, president: president, quote: quote };
 }
 
 function recordPresidentDecision(requestId, decision, comment) {
@@ -712,7 +781,7 @@ function normalizeRequestPayload_(payload, user) {
   var items = (input.items || []).map(function(item) {
     var quantity = parseNumber_(item.quantity);
     // 申請時は価格概念なし。単価は任意（既定0）、金額は常に0で保存する。
-    // 確定金額は購買が purchasingConfirm で request.totalAmount に入力する。
+    // 金額は購買が confirmQuote で各明細の単価を入力し確定する。
     var unitPrice = parseNumber_(item.unitPrice);
     return {
       name: sanitizeText_(item.name, 200),
@@ -753,9 +822,10 @@ function normalizeRequestPayload_(payload, user) {
 }
 
 function buildRoute_(totalAmount, approverRule) {
-  // 申請時は社長を含めない固定経路。社長決裁は購買が確定金額を入力した時点で
-  // 10万円以上の場合に purchasingConfirm がエスカレーションで追加する。
-  var route = [STEPS.SUPERVISOR, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
+  // 申請時は金額未確定。経路は 上席→購買(見積)→総務部長→購買(手配)。
+  // 社長決裁は購買が見積金額を入力した時点で 10万円以上の場合に confirmQuote が
+  // 総務部長と購買(手配)の間へ追加する。
+  var route = [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
 
   route.forEach(function(step) {
     getApproverForStep_(approverRule, step);
@@ -842,6 +912,7 @@ function getApproverForStep_(rule, step) {
   map[STEPS.GENERAL_MANAGER] = { email: rule.generalManagerEmail, name: rule.generalManagerName || '総務部長' };
   map[STEPS.PRESIDENT] = { email: rule.presidentEmail, name: rule.presidentName || '社長' };
   map[STEPS.PURCHASING] = { email: rule.purchasingEmail, name: rule.purchasingName || '購買' };
+  map[STEPS.PURCHASING_QUOTE] = { email: rule.purchasingEmail, name: rule.purchasingName || '購買' };
 
   var approver = map[step];
   if (!approver || !approver.email) {

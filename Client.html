@@ -3,7 +3,7 @@
 
   const state = {
     bootstrap: null,
-    counts: { pending: 0, president: 0 },
+    counts: { pending: 0, president: 0, quote: 0 },
     view: 'formView',
     listMode: 'pending',
     currentDetail: null
@@ -12,6 +12,7 @@
   const STEP_DESC = {
     APPLICANT: '申請内容の作成',
     SUPERVISOR: '係長確認',
+    PURCHASING_QUOTE: '見積・金額入力',
     GENERAL_MANAGER: '部門承認',
     PRESIDENT: '社長決裁',
     PURCHASING: '発注手配'
@@ -22,6 +23,7 @@
   const TAB_DEFS = [
     { key: 'form', view: 'formView', label: '新規申請' },
     { key: 'pending', view: 'listView', mode: 'pending', label: '承認待ち', countKey: 'pending' },
+    { key: 'quote', view: 'listView', mode: 'quote', label: '見積・金額入力待ち', countKey: 'quote' },
     { key: 'president', view: 'listView', mode: 'president', label: '社長承認待ち', countKey: 'president', admin: true },
     { key: 'all', view: 'listView', mode: 'all', label: '全申請', admin: true },
     { key: 'admin', view: 'adminView', label: '管理', admin: true }
@@ -286,10 +288,11 @@
   /* ---------- 一覧 ---------- */
   async function renderList() {
     const mode = state.listMode;
-    const titleMap = { pending: '承認待ち', president: '社長承認待ち', all: '全申請', mine: '自分の申請' };
-    const eyebrow = { pending: 'Awaiting Approval', president: 'Awaiting President', all: 'All Requests', mine: 'My Requests' };
+    const titleMap = { pending: '承認待ち', quote: '見積・金額入力待ち', president: '社長承認待ち', all: '全申請', mine: '自分の申請' };
+    const eyebrow = { pending: 'Awaiting Approval', quote: 'Awaiting Quote', president: 'Awaiting President', all: 'All Requests', mine: 'My Requests' };
     const subMap = {
       pending: 'あなたが動かすべき案件です。社長承認待ちの案件も含みます。',
+      quote: '購買が各明細の単価を入力する案件です。',
       president: '社長決裁を待っている案件です。タブレットで提示し、その場で承認・差戻しを記録できます。',
       all: '社内すべての申請を横断的に確認できます。',
       mine: '自分が申請した案件の進捗を確認できます。'
@@ -354,7 +357,7 @@
     const inReview = rows.filter(r => r.status === 'IN_REVIEW').length;
     const returned = rows.filter(r => r.status === 'RETURNED').length;
     const amount = rows.filter(r => r.status !== 'COMPLETED').reduce((t, r) => t + (r.totalAmount || 0), 0);
-    const totalLabel = state.listMode === 'pending' ? '要対応件数' : state.listMode === 'president' ? '社長承認待ち' : '件数';
+    const totalLabel = state.listMode === 'pending' ? '要対応件数' : state.listMode === 'quote' ? '見積待ち件数' : state.listMode === 'president' ? '社長承認待ち' : '件数';
     host.innerHTML =
       '<div class="stats">' +
         '<div class="stat"><div class="sl">' + totalLabel + '</div><div class="sv accent">' + rows.length + '</div><div class="su">件</div></div>' +
@@ -372,14 +375,18 @@
     }
     const admin = !!state.bootstrap.isAdmin;
     body.innerHTML = rows.map(r => {
+      const isQuote = r.currentStep === 'PURCHASING_QUOTE';
       const stepCell = r.status === 'COMPLETED'
         ? '<span style="color:var(--muted)">—</span>'
         : '<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>' + escapeHtml(r.currentStepLabel) + '</b>' +
           (r.currentApproverName ? '<span style="color:var(--muted)">' + escapeHtml(r.currentApproverName) + '</span>' : '') +
+          (isQuote ? '<span class="badge RETURNED" style="height:20px;font-size:10.5px"><span class="dot"></span>金額入力待ち</span>' : '') +
           (r.isPresidentPending ? '<span class="badge RETURNED" style="height:20px;font-size:10.5px"><span class="dot"></span>要提示</span>' : '') + '</span>';
       const action = (r.isPresidentPending && admin)
         ? '<button class="btn sm primary" data-pres="' + escapeAttr(r.requestId) + '">➤ 社長決裁</button>'
-        : '<span style="color:var(--muted)">›</span>';
+        : (isQuote && state.listMode === 'quote')
+          ? '<button class="btn sm primary" data-open="' + escapeAttr(r.requestId) + '">✎ 金額入力</button>'
+          : '<span style="color:var(--muted)">›</span>';
       return '<tr class="click" data-open="' + escapeAttr(r.requestId) + '">' +
         '<td><span class="reqid">' + escapeHtml(r.requestId) + '</span></td>' +
         '<td class="num" style="color:var(--muted)">' + escapeHtml(r.requestDate) + '</td>' +
@@ -436,36 +443,37 @@
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
       '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
 
-    const isPurchasing = r.currentStep === 'PURCHASING';
-    const approveWord = isPurchasing ? '手配完了' : '承認する';
+    const isArrange = r.currentStep === 'PURCHASING';
+    const approveWord = isArrange ? '手配完了' : '承認する';
 
-    if ((p.canTabletApprove || p.canPresident) && !p.canPurchasingConfirm) {
+    // タブレット（全画面）CTAは上席・総務部長・社長のみ。見積／手配ステップでは出さない。
+    if ((p.canTabletApprove || p.canPresident) && !p.canQuote && !p.canArrange) {
       const isPres = p.canPresident && !p.canApprove;
-      const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して' + (isPurchasing ? '手配完了' : '承認');
+      const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して承認';
       const ctaDesc = isPres
         ? 'タブレットで申請書を提示し、その場で承認・差戻しを記録できます。'
-        : '申請書を全画面で確認し、その場で' + (isPurchasing ? '手配完了' : '承認') + '・差戻しを記録できます。';
-      const ctaBtn = isPres ? '➤ 社長決裁モードを開く' : '➤ 全画面で確認して' + (isPurchasing ? '手配完了' : '承認');
+        : '申請書を全画面で確認し、その場で承認・差戻しを記録できます。';
+      const ctaBtn = isPres ? '➤ 社長決裁モードを開く' : '➤ 全画面で確認して承認';
       html += '<div class="president-cta"><div class="pc-l"><div class="pc-ic">▣</div><div class="pc-t">' +
         '<b>' + escapeHtml(ctaTitle) + '</b><div>' + escapeHtml(ctaDesc) + '</div></div></div>' +
         '<button class="btn primary lg" id="presBtn">' + escapeHtml(ctaBtn) + '</button></div>';
     }
 
-    if (p.canPurchasingConfirm) {
-      const amtVal = r.totalAmount > 0 ? r.totalAmount : '';
+    if (p.canQuote) {
+      html += quotePanelHtml(detail);
+    } else if (p.canArrange) {
       html += '<div class="approve-panel"><div class="ap-head">' +
-        '<span class="badge IN_REVIEW"><span class="dot"></span>購買確定待ち</span>' +
-        '<span class="pill">確定金額を入力して手配を確定、またはコメント付きで差戻しできます</span></div>' +
-        field('確定金額', true, '<input class="control num" type="number" min="1" id="purchaseAmount" value="' + escapeAttr(amtVal) + '" placeholder="例）80000">', '10万円以上を入力すると社長決裁へ自動で回ります。10万円未満はそのまま手配完了です。') +
+        '<span class="badge IN_REVIEW"><span class="dot"></span>手配待ち</span>' +
+        '<span class="pill">商品の発注・手配が完了したら手配完了を記録、またはコメント付きで差戻しできます</span></div>' +
         field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
-          '<button class="btn primary lg" id="purchaseBtn">✓ 確定して手配</button>' +
+          '<button class="btn primary lg" id="arrangeBtn">✓ 手配完了</button>' +
         '</div></div>';
     } else if (p.canApprove) {
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
-        '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として' + (isPurchasing ? '手配完了またはコメント付きで差戻し' : '承認またはコメント付きで差戻し') + 'できます</span></div>' +
+        '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として承認またはコメント付きで差戻しできます</span></div>' +
         field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
@@ -492,16 +500,20 @@
       '<div class="pdf-preview-body"><div id="pdfPreviewWrap" style="width:100%;display:flex;justify-content:center"></div></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>申請明細</h3><span class="hint">' + detail.items.length + ' 件</span></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価</th><th class="r">金額</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map(it =>
         '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.maker || '—') + '</td>' +
         '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
+        '<td class="cell-amt">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
+        '<td class="cell-amt">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
         '<td class="num" style="color:var(--muted)">' + escapeHtml(it.desiredDeliveryDate || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody></table></div></div>';
+      '</tbody><tfoot><tr><td colspan="5" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
+      '<td class="cell-amt" style="font-size:15px">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
+      '<td colspan="2"></td></tr></tfoot></table></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認履歴</h3><span class="hint">' + detail.history.length + ' 件のアクション</span></div>' +
       '<div class="card-pad">' + historyHtml(detail.history) + '</div></div>';
@@ -515,9 +527,11 @@
     bind('genPdfBtn', () => regeneratePdf(r.requestId));
     bind('presBtn', () => openTabletMode(r.requestId));
     bind('presBtn2', () => openTabletMode(r.requestId));
-    bind('approveBtn', () => detailAction('approveRequest', isPurchasing ? '手配完了を記録しました' : '承認しました'));
-    bind('purchaseBtn', purchasingConfirmAction);
+    bind('approveBtn', () => detailAction('approveRequest', isArrange ? '手配完了を記録しました' : '承認しました'));
+    bind('arrangeBtn', () => detailAction('arrangeComplete', '手配完了を記録しました'));
     bind('returnBtn', () => detailAction('returnRequest', '差戻ししました'));
+
+    if (p.canQuote) { bindQuotePanel(detail); }
 
     renderScaledPreview('pdfPreviewWrap', detail, {});
   }
@@ -544,19 +558,74 @@
     }
   }
 
-  async function purchasingConfirmAction() {
-    const input = document.getElementById('purchaseAmount');
-    const amount = input ? Number(input.value) : NaN;
-    if (!isFinite(amount) || amount <= 0) { toast('確定金額を正しく入力してください', 'err'); return; }
+  /* ---------- 見積・金額入力（購買） ---------- */
+  function quotePanelHtml(detail) {
+    const rows = detail.items.map((it, i) =>
+      '<tr data-qrow="' + i + '">' +
+        '<td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
+        '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
+        '<td><input class="control num q-unit" data-qidx="' + i + '" type="number" min="0" step="1" value="' + escapeAttr(it.unitPrice > 0 ? it.unitPrice : '') + '" placeholder="0"></td>' +
+        '<td class="cell-amt q-amt" data-qamt="' + i + '">' + escapeHtml(yen(it.amount > 0 ? it.amount : 0)) + '</td>' +
+      '</tr>'
+    ).join('');
+    return '<div class="approve-panel"><div class="ap-head">' +
+      '<span class="badge RETURNED"><span class="dot"></span>見積・金額入力待ち</span>' +
+      '<span class="pill">各明細の単価を入力して金額を確定、または見積不可・要修正としてコメント付きで差戻しできます</span></div>' +
+      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3><span class="hint">単価を入力すると金額・合計が自動計算されます</span></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th class="r">数量</th><th class="r" style="width:160px">単価</th><th class="r" style="width:160px">金額</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '<tfoot><tr><td colspan="3" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
+      '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr></tfoot>' +
+      '</table></div></div>' +
+      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を記入してください') +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+        '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+        '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
+      '</div></div>';
+  }
+
+  function bindQuotePanel(detail) {
+    const recompute = () => {
+      let total = 0;
+      detail.items.forEach((it, i) => {
+        const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
+        const unit = input ? Number(input.value) : 0;
+        const amount = (isFinite(unit) && unit >= 0 ? unit : 0) * Number(it.quantity || 0);
+        total += amount;
+        const cell = document.querySelector('[data-qamt="' + i + '"]');
+        if (cell) { cell.textContent = yen(amount); }
+      });
+      const totalEl = document.getElementById('q-total');
+      if (totalEl) { totalEl.textContent = yen(total); }
+    };
+    document.querySelectorAll('.q-unit').forEach(input => input.addEventListener('input', recompute));
+    const btn = document.getElementById('quoteBtn');
+    if (btn) { btn.addEventListener('click', () => confirmQuoteAction(detail)); }
+  }
+
+  async function confirmQuoteAction(detail) {
+    const items = [];
+    let total = 0;
+    for (let i = 0; i < detail.items.length; i++) {
+      const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
+      const unitPrice = input ? Number(input.value) : NaN;
+      if (!isFinite(unitPrice) || unitPrice < 0) {
+        toast('すべての明細に0以上の単価を入力してください', 'err');
+        return;
+      }
+      items.push({ itemId: detail.items[i].itemId, unitPrice: unitPrice });
+      total += unitPrice * Number(detail.items[i].quantity || 0);
+    }
+    if (total <= 0) { toast('合計金額が0です。単価を入力してください', 'err'); return; }
     setBusy(true);
     try {
       const comment = (document.getElementById('approveComment') || {}).value || '';
-      const detail = await gas('purchasingConfirm', state.currentDetail.request.requestId, amount, comment);
-      state.currentDetail = detail;
+      const updated = await gas('confirmQuote', state.currentDetail.request.requestId, items, comment);
+      state.currentDetail = updated;
       await refreshCounts();
-      renderDetail(detail);
+      renderDetail(updated);
       renderTabs();
-      toast('購買内容を確定しました', 'ok');
+      toast('見積金額を確定しました', 'ok');
       window.scrollTo(0, 0);
     } catch (error) {
       toast(errText(error), 'err');
@@ -598,7 +667,7 @@
     if (key === 'APPLICANT') { return r.applicantName; }
     if (key === 'DONE') { return ''; }
     if (key === r.currentStep && r.status !== 'COMPLETED') { return r.currentApproverName || ''; }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN'));
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE'));
     return h ? (h.actorName || '') : '';
   }
 
@@ -680,16 +749,21 @@
 
     html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
       '<table class="items"><thead><tr>' +
-      '<th style="width:6%">No.</th><th style="width:40%">品名 / 型式・メーカー</th><th class="r" style="width:12%">数量</th>' +
-      '<th style="width:18%">希望納期</th><th>備考</th></tr></thead><tbody>' +
+      '<th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th><th class="r" style="width:8%">数量</th>' +
+      '<th class="r" style="width:13%">単価</th><th class="r" style="width:14%">金額</th>' +
+      '<th style="width:14%">希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map((it, i) =>
         '<tr><td class="no">' + (i + 1) + '</td>' +
         '<td><div class="nm">' + escapeHtml(it.name) + '</div><div class="sub">' + escapeHtml([it.model, it.maker].filter(Boolean).join('・') || '—') + '</div></td>' +
         '<td class="r">' + escapeHtml(it.quantity) + '</td>' +
+        '<td class="r">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
+        '<td class="r">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
         '<td class="mono" style="font-size:8pt">' + escapeHtml(dateOnly(it.desiredDeliveryDate) || '—') + '</td>' +
         '<td style="font-size:8pt;color:var(--gray)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody></table>';
+      '</tbody><tfoot><tr><td colspan="4" class="tl">合計金額（税込）</td>' +
+      '<td class="tv">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
+      '<td colspan="2"></td></tr></tfoot></table>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div><div class="reasons-grid">' +
       state.bootstrap.reasons.map(x =>
@@ -724,7 +798,7 @@
       const h = detail.history.slice().reverse().find(x => x.action === 'SUBMIT' || x.action === 'RESUBMIT');
       return h ? { name: h.actorName, date: h.happenedAt, kind: 'apply' } : null;
     }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN'));
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE'));
     if (!h) { return null; }
     return { name: h.actorName, date: h.happenedAt, kind: h.action === 'RETURN' ? 'ng' : 'approve' };
   }

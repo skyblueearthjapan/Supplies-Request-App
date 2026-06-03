@@ -78,7 +78,7 @@ function createRequestPdfInternal_(requestId, actor) {
       }
       for (i = history.length - 1; i >= 0; i--) {
         if (history[i].fromStep === stepKey &&
-          (history[i].action === ACTION.APPROVE || history[i].action === ACTION.COMPLETE || history[i].action === ACTION.RETURN)) {
+          (history[i].action === ACTION.APPROVE || history[i].action === ACTION.COMPLETE || history[i].action === ACTION.RETURN || history[i].action === ACTION.QUOTE)) {
           return { name: history[i].actorName || history[i].actorEmail, date: history[i].happenedAt, kind: history[i].action === ACTION.RETURN ? 'ng' : 'approve' };
         }
       }
