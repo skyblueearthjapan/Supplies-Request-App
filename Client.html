@@ -1043,10 +1043,7 @@
           '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span></div>' +
         '</div>' +
         APPROVER_ROLES.map(function(role, i) {
-          var head = role.rich
-            ? '<div class="card-head rich-head"><h3><span class="rich-ic">▣</span>承認者：社長<span class="rich-sub">最終決裁</span></h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>'
-            : '<div class="card-head"><h3>承認者：' + role.title + '</h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>';
-          return '<div class="card' + (role.rich ? ' approver-card-rich' : '') + '">' + head +
+          return '<div class="card"><div class="card-head"><h3>承認者：' + role.title + '</h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>' +
             '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
               '<th>部署</th><th>メールアドレス</th><th>氏名</th><th>役職</th><th></th>' +
             '</tr></thead><tbody id="' + role.body + '"></tbody></table></div>' +
@@ -1159,7 +1156,7 @@
   const APPROVER_ROLES = [
     { key: 'purchasing', title: '購買', body: 'purApproverBody', addBtn: 'addPurApproverBtn' },
     { key: 'generalManager', title: '総務部長', body: 'gmApproverBody', addBtn: 'addGmApproverBtn' },
-    { key: 'president', title: '社長', body: 'presApproverBody', addBtn: 'addPresApproverBtn', rich: true }
+    { key: 'president', title: '社長', body: 'presApproverBody', addBtn: 'addPresApproverBtn' }
   ];
 
   function addRoleApproverRow(role, row) {
