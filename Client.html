@@ -939,7 +939,11 @@
       '<div class="fade-in">' +
         '<div class="page-head"><div class="title-wrap"><span class="eyebrow">Administration</span><h2>管理</h2>' +
           '<span class="sub">承認ルート・しきい値・通知などアプリ全体の設定を管理します。</span></div>' +
-          '<div class="head-actions"><button class="btn primary" id="saveAdminBtn">✓ 保存</button></div></div>' +
+          '<div class="head-actions">' +
+            '<button class="btn ghost" id="clearSampleBtn">サンプル削除</button>' +
+            '<button class="btn" id="seedSampleBtn">サンプル投入</button>' +
+            '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
+          '</div></div>' +
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
           field('社長決裁しきい値', false, '<input class="control num" id="a-threshold" type="number" min="1" value="' + escapeAttr(s.thresholdAmount) + '">', 'この金額を超える申請は社長決裁ルートになります') +
           field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
@@ -961,6 +965,8 @@
       '</div>';
 
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
+    document.getElementById('seedSampleBtn').addEventListener('click', () => runSample('seedSampleData', 'デモ用サンプルデータを投入します。よろしいですか？'));
+    document.getElementById('clearSampleBtn').addEventListener('click', () => runSample('clearSampleData', 'サンプル申請（SAMPLE-）をすべて削除します。よろしいですか？'));
     document.getElementById('addApproverBtn').addEventListener('click', () => addApproverRow({ active: true }));
     const rows = state.bootstrap.approvers || [];
     rows.forEach(addApproverRow);
@@ -1041,6 +1047,23 @@
       renderTopbar();
       renderAdmin();
       toast('管理設定を保存しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runSample(fn, confirmMsg) {
+    if (!window.confirm(confirmMsg)) { return; }
+    setBusy(true);
+    try {
+      const result = await gas(fn);
+      state.bootstrap = await gas('getBootstrap');
+      await refreshCounts();
+      toast((result && result.message) || '完了しました', 'ok');
+      state.listMode = 'all';
+      showView('listView');
     } catch (error) {
       toast(errText(error), 'err');
     } finally {
