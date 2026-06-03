@@ -21,7 +21,16 @@ function setupApplication() {
     var syncResult = syncWorkersMaster();
     workerCount = (syncResult && syncResult.count) || 0;
   } catch (error) {
-    Logger.log('setupApplication: master sync skipped: ' + error.message);
+    Logger.log('setupApplication: worker master sync skipped: ' + error.message);
+  }
+
+  var deptSupervisorCount = 0;
+  try {
+    ensureDeptSupervisorSyncTrigger_();
+    var deptResult = syncDeptSupervisorsMaster();
+    deptSupervisorCount = (deptResult && deptResult.count) || 0;
+  } catch (error) {
+    Logger.log('setupApplication: dept supervisor sync skipped: ' + error.message);
   }
 
   return {
@@ -29,6 +38,7 @@ function setupApplication() {
     spreadsheetUrl: spreadsheet.getUrl(),
     pdfFolderId: folder.getId(),
     pdfFolderUrl: folder.getUrl(),
-    workerCount: workerCount
+    workerCount: workerCount,
+    deptSupervisorCount: deptSupervisorCount
   };
 }

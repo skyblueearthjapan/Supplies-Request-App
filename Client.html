@@ -1034,11 +1034,11 @@
           field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
           field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
         '</div></div></div>' +
-        '<div class="card"><div class="card-head"><h3>部署別 上長マスタ</h3><button class="btn sm" id="addDeptSupervisorBtn">＋ 行を追加</button></div>' +
+        '<div class="card"><div class="card-head"><h3>部署別 上長マスタ（外部 DeptApprovers と同期・読み取り専用）</h3><button class="btn sm" id="syncDeptSupBtn">↻ 外部シートから同期</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
+            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>有効</th>' +
           '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">部署ごとに上長アカウントを複数登録できます。その部署の上長なら誰でも承認でき、各上長は自分の部署の案件だけ「上長承認待ち」に表示されます。部署別の行も「*」行も無い部署のみ、承認者マスタの上長にフォールバックします（「*」行を置くと全部署がその上長になり、フォールバックは働きません）。</span></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上長です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上長なら誰でも承認、各上長は自部署の案件のみ「上長承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上長にフォールバックします。</span></div>' +
         '</div>' +
         '<div class="card"><div class="card-head"><h3>承認者マスタ</h3><button class="btn sm" id="addApproverBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
@@ -1057,10 +1057,8 @@
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
     document.getElementById('seedSampleBtn').addEventListener('click', () => runSample('seedSampleData', 'デモ用サンプルデータを投入します。よろしいですか？'));
     document.getElementById('clearSampleBtn').addEventListener('click', () => runSample('clearSampleData', 'サンプル申請（SAMPLE-）をすべて削除します。よろしいですか？'));
-    document.getElementById('addDeptSupervisorBtn').addEventListener('click', () => addDeptSupervisorRow({ active: true }));
-    const deptSupervisors = state.bootstrap.deptSupervisors || [];
-    deptSupervisors.forEach(addDeptSupervisorRow);
-    if (deptSupervisors.length === 0) { addDeptSupervisorRow({ active: true }); }
+    document.getElementById('syncDeptSupBtn').addEventListener('click', syncDeptSupervisors);
+    renderDeptSupervisorRows();
 
     document.getElementById('addApproverBtn').addEventListener('click', () => addApproverRow({ active: true }));
     const rows = state.bootstrap.approvers || [];
@@ -1095,18 +1093,33 @@
     body.appendChild(tr);
   }
 
-  function addDeptSupervisorRow(row) {
-    row = row || {};
+  // 部署別 上長マスタは外部 DeptApprovers シートの読み取り専用ミラー。
+  function renderDeptSupervisorRows() {
     const body = document.getElementById('deptSupervisorBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td><input class="iinput" data-field="department" type="text" value="' + escapeAttr(row.department || '') + '" placeholder="* で全体"></td>' +
-      '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="上長のGoogleアカウント"></td>' +
-      '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
-      '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
-      '<td><button class="row-del" type="button">✕</button></td>';
-    tr.querySelector('.row-del').addEventListener('click', () => tr.remove());
-    body.appendChild(tr);
+    if (!body) { return; }
+    const rows = state.bootstrap.deptSupervisors || [];
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="4"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上長はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上長にフォールバックします）。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r =>
+      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
+    ).join('');
+  }
+
+  async function syncDeptSupervisors() {
+    setBusy(true);
+    try {
+      const result = await gas('syncDeptSupervisorsNow');
+      state.bootstrap = await gas('getBootstrap');
+      renderDeptSupervisorRows();
+      const n = result && typeof result.count === 'number' ? result.count : null;
+      toast(n !== null ? ('上長マスタを同期しました（' + n + '件）') : '上長マスタを同期しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
   }
 
   const APPROVER_FIELDS = ['department', 'applicantEmail', 'applicantName', 'supervisorEmail', 'supervisorName', 'supervisorTitle', 'generalManagerEmail', 'generalManagerName', 'generalManagerTitle', 'presidentEmail', 'presidentName', 'presidentTitle', 'purchasingEmail', 'purchasingName', 'purchasingTitle'];
@@ -1151,16 +1164,8 @@
         });
         return obj;
       }).filter(row => row.email);
-      const deptSupRows = Array.from(document.querySelectorAll('#deptSupervisorBody tr')).map(tr => {
-        const obj = {};
-        tr.querySelectorAll('[data-field]').forEach(input => {
-          obj[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
-        });
-        return obj;
-      }).filter(row => row.email);
       await gas('saveApproverMaster', rows);
       await gas('saveNotificationRecipients', recipientRows);
-      await gas('saveDeptSupervisors', deptSupRows);
       state.bootstrap = await gas('saveSettings', settings);
       renderTopbar();
       renderAdmin();

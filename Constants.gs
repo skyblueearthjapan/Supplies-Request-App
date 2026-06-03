@@ -25,6 +25,10 @@ var DEPT_SUPERVISOR_COLUMNS = ['department', 'email', 'name', 'active'];
 var EXTERNAL_MASTER_SPREADSHEET_ID = '1iu5HoaknlW1W1HheeYv0jqcRq-aY0SyEE2seQd2pHkQ';
 var MASTER_WORKER_GID = 684189184;
 
+// 部署別 上長（承認者）マスタの外部ソース。DeptApprovers シートを同期して DeptSupervisors キャッシュへ取り込む。
+var DEPT_APPROVER_SPREADSHEET_ID = '1Knx_kaQMZZams65J1oeSDaBeWUt8XXanNe94XSAHKFQ';
+var DEPT_APPROVER_SHEET_NAME = 'DeptApprovers';
+
 var WORKER_CACHE_COLUMNS = ['workerCode', 'name', 'dept', 'location', 'staffType'];
 
 var RECIPIENT_COLUMNS = ['type', 'email', 'name', 'active'];
