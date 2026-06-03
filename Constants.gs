@@ -80,7 +80,11 @@ var APPROVER_COLUMNS = [
   'presidentName',
   'purchasingEmail',
   'purchasingName',
-  'active'
+  'active',
+  'supervisorTitle',
+  'generalManagerTitle',
+  'presidentTitle',
+  'purchasingTitle'
 ];
 
 var HISTORY_COLUMNS = [

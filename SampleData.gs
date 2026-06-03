@@ -89,7 +89,11 @@ function seedApproversIfEmpty_(user) {
     presidentName: user.name + '（社長）',
     purchasingEmail: user.email,
     purchasingName: user.name + '（購買）',
-    active: 'true'
+    active: 'true',
+    supervisorTitle: '係長',
+    generalManagerTitle: '部長',
+    presidentTitle: '社長',
+    purchasingTitle: '主任'
   }, APPROVER_COLUMNS);
 }
 

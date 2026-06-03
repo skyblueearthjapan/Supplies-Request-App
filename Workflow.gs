@@ -266,7 +266,8 @@ function getRequestDetail(requestId) {
       canPresident: canPresident_(request, user),
       canTabletApprove: canApprove_(request, user),
       canPurchasingConfirm: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
-    }
+    },
+    stepTitles: resolveStepTitles_(request)
   };
 }
 
@@ -878,8 +879,30 @@ function toClientApprover_(row) {
     presidentName: sanitizeText_(row.presidentName, 100),
     purchasingEmail: normalizeEmail_(row.purchasingEmail),
     purchasingName: sanitizeText_(row.purchasingName, 100),
-    active: row.active === '' ? true : parseBoolean_(row.active)
+    active: row.active === '' ? true : parseBoolean_(row.active),
+    supervisorTitle: sanitizeText_(row.supervisorTitle, 40),
+    generalManagerTitle: sanitizeText_(row.generalManagerTitle, 40),
+    presidentTitle: sanitizeText_(row.presidentTitle, 40),
+    purchasingTitle: sanitizeText_(row.purchasingTitle, 40)
   };
+}
+
+// 決裁印の下段に出す役職を、申請の承認者ルールから解決する。
+// 未設定や該当ルールなしのステップは空（描画側で役割名にフォールバック）。
+function resolveStepTitles_(request) {
+  var titles = {};
+  try {
+    var rule = findApproverRule_(request.applicantEmail, request.department);
+    if (rule) {
+      titles[STEPS.SUPERVISOR] = rule.supervisorTitle || '';
+      titles[STEPS.GENERAL_MANAGER] = rule.generalManagerTitle || '';
+      titles[STEPS.PRESIDENT] = rule.presidentTitle || '';
+      titles[STEPS.PURCHASING] = rule.purchasingTitle || '';
+    }
+  } catch (error) {
+    // ルール未設定でも印影は役割名にフォールバックする。
+  }
+  return titles;
 }
 
 function toServerApprover_(row) {
@@ -896,6 +919,10 @@ function toServerApprover_(row) {
     presidentName: client.presidentName,
     purchasingEmail: client.purchasingEmail,
     purchasingName: client.purchasingName,
-    active: String(client.active)
+    active: String(client.active),
+    supervisorTitle: client.supervisorTitle,
+    generalManagerTitle: client.generalManagerTitle,
+    presidentTitle: client.presidentTitle,
+    purchasingTitle: client.purchasingTitle
   };
 }

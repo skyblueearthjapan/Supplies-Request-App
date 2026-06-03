@@ -49,6 +49,11 @@ function createRequestPdfInternal_(requestId, actor) {
       var era = n >= 1 ? ('令' + n) : String(y % 100);
       return era + '. ' + Number(m[2]) + '. ' + Number(m[3]);
     },
+    // 決裁印の下段。承認者マスタの役職があればそれを、無ければ役割名を返す。
+    stepTitle: function(stepKey) {
+      var t = detail.stepTitles && detail.stepTitles[stepKey];
+      return t ? t : (STEP_LABELS[stepKey] || stepKey);
+    },
     // 印面に収まるよう文字数で氏名フォントを縮小。
     nameFont: function(name) {
       var n = String(name || '').replace(/\s+/g, '').length;
@@ -144,6 +149,7 @@ function buildPdfDetail_(requestId) {
     request: toClientRequest_(request),
     items: items,
     history: history,
+    stepTitles: resolveStepTitles_(request),
     generatedAt: nowString_(),
     thresholdAmount: getThresholdAmount_()
   };

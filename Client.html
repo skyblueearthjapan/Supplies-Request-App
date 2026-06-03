@@ -660,7 +660,7 @@
               '<div class="dnstamp">' +
                 '<div class="dn-name" style="font-size:' + nameFont(st.name) + '">' + escapeHtml(st.name) + '</div>' +
                 '<div class="dn-date">' + escapeHtml(eraDate(st.date)) + '</div>' +
-                '<div class="dn-role">' + escapeHtml(stepLabel(key)) + '</div>' +
+                '<div class="dn-role">' + escapeHtml(stampTitle(detail, key)) + '</div>' +
               '</div></div>';
           }
           const pendName = approverNameForStep(detail, key);
@@ -959,9 +959,9 @@
         '</div></div></div>' +
         '<div class="card"><div class="card-head"><h3>承認者マスタ</h3><button class="btn sm" id="addApproverBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>申請者メール</th><th>申請者名</th><th>上席者メール</th><th>上席者名</th><th>総務部長メール</th><th>総務部長名</th><th>社長メール</th><th>社長名</th><th>購買メール</th><th>購買名</th><th>有効</th><th></th>' +
+            '<th>部署</th><th>申請者メール</th><th>申請者名</th><th>上席者メール</th><th>上席者名</th><th>上席者役職</th><th>総務部長メール</th><th>総務部長名</th><th>総務部長役職</th><th>社長メール</th><th>社長名</th><th>社長役職</th><th>購買メール</th><th>購買名</th><th>購買役職</th><th>有効</th><th></th>' +
           '</tr></thead><tbody id="approverBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">部署単位（部署名を指定）または申請者単位（申請者メールを指定）でルートを設定できます。「*」は全体デフォルトです。</span></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">部署単位（部署名を指定）または申請者単位（申請者メールを指定）でルートを設定できます。「*」は全体デフォルトです。役職は決裁印（PDF）の下段に表示されます（空欄なら役割名で表示）。</span></div>' +
         '</div>' +
         '<div class="card"><div class="card-head"><h3>通知宛先マスタ</h3><button class="btn sm" id="addRecipientBtn">＋ 行を追加</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
@@ -1007,7 +1007,7 @@
     body.appendChild(tr);
   }
 
-  const APPROVER_FIELDS = ['department', 'applicantEmail', 'applicantName', 'supervisorEmail', 'supervisorName', 'generalManagerEmail', 'generalManagerName', 'presidentEmail', 'presidentName', 'purchasingEmail', 'purchasingName'];
+  const APPROVER_FIELDS = ['department', 'applicantEmail', 'applicantName', 'supervisorEmail', 'supervisorName', 'supervisorTitle', 'generalManagerEmail', 'generalManagerName', 'generalManagerTitle', 'presidentEmail', 'presidentName', 'presidentTitle', 'purchasingEmail', 'purchasingName', 'purchasingTitle'];
 
   function addApproverRow(row) {
     row = row || {};
@@ -1016,7 +1016,8 @@
     const placeholders = { department: '* で全体', applicantEmail: '空欄=部署単位' };
     tr.innerHTML = APPROVER_FIELDS.map(f => {
       const type = f.toLowerCase().indexOf('email') >= 0 ? 'email' : 'text';
-      const ph = placeholders[f] ? ' placeholder="' + escapeAttr(placeholders[f]) + '"' : '';
+      const phText = placeholders[f] || (/Title$/.test(f) ? '役職（任意・例:部長）' : '');
+      const ph = phText ? ' placeholder="' + escapeAttr(phText) + '"' : '';
       return '<td><input class="iinput" data-field="' + f + '" type="' + type + '" value="' + escapeAttr(row[f] || '') + '"' + ph + '></td>';
     }).join('') +
       '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
@@ -1096,6 +1097,11 @@
     const n = y - 2018;
     const era = n >= 1 ? ('令' + n) : String(y % 100);
     return era + '. ' + Number(m[2]) + '. ' + Number(m[3]);
+  }
+  // 決裁印の下段。承認者マスタの役職があればそれを、無ければ役割名。
+  function stampTitle(detail, key) {
+    const t = detail.stepTitles && detail.stepTitles[key];
+    return t ? t : stepLabel(key);
   }
   // 印面に収まるよう文字数で氏名フォントを縮小。
   function nameFont(name) {
