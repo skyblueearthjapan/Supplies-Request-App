@@ -247,6 +247,10 @@ function getRequests(filter) {
         return isPresidentPendingRow_(request) &&
           (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
       }
+      if (mode === 'arrange') {
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PURCHASING &&
+          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+      }
       if (mode === 'all') {
         return admin;
       }
@@ -625,6 +629,7 @@ function getTabCounts() {
   var quote = 0;
   var supervisor = 0;
   var gm = 0;
+  var arrange = 0;
   readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
     var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
@@ -647,8 +652,11 @@ function getTabCounts() {
     if (isPres && (admin || mineApprove)) {
       president++;
     }
+    if (inReview && request.currentStep === STEPS.PURCHASING && (admin || mineApprove)) {
+      arrange++;
+    }
   });
-  return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm };
+  return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange };
 }
 
 function recordPresidentDecision(requestId, decision, comment) {

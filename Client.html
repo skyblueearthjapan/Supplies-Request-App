@@ -3,7 +3,7 @@
 
   const state = {
     bootstrap: null,
-    counts: { pending: 0, president: 0, quote: 0, supervisor: 0, gm: 0 },
+    counts: { pending: 0, president: 0, quote: 0, supervisor: 0, gm: 0, arrange: 0 },
     view: 'formView',
     listMode: 'supervisor',
     currentDetail: null
@@ -26,6 +26,7 @@
     { key: 'quote', view: 'listView', mode: 'quote', label: '購買見積金額入力待ち', countKey: 'quote' },
     { key: 'gm', view: 'listView', mode: 'gm', label: '総務部長承認待ち', countKey: 'gm' },
     { key: 'president', view: 'listView', mode: 'president', label: '社長承認待ち', countKey: 'president' },
+    { key: 'arrange', view: 'listView', mode: 'arrange', label: '手配待ち', countKey: 'arrange' },
     { key: 'all', view: 'listView', mode: 'all', label: '全申請', admin: true },
     { key: 'admin', view: 'adminView', label: '管理', admin: true }
   ];
@@ -289,13 +290,14 @@
   /* ---------- 一覧 ---------- */
   async function renderList() {
     const mode = state.listMode;
-    const titleMap = { supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
-    const eyebrow = { supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
+    const titleMap = { supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
+    const eyebrow = { supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', arrange: 'Awaiting Arrangement', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
     const subMap = {
       supervisor: 'あなたが上席として承認すべき案件です（担当部署の案件のみ表示）。',
       quote: '購買が各明細の単価を入力する案件です。',
       gm: 'あなたが総務部長として承認すべき案件です。',
       president: '社長決裁を待っている案件です。タブレットで提示し、その場で承認・差戻しを記録できます。',
+      arrange: '承認が完了し、購買が手配（発注）して「手配完了」を記録する案件です。',
       pending: 'あなたが動かすべき案件です。',
       all: '社内すべての申請を横断的に確認できます。',
       mine: '自分が申請した案件の進捗を確認できます。'
@@ -360,7 +362,7 @@
     const inReview = rows.filter(r => r.status === 'IN_REVIEW').length;
     const returned = rows.filter(r => r.status === 'RETURNED').length;
     const amount = rows.filter(r => r.status !== 'COMPLETED').reduce((t, r) => t + (r.totalAmount || 0), 0);
-    const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', pending: '要対応件数' };
+    const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
     const totalLabel = totalLabelMap[state.listMode] || '件数';
     host.innerHTML =
       '<div class="stats">' +
