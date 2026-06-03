@@ -1031,7 +1031,7 @@
             '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
           '</div></div>' +
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
-          field('社長決裁しきい値', false, '<input class="control num" id="a-threshold" type="number" min="1" value="' + escapeAttr(s.thresholdAmount) + '">', 'この金額を超える申請は社長決裁ルートになります') +
+          field('社長決裁しきい値', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この金額を超える申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
           field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
           field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
           field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
@@ -1056,6 +1056,12 @@
         '</div>' +
       '</div>';
 
+    const thrInput = document.getElementById('a-threshold');
+    if (thrInput) {
+      // 編集中は数字のみ、フォーカスを外すと ¥・カンマ表示に整形。
+      thrInput.addEventListener('focus', () => { thrInput.value = String(amountDigits(thrInput.value)); });
+      thrInput.addEventListener('blur', () => { thrInput.value = yen(amountDigits(thrInput.value)); });
+    }
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
     document.getElementById('seedSampleBtn').addEventListener('click', () => runSample('seedSampleData', 'デモ用サンプルデータを投入します。よろしいですか？'));
     document.getElementById('clearSampleBtn').addEventListener('click', () => runSample('clearSampleData', 'サンプル申請（SAMPLE-）をすべて削除します。よろしいですか？'));
@@ -1152,7 +1158,7 @@
     setBusy(true);
     try {
       const settings = {
-        thresholdAmount: document.getElementById('a-threshold').value,
+        thresholdAmount: amountDigits(document.getElementById('a-threshold').value),
         pdfFolderId: document.getElementById('a-folder').value,
         adminEmails: document.getElementById('a-admins').value,
         enableEmailNotifications: document.getElementById('a-notify').checked
@@ -1274,6 +1280,10 @@
 
   function yen(value) {
     return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value || 0));
+  }
+  // 文字列から数字だけを取り出して整数に（¥・カンマ等を除去）。
+  function amountDigits(value) {
+    return Number(String(value == null ? '' : value).replace(/[^0-9]/g, '')) || 0;
   }
 
   function initials(name) {
