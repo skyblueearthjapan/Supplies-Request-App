@@ -15,8 +15,11 @@ var SHEETS = Object.freeze({
   HISTORY: 'StatusHistory',
   SETTINGS: 'Settings',
   WORKERS_CACHE: 'WorkersCache',
-  RECIPIENTS: 'NotificationRecipients'
+  RECIPIENTS: 'NotificationRecipients',
+  DEPT_SUPERVISORS: 'DeptSupervisors'
 });
+
+var DEPT_SUPERVISOR_COLUMNS = ['department', 'email', 'name', 'active'];
 
 // 外部マスタシート（読み取り専用、作業員マスタのソース）
 var EXTERNAL_MASTER_SPREADSHEET_ID = '1iu5HoaknlW1W1HheeYv0jqcRq-aY0SyEE2seQd2pHkQ';
@@ -126,7 +129,7 @@ var STEPS = Object.freeze({
 });
 
 var STEP_LABELS = Object.freeze({
-  SUPERVISOR: '上席者',
+  SUPERVISOR: '上長',
   PURCHASING_QUOTE: '購買（見積）',
   GENERAL_MANAGER: '総務部長',
   PRESIDENT: '社長',

@@ -26,6 +26,7 @@ function seedSampleData() {
 
     seedWorkersIfEmpty_();
     seedApproversIfEmpty_(user);
+    seedDeptSupervisorsIfEmpty_(user);
     seedRecipientsIfEmpty_(user);
     ensureThresholdSetting_();
 
@@ -82,7 +83,7 @@ function seedApproversIfEmpty_(user) {
     applicantEmail: '',
     applicantName: '',
     supervisorEmail: user.email,
-    supervisorName: user.name + '（上席者）',
+    supervisorName: user.name + '（上長）',
     generalManagerEmail: user.email,
     generalManagerName: user.name + '（総務部長）',
     presidentEmail: user.email,
@@ -95,6 +96,20 @@ function seedApproversIfEmpty_(user) {
     presidentTitle: '社長',
     purchasingTitle: '主任'
   }, APPROVER_COLUMNS);
+}
+
+function seedDeptSupervisorsIfEmpty_(user) {
+  var existing = readObjects_(SHEETS.DEPT_SUPERVISORS, DEPT_SUPERVISOR_COLUMNS);
+  if (existing.length > 0) {
+    return;
+  }
+  // 単独テスト用に、全社（'*'）の上長を現在のユーザーに割り当てる。
+  appendObject_(SHEETS.DEPT_SUPERVISORS, {
+    department: '*',
+    email: user.email,
+    name: user.name + '（上長）',
+    active: 'true'
+  }, DEPT_SUPERVISOR_COLUMNS);
 }
 
 function seedRecipientsIfEmpty_(user) {
@@ -198,6 +213,21 @@ function buildSampleRequests_(user) {
   var PRES = ['SUPERVISOR', 'PURCHASING_QUOTE', 'GENERAL_MANAGER', 'PRESIDENT', 'PURCHASING'];
 
   return [
+    {
+      // 上長承認待ち。現在ユーザーが部署の上長として承認できる。金額・amount は未確定（0）。
+      requestId: 'SAMPLE-2026-0014', requestDate: '2026-05-29', updatedAt: '2026-05-29 09:20:00',
+      applicantEmail: 'takahashi@example.com', applicantName: '高橋 美咲', department: '総務部',
+      reasonCode: 'A', reasonDetail: '事務用消耗品の補充です。上長承認をお待ちしています。',
+      status: 'IN_REVIEW', currentStep: 'SUPERVISOR', currentApproverEmail: me, currentApproverName: meName + '（上長）',
+      route: STD, confirmedAmount: 0,
+      items: [
+        { name: 'ボールペン（黒）', model: 'BP-100', maker: 'ゼブラ', quantity: 50, desiredDeliveryDate: '2026-06-12', note: '' },
+        { name: 'コピー用紙 A4', model: 'PPC-A4', maker: '日本製紙', quantity: 10, desiredDeliveryDate: '2026-06-12', note: '500枚×箱' }
+      ],
+      history: [
+        { action: 'SUBMIT', actorEmail: 'takahashi@example.com', actorName: '高橋 美咲', at: '2026-05-29 09:20:00', toStatus: 'IN_REVIEW', fromStep: 'APPLICANT', toStep: 'SUPERVISOR' }
+      ]
+    },
     {
       // 購買(見積)待ち。現在ユーザーが各明細の単価を入力できる。金額・amount は未確定（0）。
       requestId: 'SAMPLE-2026-0012', requestDate: '2026-05-28', updatedAt: '2026-05-28 13:42:00',
