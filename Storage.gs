@@ -23,7 +23,10 @@ function getSpreadsheet_() {
   if (spreadsheetId) {
     spreadsheet = SpreadsheetApp.openById(spreadsheetId);
   } else {
-    spreadsheet = SpreadsheetApp.create(APP.NAME + ' Data');
+    // 保存先が未設定のとき: コンテナ（バインド先のスプレッドシート）があればそれを使う。
+    // 孤立した別シートを勝手に作らない（過去にデータが別シートへ逸れた事象の再発防止）。
+    // スタンドアロン運用などでコンテナが無い場合のみ新規作成する。
+    spreadsheet = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.create(APP.NAME + ' Data');
     properties.setProperty(APP.PROP_SPREADSHEET_ID, spreadsheet.getId());
   }
 

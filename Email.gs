@@ -10,7 +10,10 @@ function stepRoleSalutationLabel_(step) {
 // 氏名・役職から個別の宛名を作る。例: ('井嵐 太郎','係長','購買') → '購買 井嵐係長'。
 // 氏名なし → '<ロール> ご担当者 様'、役職なし → '<ロール> <姓> 様'。
 function approverSalutation_(name, title, roleLabel) {
-  var surname = name ? String(name).trim().split(/\s+/)[0] : '';
+  // 氏名欄に「辻野（総務部長）」のように役職がカッコ付きで入っている場合があるため、
+  // 全角・半角のカッコ内を除去してから姓を取り出す（例「総務 辻野（総務部長）部長」を防ぐ）。
+  var cleaned = name ? String(name).replace(/[（(][^）)]*[）)]/g, '').trim() : '';
+  var surname = cleaned ? cleaned.split(/\s+/)[0] : '';
   if (surname && title) { return roleLabel + ' ' + surname + title; }
   if (surname) { return roleLabel + ' ' + surname + ' 様'; }
   return roleLabel + ' ご担当者 様';
