@@ -220,36 +220,40 @@ function getRequests(filter) {
     .filter(function(request) {
       if (mode === 'pending') {
         // 自分が承認者の案件 ＋ 社長承認待ち（総務部長/管理者が社長へ提示すべき案件）も残す
-        // ＋ 上席ステップは部署の上席集合の誰でも承認待ちに含める
-        if (normalizeEmail_(request.currentApproverEmail) === user.email) {
+        // ＋ 各ステップは承認者集合（上席／購買・総務部長・社長の複数登録）の誰でも承認待ちに含める
+        if (isCurrentApprover_(request, user.email)) {
           return true;
         }
-        if (request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR &&
-          isSupervisorFor_(user.email, request.applicantEmail, request.department)) {
+        if (request.status === STATUS.IN_REVIEW &&
+          isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep)) {
           return true;
         }
         return admin && isPresidentPendingRow_(request);
       }
       if (mode === 'supervisor') {
         return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR &&
-          (admin || normalizeEmail_(request.currentApproverEmail) === user.email ||
+          (admin || isCurrentApprover_(request, user.email) ||
             isSupervisorFor_(user.email, request.applicantEmail, request.department));
       }
       if (mode === 'quote') {
         return request.currentStep === STEPS.PURCHASING_QUOTE &&
-          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+          (admin || isCurrentApprover_(request, user.email) ||
+            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PURCHASING_QUOTE));
       }
       if (mode === 'gm') {
         return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.GENERAL_MANAGER &&
-          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+          (admin || isCurrentApprover_(request, user.email) ||
+            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.GENERAL_MANAGER));
       }
       if (mode === 'president') {
         return isPresidentPendingRow_(request) &&
-          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+          (admin || isCurrentApprover_(request, user.email) ||
+            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PRESIDENT));
       }
       if (mode === 'arrange') {
         return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PURCHASING &&
-          (admin || normalizeEmail_(request.currentApproverEmail) === user.email);
+          (admin || isCurrentApprover_(request, user.email) ||
+            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PURCHASING));
       }
       if (mode === 'all') {
         return admin;
@@ -420,7 +424,21 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
     return;
   }
 
-  sendApprovalRequestEmail_(updated, nextApprover);
+  // 次ステップが複数登録（総務部長/社長など）の場合は全員へ承認依頼を送る。
+  var ruleForNext = null;
+  try {
+    ruleForNext = findApproverRule_(updated.applicantEmail, updated.department);
+  } catch (ruleError) {
+    ruleForNext = null;
+  }
+  var members = resolveStepApproversWithStar_(ruleForNext, nextStep);
+  if (members.length > 0) {
+    members.forEach(function(member) {
+      sendApprovalRequestEmail_(updated, member);
+    });
+  } else {
+    sendApprovalRequestEmail_(updated, nextApprover);
+  }
 }
 
 // 手配完了 → 完了 時の副作用（PDF再生成・総務部通知・申請者完了メール）。
@@ -521,13 +539,23 @@ function confirmQuote(requestId, items, comment) {
     });
 
     var updated = getRequestById_(requestId);
-    notifyGeneralAffairs_(
-      updated,
-      '[貯蔵品購入申請] 金額確定 ' + updated.requestId,
-      buildGeneralAffairsBody_(updated, '購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。総務部長承認をお願いします。'),
-      null
-    );
-    sendApprovalRequestEmail_(updated, gm);
+    // 10万円以上（社長決裁しきい値以上）は、総務部長へ「要・社長決裁」を強くアピールする。
+    var overBanner = [
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      '🚨🚨🚨  要・社長決裁  🚨🚨🚨',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      '確定金額 ' + formatCurrency_(total) + ' は社長決裁しきい値（' + formatCurrency_(threshold) + '）以上です。',
+      '総務部長の承認後、必ず【社長の承認】が必要です。至急ご対応ください。',
+      '━━━━━━━━━━━━━━━━━━━━━━'
+    ].join('\n');
+    var gaSubject = over
+      ? '【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 ' + updated.requestId + '（10万円以上）'
+      : '[貯蔵品購入申請] 金額確定 ' + updated.requestId;
+    var gaHeading = over
+      ? overBanner + '\n\n購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。'
+      : '購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。総務部長承認をお願いします。';
+    notifyGeneralAffairs_(updated, gaSubject, buildGeneralAffairsBody_(updated, gaHeading), null);
+    sendApprovalRequestEmail_(updated, gm, over ? overBanner : '');
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
@@ -634,25 +662,28 @@ function getTabCounts() {
     var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
     var isQuote = request.currentStep === STEPS.PURCHASING_QUOTE;
-    var mineApprove = normalizeEmail_(request.currentApproverEmail) === user.email;
+    var mineApprove = isCurrentApprover_(request, user.email);
+    // 現ステップの承認者集合（上席／購買・総務部長・社長の複数登録）に含まれるか。
+    var mineMember = (inReview || isPres) &&
+      isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep);
     var mineSupervisor = inReview && request.currentStep === STEPS.SUPERVISOR &&
       isSupervisorFor_(user.email, request.applicantEmail, request.department);
-    if (mineApprove || mineSupervisor || (admin && isPres)) {
+    if (mineApprove || mineMember || (admin && isPres)) {
       pending++;
     }
     if (inReview && request.currentStep === STEPS.SUPERVISOR && (admin || mineApprove || mineSupervisor)) {
       supervisor++;
     }
-    if (isQuote && (admin || mineApprove)) {
+    if (isQuote && (admin || mineApprove || mineMember)) {
       quote++;
     }
-    if (inReview && request.currentStep === STEPS.GENERAL_MANAGER && (admin || mineApprove)) {
+    if (inReview && request.currentStep === STEPS.GENERAL_MANAGER && (admin || mineApprove || mineMember)) {
       gm++;
     }
-    if (isPres && (admin || mineApprove)) {
+    if (isPres && (admin || mineApprove || mineMember)) {
       president++;
     }
-    if (inReview && request.currentStep === STEPS.PURCHASING && (admin || mineApprove)) {
+    if (inReview && request.currentStep === STEPS.PURCHASING && (admin || mineApprove || mineMember)) {
       arrange++;
     }
   });
@@ -669,9 +700,13 @@ function recordPresidentDecision(requestId, decision, comment) {
       throw new Error('社長または管理者（総務部長）のみ社長決裁を記録できます。');
     }
 
-    var presidentName = request.currentApproverName || STEP_LABELS[STEPS.PRESIDENT];
-    var presidentEmail = request.currentApproverEmail;
-    var asProxy = normalizeEmail_(presidentEmail) !== user.email;
+    // 社長が複数登録されている場合、操作者が社長集合の一員なら本人として記録する
+    // （代表 currentApproverEmail と異なっていても代理扱いにしない）。社長でない管理者のみ代理。
+    var presidentMember = isCurrentApprover_(request, user.email) ||
+      isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PRESIDENT);
+    var presidentName = presidentMember ? user.name : (request.currentApproverName || STEP_LABELS[STEPS.PRESIDENT]);
+    var presidentEmail = presidentMember ? user.email : request.currentApproverEmail;
+    var asProxy = !presidentMember;
     var operatorNote = asProxy ? '（' + user.name + 'が社長決裁モードで記録）' : '';
     var cleanComment = sanitizeText_(comment, 1000);
     var now = nowString_();
@@ -759,7 +794,8 @@ function isPresidentPendingRow_(request) {
 
 function canPresident_(request, user) {
   return isPresidentPendingRow_(request) &&
-    (isAdmin_(user.email) || normalizeEmail_(request.currentApproverEmail) === user.email);
+    (isAdmin_(user.email) || isCurrentApprover_(request, user.email) ||
+      isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PRESIDENT));
 }
 
 function saveSettings(input) {
@@ -939,13 +975,13 @@ function assertReadable_(request, user) {
 
 function canRead_(request, user) {
   if (normalizeEmail_(request.applicantEmail) === user.email ||
-    normalizeEmail_(request.currentApproverEmail) === user.email ||
+    isCurrentApprover_(request, user.email) ||
     isAdmin_(user.email)) {
     return true;
   }
 
-  if (request.currentStep === STEPS.SUPERVISOR &&
-    isSupervisorFor_(user.email, request.applicantEmail, request.department)) {
+  // 現ステップの承認者集合（上席／購買・総務部長・社長の複数登録）に含まれる人も閲覧可。
+  if (isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep)) {
     return true;
   }
 
@@ -954,16 +990,32 @@ function canRead_(request, user) {
   });
 }
 
+// 現在の担当者一致判定。currentApproverEmail は通常は単一メールだが、旧ルートでは
+// 複数購買がカンマ連結で保存された案件が存在する。リストとして所属判定することで
+// 単一値・複数値の双方を正しく扱い、既存案件も救済する。
+function isCurrentApprover_(request, userEmail) {
+  var target = normalizeEmail_(userEmail);
+  if (!target) {
+    return false;
+  }
+  return splitEmails_(request.currentApproverEmail).indexOf(target) !== -1;
+}
+
 function canApprove_(request, user) {
   if (request.status !== STATUS.IN_REVIEW) {
     return false;
   }
-  if (request.currentStep === STEPS.SUPERVISOR) {
-    // 上席ステップは部署の上席集合の誰でも承認できる。
-    return isSupervisorFor_(user.email, request.applicantEmail, request.department) ||
-      normalizeEmail_(request.currentApproverEmail) === user.email;
+  // システム管理者（管理者メールに登録された複数名）は、確認・デバッグ・レビュー・代行のため
+  // 進行中の各ステップで操作できる（金額入力・承認・手配完了など）。実行者は履歴に記録される。
+  if (isAdmin_(user.email)) {
+    return true;
   }
-  return normalizeEmail_(request.currentApproverEmail) === user.email;
+  // 凍結された担当者（currentApproverEmail）一致に加え、現在の承認者マスタ／上席マスタの
+  // 集合に含まれる人も承認できる。これにより「1部署に複数人・誰でも対応可」を実現する。
+  if (isCurrentApprover_(request, user.email)) {
+    return true;
+  }
+  return isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep);
 }
 
 function canEdit_(request, user) {
@@ -1001,20 +1053,96 @@ function findApproverRule_(applicantEmail, department) {
   }) || null;
 }
 
-function getApproverForStep_(rule, step) {
-  var map = {};
-  map[STEPS.SUPERVISOR] = { email: rule.supervisorEmail, name: rule.supervisorName || '上席' };
-  map[STEPS.GENERAL_MANAGER] = { email: rule.generalManagerEmail, name: rule.generalManagerName || '総務部長' };
-  map[STEPS.PRESIDENT] = { email: rule.presidentEmail, name: rule.presidentName || '社長' };
-  map[STEPS.PURCHASING] = { email: rule.purchasingEmail, name: rule.purchasingName || '購買' };
-  map[STEPS.PURCHASING_QUOTE] = { email: rule.purchasingEmail, name: rule.purchasingName || '購買' };
+// 役職ステップ（購買/総務部長/社長）に対応する承認者マスタのフィールド接頭辞。
+// 上席(SUPERVISOR)は DeptSupervisors 管理のため対象外（'' を返す）。
+function stepRoleField_(step) {
+  if (step === STEPS.GENERAL_MANAGER) { return 'generalManager'; }
+  if (step === STEPS.PRESIDENT) { return 'president'; }
+  if (step === STEPS.PURCHASING || step === STEPS.PURCHASING_QUOTE) { return 'purchasing'; }
+  return '';
+}
 
-  var approver = map[step];
-  if (!approver || !approver.email) {
+function stepRoleDefaultName_(step) {
+  if (step === STEPS.GENERAL_MANAGER) { return '総務部長'; }
+  if (step === STEPS.PRESIDENT) { return '社長'; }
+  if (step === STEPS.PURCHASING || step === STEPS.PURCHASING_QUOTE) { return '購買'; }
+  return STEP_LABELS[step] || '';
+}
+
+// 役職ステップの承認者集合を解決する（購買/総務部長/社長はメール欄に複数人を許可）。
+// 戻り値: [{ email, name, title }]。先頭が代表（通知先・currentApproverEmail）。
+function resolveStepApprovers_(rule, step) {
+  if (!rule) { return []; }
+  var field = stepRoleField_(step);
+  if (!field) { return []; }
+  var name = rule[field + 'Name'] || stepRoleDefaultName_(step);
+  var title = rule[field + 'Title'] || '';
+  return splitEmails_(rule[field + 'Email']).map(function(email) {
+    return { email: email, name: name, title: title };
+  });
+}
+
+// 全社デフォルト '*' ルール（申請者個別指定なし）を返す。
+function findStarRule_() {
+  return readObjects_(SHEETS.APPROVERS, APPROVER_COLUMNS)
+    .map(toClientApprover_)
+    .filter(function(row) {
+      return row.active;
+    })
+    .find(function(row) {
+      return row.department === '*' && !row.applicantEmail;
+    }) || null;
+}
+
+// 役職ステップの承認者集合を解決し、部署別ルールに該当役職が無ければ '*' にフォールバックする。
+// これにより「購買は全社共通（*）で1回設定」すれば、部署別行で購買を空にしていても通る。
+function resolveStepApproversWithStar_(rule, step) {
+  var approvers = resolveStepApprovers_(rule, step);
+  if (approvers.length > 0) {
+    return approvers;
+  }
+  if (!rule || rule.department !== '*') {
+    var star = findStarRule_();
+    if (star) {
+      return resolveStepApprovers_(star, step);
+    }
+  }
+  return approvers;
+}
+
+// 指定メールが、その案件の現ステップ承認者集合に含まれるか。
+// 上席は DeptSupervisors、購買/総務部長/社長は承認者マスタの複数メールで判定する。
+// 凍結された currentApproverEmail ではなく現在のマスタを参照するため、後からマスタに
+// 追加した担当者も既存案件を処理できる。
+function isStepApproverFor_(email, applicantEmail, department, step) {
+  if (step === STEPS.SUPERVISOR) {
+    return isSupervisorFor_(email, applicantEmail, department);
+  }
+  var field = stepRoleField_(step);
+  if (!field) { return false; }
+  var target = normalizeEmail_(email);
+  if (!target) { return false; }
+  var rule = findApproverRule_(applicantEmail, department);
+  return resolveStepApproversWithStar_(rule, step).some(function(approver) {
+    return approver.email === target;
+  });
+}
+
+function getApproverForStep_(rule, step) {
+  if (step === STEPS.SUPERVISOR) {
+    var supervisor = { email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上席' };
+    if (!supervisor.email) {
+      throw new Error(STEP_LABELS[step] + 'の承認者メールアドレスが未設定です。');
+    }
+    return supervisor;
+  }
+  // 複数登録時は先頭を代表として currentApproverEmail / 通知の既定にする。
+  // 部署別ルールに該当役職が無ければ '*' にフォールバックする。
+  var approvers = resolveStepApproversWithStar_(rule, step);
+  if (approvers.length === 0 || !approvers[0].email) {
     throw new Error(STEP_LABELS[step] + 'の承認者メールアドレスが未設定です。');
   }
-  approver.email = normalizeEmail_(approver.email);
-  return approver;
+  return { email: approvers[0].email, name: approvers[0].name, title: approvers[0].title };
 }
 
 function getDepartments_(approvers) {
@@ -1039,11 +1167,11 @@ function toClientApprover_(row) {
     applicantName: sanitizeText_(row.applicantName, 100),
     supervisorEmail: normalizeEmail_(row.supervisorEmail),
     supervisorName: sanitizeText_(row.supervisorName, 100),
-    generalManagerEmail: normalizeEmail_(row.generalManagerEmail),
+    generalManagerEmail: normalizeEmailList_(row.generalManagerEmail),
     generalManagerName: sanitizeText_(row.generalManagerName, 100),
-    presidentEmail: normalizeEmail_(row.presidentEmail),
+    presidentEmail: normalizeEmailList_(row.presidentEmail),
     presidentName: sanitizeText_(row.presidentName, 100),
-    purchasingEmail: normalizeEmail_(row.purchasingEmail),
+    purchasingEmail: normalizeEmailList_(row.purchasingEmail),
     purchasingName: sanitizeText_(row.purchasingName, 100),
     active: row.active === '' ? true : parseBoolean_(row.active),
     supervisorTitle: sanitizeText_(row.supervisorTitle, 40),

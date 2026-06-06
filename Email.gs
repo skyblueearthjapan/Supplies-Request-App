@@ -1,12 +1,63 @@
-function sendApprovalRequestEmail_(request, approver) {
+// 宛名のロール表記。
+function stepRoleSalutationLabel_(step) {
+  if (step === STEPS.SUPERVISOR) { return '上席'; }
+  if (step === STEPS.GENERAL_MANAGER) { return '総務'; }
+  if (step === STEPS.PRESIDENT) { return '社長'; }
+  if (step === STEPS.PURCHASING || step === STEPS.PURCHASING_QUOTE) { return '購買'; }
+  return 'ご担当';
+}
+
+// 氏名・役職から個別の宛名を作る。例: ('井嵐 太郎','係長','購買') → '購買 井嵐係長'。
+// 氏名なし → '<ロール> ご担当者 様'、役職なし → '<ロール> <姓> 様'。
+function approverSalutation_(name, title, roleLabel) {
+  var surname = name ? String(name).trim().split(/\s+/)[0] : '';
+  if (surname && title) { return roleLabel + ' ' + surname + title; }
+  if (surname) { return roleLabel + ' ' + surname + ' 様'; }
+  return roleLabel + ' ご担当者 様';
+}
+
+// 役職ステップの氏名・役職を承認者マスタから取得（部署別→'*' フォールバック、既定名は使わない）。
+function roleNameTitle_(applicantEmail, department, step) {
+  var field = stepRoleField_(step);
+  if (!field) { return { name: '', title: '' }; }
+  var rule = null;
+  try { rule = findApproverRule_(applicantEmail, department); } catch (error) { rule = null; }
+  var name = rule ? (rule[field + 'Name'] || '') : '';
+  var title = rule ? (rule[field + 'Title'] || '') : '';
+  if (!name) {
+    var star = findStarRule_();
+    if (star) {
+      name = star[field + 'Name'] || name;
+      if (!title) { title = star[field + 'Title'] || ''; }
+    }
+  }
+  return { name: name, title: title };
+}
+
+// 指定ステップの宛名。SUPERVISOR は承認者オブジェクト（DeptSupervisors 由来）を優先。
+function salutationForStep_(request, step, approver) {
+  var label = stepRoleSalutationLabel_(step);
+  if (step === STEPS.SUPERVISOR) {
+    return approverSalutation_(approver ? approver.name : '', approver ? approver.title : '', label);
+  }
+  var nt = roleNameTitle_(request.applicantEmail, request.department, step);
+  return approverSalutation_(nt.name, nt.title, label);
+}
+
+function sendApprovalRequestEmail_(request, approver, extraNote) {
   if (!approver || !approver.email) {
     return;
   }
   var clientRequest = toClientRequest_(request);
-  var subject = '[貯蔵品購入申請] 承認依頼 ' + request.requestId;
-  var body = [
-    approver.name + ' 様',
-    '',
+  var subject = (extraNote ? '【★至急・要社長決裁★】' : '') + '[貯蔵品購入申請] 承認依頼 ' + request.requestId;
+  var lines = [
+    salutationForStep_(request, request.currentStep, approver),
+    ''
+  ];
+  if (extraNote) {
+    lines.push(extraNote, '');
+  }
+  lines.push(
     '貯蔵品購入申請の承認依頼があります。',
     '',
     '申請番号: ' + request.requestId,
@@ -16,9 +67,9 @@ function sendApprovalRequestEmail_(request, approver) {
     '現在ステップ: ' + clientRequest.currentStepLabel,
     '',
     getRequestUrl_(request.requestId)
-  ].join('\n');
+  );
 
-  sendEmail_(approver.email, subject, body);
+  sendEmail_(approver.email, subject, lines.join('\n'));
 }
 
 function sendReturnedEmail_(request, comment) {
@@ -57,7 +108,7 @@ function sendCompletedEmail_(request) {
 function buildGeneralAffairsBody_(request, heading) {
   var clientRequest = toClientRequest_(request);
   return [
-    '総務部 ご担当者 様',
+    salutationForStep_(request, STEPS.GENERAL_MANAGER, null),
     '',
     heading,
     '',
@@ -118,7 +169,7 @@ function notifyGeneralAffairs_(request, subject, body, pdfFile) {
 function sendPurchasingPdfEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 手配依頼 ' + request.requestId;
   var body = [
-    '購買 ご担当者 様',
+    salutationForStep_(request, STEPS.PURCHASING, null),
     '',
     '押印済の申請書PDFを添付します。手配をお願いします。',
     '',
@@ -135,7 +186,7 @@ function sendPurchasingPdfEmail_(request, pdfFile) {
 function sendQuoteRequestEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 見積依頼 ' + request.requestId;
   var body = [
-    '購買 ご担当者 様',
+    salutationForStep_(request, STEPS.PURCHASING, null),
     '',
     '見積をお願いします。金額確定後、アプリ内で各明細の単価をご入力ください。',
     '押印済の申請書PDFを添付します。',
@@ -154,7 +205,7 @@ function resolveGeneralManagerEmail_(request) {
   try {
     var rule = findApproverRule_(request.applicantEmail, request.department);
     if (rule && rule.generalManagerEmail) {
-      return normalizeEmail_(rule.generalManagerEmail);
+      return splitEmails_(rule.generalManagerEmail).join(',');
     }
   } catch (error) {
     // ignore
@@ -166,7 +217,7 @@ function resolvePurchasingEmail_(request) {
   try {
     var rule = findApproverRule_(request.applicantEmail, request.department);
     if (rule && rule.purchasingEmail) {
-      return normalizeEmail_(rule.purchasingEmail);
+      return splitEmails_(rule.purchasingEmail).join(',');
     }
   } catch (error) {
     // ignore

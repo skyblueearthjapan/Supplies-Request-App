@@ -63,6 +63,19 @@ function splitEmails_(value) {
     .filter(Boolean);
 }
 
+// 承認者マスタの役職メール欄は「1部署に複数人」を許可するため、カンマ等区切りの
+// メール一覧を保持する。重複を除き正規化して ", " 連結で1セルに格納する。
+function normalizeEmailList_(value) {
+  var seen = {};
+  return splitEmails_(value).filter(function(email) {
+    if (seen[email]) {
+      return false;
+    }
+    seen[email] = true;
+    return true;
+  }).join(', ');
+}
+
 function isAdmin_(email) {
   var settings = getSettings_();
   var admins = splitEmails_(settings.adminEmails || '');

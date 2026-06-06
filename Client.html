@@ -20,6 +20,15 @@
   const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓', ESCALATE: '⤴' };
   const NG_REASONS = ['金額が過大', '用途・必要性が不明確', '見積書の添付が必要', '時期尚早・要再検討', '他部署と要調整'];
 
+  // 差し戻し時の運用ルール（注記）。各差し戻し操作の直前に表示する。
+  const RETURN_NOTICE_TEXT = '差し戻しの際は、差し戻し理由を明確に記載すること。そのうえで、申請者または上席者にこの申請書PDF（またはタブレットの全画面PDF表示）を提示し、直接、承認者へ説明を行うこと。';
+  function returnNoticeHtml() {
+    return '<div class="return-notice">' +
+      '<span class="rn-ic">⚠</span>' +
+      '<div class="rn-body"><b>差し戻し時の注記</b><div>' + escapeHtml(RETURN_NOTICE_TEXT) + '</div></div>' +
+      '</div>';
+  }
+
   const TAB_DEFS = [
     { key: 'form', view: 'formView', label: '新規申請' },
     { key: 'supervisor', view: 'listView', mode: 'supervisor', label: '上席承認待ち', countKey: 'supervisor' },
@@ -118,7 +127,9 @@
   function deptSelectOptions(workers, selectedDept) {
     const depts = uniqueSorted(workers.map(w => w.dept));
     if (selectedDept && depts.indexOf(selectedDept) < 0) { depts.unshift(selectedDept); }
-    return depts.map(d =>
+    // 既定では何も選ばせない（自動入力しない）。未選択時はプレースホルダを選択状態にする。
+    const placeholder = '<option value=""' + (selectedDept ? '' : ' selected') + '>部署を選択</option>';
+    return placeholder + depts.map(d =>
       '<option value="' + escapeAttr(d) + '"' + (d === selectedDept ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'
     ).join('');
   }
@@ -126,8 +137,14 @@
   function applicantSelectOptions(workers, dept, selectedName) {
     const names = uniqueSorted(workers.filter(w => w.dept === dept).map(w => w.name));
     if (selectedName && names.indexOf(selectedName) < 0) { names.unshift(selectedName); }
-    if (names.length === 0) { return '<option value="">（該当者なし）</option>'; }
-    return names.map(n =>
+    if (names.length === 0) {
+      // 部署未選択なら選択を促し、部署選択済みで該当者なしならその旨を表示。
+      return dept
+        ? '<option value="" selected>（該当者なし）</option>'
+        : '<option value="" selected>先に部署を選択</option>';
+    }
+    const placeholder = '<option value=""' + (selectedName ? '' : ' selected') + '>申請者を選択</option>';
+    return placeholder + names.map(n =>
       '<option value="' + escapeAttr(n) + '"' + (n === selectedName ? ' selected' : '') + '>' + escapeHtml(n) + '</option>'
     ).join('');
   }
@@ -136,8 +153,8 @@
     const data = state.bootstrap;
     formState.editingId = draft ? draft.request.requestId : '';
     formState.requestDate = draft ? draft.request.requestDate : todayStr();
-    formState.applicantName = draft ? draft.request.applicantName : data.user.name;
-    formState.department = draft ? draft.request.department : (data.myApproverRule ? data.myApproverRule.department : '');
+    formState.applicantName = draft ? draft.request.applicantName : '';
+    formState.department = draft ? draft.request.department : '';
     formState.reasonCode = draft ? draft.request.reasonCode : '';
     formState.reasonDetail = draft ? draft.request.reasonDetail : '';
     formState.items = draft ? draft.items.map(it => ({
@@ -154,7 +171,7 @@
       : field('部署', true, '<input class="control" type="text" id="f-dept" list="deptOptions" value="' + escapeAttr(formState.department) + '" maxlength="100"><datalist id="deptOptions">' + deptOptions + '</datalist>');
     const applicantNameCell = useMaster
       ? field('申請者', true, '<select class="control" id="f-applicant">' + applicantSelectOptions(workers, formState.department, formState.applicantName) + '</select>')
-      : field('申請者', true, '<input class="control" type="text" id="f-applicant" value="' + escapeAttr(formState.applicantName) + '" readonly>');
+      : field('申請者', true, '<input class="control" type="text" id="f-applicant" value="' + escapeAttr(formState.applicantName) + '" maxlength="100" placeholder="申請者名を入力">');
 
     document.getElementById('main').innerHTML =
       '<div class="fade-in">' +
@@ -210,6 +227,7 @@
       applicantSel.addEventListener('change', e => { formState.applicantName = e.target.value; });
     } else {
       document.getElementById('f-dept').addEventListener('input', e => { formState.department = e.target.value; });
+      document.getElementById('f-applicant').addEventListener('input', e => { formState.applicantName = e.target.value; });
     }
     document.getElementById('f-reasonDetail').addEventListener('input', e => { formState.reasonDetail = e.target.value; });
     document.getElementById('clearFormBtn').addEventListener('click', () => renderForm(null));
@@ -269,6 +287,8 @@
   }
 
   async function submitForm() {
+    if (!String(formState.department || '').trim()) { toast('部署を選択してください', 'err'); return; }
+    if (!String(formState.applicantName || '').trim()) { toast('申請者を選択してください', 'err'); return; }
     if (!formState.reasonCode) { toast('購入理由を選択してください', 'err'); return; }
     if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
     setBusy(true);
@@ -482,7 +502,8 @@
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge IN_REVIEW"><span class="dot"></span>手配待ち</span>' +
         '<span class="pill">商品の発注・手配が完了したら手配完了を記録、またはコメント付きで差戻しできます</span></div>' +
-        field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
+        returnNoticeHtml() +
+        field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
           '<button class="btn primary lg" id="arrangeBtn">✓ 手配完了</button>' +
@@ -491,7 +512,8 @@
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
         '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として承認またはコメント付きで差戻しできます</span></div>' +
-        field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を記入してください') +
+        returnNoticeHtml() +
+        field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
           '<button class="btn primary lg" id="approveBtn">✓ ' + escapeHtml(approveWord) + '</button>' +
@@ -594,7 +616,8 @@
       '<tfoot><tr><td colspan="3" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
       '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr></tfoot>' +
       '</table></div></div>' +
-      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を記入してください') +
+      returnNoticeHtml() +
+      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
       '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
         '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
         '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
@@ -931,6 +954,7 @@
     } else if (pmodeState.phase === 'confirm-return') {
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ng">✕</div>' +
         '<h3>この申請を差し戻します</h3><p class="psheet-sub">理由を選択または入力してください（申請者へ通知されます）。</p>' +
+        '<div class="psheet-notice">⚠ ' + escapeHtml(RETURN_NOTICE_TEXT) + '</div>' +
         '<div class="psheet-chips">' + NG_REASONS.map(c => '<button class="pchip' + (pmodeState.chips.indexOf(c) >= 0 ? ' on' : '') + '" data-chip="' + escapeAttr(c) + '">' + escapeHtml(c) + '</button>').join('') + '</div>' +
         '<textarea class="psheet-input" id="pmComment" rows="2" placeholder="補足コメント">' + escapeHtml(pmodeState.comment) + '</textarea>' +
         '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ng" id="pmConfirmNg">差戻しを確定</button></div></div></div>';
@@ -1039,7 +1063,6 @@
           '<span class="sub">承認ルート・しきい値・通知などアプリ全体の設定を管理します。</span></div>' +
           '<div class="head-actions">' +
             '<button class="btn ghost" id="clearSampleBtn">サンプル削除</button>' +
-            '<button class="btn" id="seedSampleBtn">サンプル投入</button>' +
             '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
           '</div></div>' +
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
@@ -1061,8 +1084,8 @@
             '</tr></thead><tbody id="' + role.body + '"></tbody></table></div>' +
             '<div class="card-pad" style="padding-top:14px"><span class="hint">' +
               (i === 0
-                ? '各承認者を役職カードごとに設定します。「*」は全体デフォルト（全部署共通）。特定部署だけ変える場合のみ部署名で行を追加してください。役職は決裁印（PDF）の下段に表示されます。上席はこのマスタではなく外部「DeptApprovers」で管理します。'
-                : '「*」は全体デフォルト。部署別に分ける場合のみ部署名で追加。') +
+                ? '各承認者を役職カードごとに設定します。「*」は全体デフォルト（全部署共通）。特定部署だけ変える場合のみ部署名で行を追加してください。同じ部署で「＋ 行を追加」して複数人を登録でき、その役職の誰でも対応（金額入力・承認）できます。役職は決裁印（PDF）の下段に表示されます（複数人の場合は代表1つ）。上席はこのマスタではなく外部「DeptApprovers」で管理します。'
+                : '「*」は全体デフォルト。部署別に分ける場合のみ部署名で追加。同じ部署で複数行にすると複数人が対応できます。') +
             '</span></div>' +
           '</div>';
         }).join('') +
@@ -1081,7 +1104,6 @@
       thrInput.addEventListener('blur', () => { thrInput.value = yen(amountDigits(thrInput.value)); });
     }
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
-    document.getElementById('seedSampleBtn').addEventListener('click', () => runSample('seedSampleData', 'デモ用サンプルデータを投入します。よろしいですか？'));
     document.getElementById('clearSampleBtn').addEventListener('click', () => runSample('clearSampleData', 'サンプル申請（SAMPLE-）をすべて削除します。よろしいですか？'));
     document.getElementById('syncDeptSupBtn').addEventListener('click', syncDeptSupervisors);
     renderDeptSupervisorRows();
@@ -1093,12 +1115,20 @@
       if (seen.length === 0) {
         addRoleApproverRow(role, { department: '*' });
       } else {
-        seen.forEach(r => addRoleApproverRow(role, {
-          department: r.department,
-          email: r[role.key + 'Email'] || '',
-          name: r[role.key + 'Name'] || '',
-          title: r[role.key + 'Title'] || ''
-        }));
+        // 保存時に連結されたメール一覧を、1人1行に展開して表示する（複数人対応）。
+        seen.forEach(r => {
+          const emails = String(r[role.key + 'Email'] || '').split(/[,\n;]/).map(s => s.trim()).filter(Boolean);
+          if (emails.length === 0) {
+            addRoleApproverRow(role, { department: r.department, email: '', name: r[role.key + 'Name'] || '', title: r[role.key + 'Title'] || '' });
+          } else {
+            emails.forEach((em, idx) => addRoleApproverRow(role, {
+              department: r.department,
+              email: em,
+              name: idx === 0 ? (r[role.key + 'Name'] || '') : '',
+              title: idx === 0 ? (r[role.key + 'Title'] || '') : ''
+            }));
+          }
+        });
       }
     });
 
@@ -1195,6 +1225,8 @@
         enableEmailNotifications: document.getElementById('a-notify').checked
       };
       // 役職カード3つを部署キーで1行に統合（撤去した上席/申請者列は送らない＝空欄化）。
+      // 同じ部署で複数行あるときはメールを連結し「1部署に複数の承認者」を許可する。
+      // 氏名・役職は代表（最初の非空）を採用する。
       const byDept = {};
       APPROVER_ROLES.forEach(role => {
         Array.from(document.querySelectorAll('#' + role.body + ' tr')).forEach(tr => {
@@ -1203,12 +1235,25 @@
           const dept = (o.department || '').trim();
           if (!dept) { return; }
           if (!byDept[dept]) { byDept[dept] = { department: dept, active: true }; }
-          byDept[dept][role.key + 'Email'] = o.email || '';
-          byDept[dept][role.key + 'Name'] = o.name || '';
-          byDept[dept][role.key + 'Title'] = o.title || '';
+          const row = byDept[dept];
+          const emailKey = role.key + 'Email';
+          const email = (o.email || '').trim();
+          if (email) {
+            row[emailKey] = row[emailKey] ? (row[emailKey] + ', ' + email) : email;
+          } else if (!row[emailKey]) {
+            row[emailKey] = '';
+          }
+          if ((o.name || '').trim() && !row[role.key + 'Name']) { row[role.key + 'Name'] = o.name.trim(); }
+          if ((o.title || '').trim() && !row[role.key + 'Title']) { row[role.key + 'Title'] = o.title.trim(); }
         });
       });
       const rows = Object.keys(byDept).map(d => byDept[d]);
+      // 全社共通（*）に購買・総務部長・社長が揃っているか点検。未設定だと申請が途中で止まる。
+      const star = byDept['*'] || {};
+      const missingStar = [];
+      if (!String(star.purchasingEmail || '').trim()) { missingStar.push('購買'); }
+      if (!String(star.generalManagerEmail || '').trim()) { missingStar.push('総務部長'); }
+      if (!String(star.presidentEmail || '').trim()) { missingStar.push('社長'); }
       const recipientRows = Array.from(document.querySelectorAll('#recipientBody tr')).map(tr => {
         const obj = {};
         tr.querySelectorAll('[data-field]').forEach(input => {
@@ -1221,7 +1266,14 @@
       state.bootstrap = await gas('saveSettings', settings);
       renderTopbar();
       renderAdmin();
-      toast('管理設定を保存しました', 'ok');
+      if (missingStar.length) {
+        toast('保存しましたが、全社共通(*)で未設定の役職があります', 'err');
+        window.alert('⚠ 全社共通（部署＝*）で次の役職が未設定です:\n\n　・' + missingStar.join('\n　・') +
+          '\n\nこのままだと、該当の申請がこのステップで「承認者メールアドレスが未設定です」エラーになり進めません。\n' +
+          '各役職カードに「部署＝*」「メール＝担当者のメール」の行を追加して保存してください。');
+      } else {
+        toast('管理設定を保存しました', 'ok');
+      }
     } catch (error) {
       toast(errText(error), 'err');
     } finally {

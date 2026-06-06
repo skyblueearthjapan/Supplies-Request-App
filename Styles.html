@@ -82,7 +82,14 @@
   .brand-text .co { font-size: 11px; letter-spacing: .14em; color: var(--header-sub); }
   .brand-text .ti { font-size: 16px; font-weight: 700; font-family: var(--font-head); }
 
-  .topbar-right { display: flex; align-items: center; gap: 18px; }
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  /* 社内ポータルへ戻る（参照リポジトリと同仕様の緑ボタン） */
+  .portal-link {
+    font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--ok); background: var(--ok); color: #fff;
+    text-decoration: none; white-space: nowrap; line-height: 1; transition: background .15s;
+  }
+  .portal-link:hover { background: #177a43; border-color: #177a43; color: #fff; }
   .userbox { display: flex; align-items: center; gap: 10px; }
   .avatar {
     width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center;
@@ -275,6 +282,13 @@
   .approve-panel { margin-top: 18px; padding: var(--pad); border: 1px solid var(--primary); border-radius: var(--radius-lg); background: var(--primary-tint); }
   .approve-panel .ap-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
   .approve-panel .ap-head .pill { font-size: 12px; font-weight: 700; color: var(--primary); }
+
+  /* 差し戻し時の注記 */
+  .return-notice { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--warn); background: var(--warn-tint); border-radius: var(--radius); }
+  .return-notice .rn-ic { font-size: 16px; line-height: 1.5; flex: none; }
+  .return-notice .rn-body { font-size: 12.5px; line-height: 1.7; color: #7a5510; }
+  .return-notice .rn-body b { display: block; margin-bottom: 2px; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
+  .psheet-notice { font-size: 12px; line-height: 1.6; color: #7a5510; background: var(--warn-tint); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; text-align: left; }
 
   .history { display: flex; flex-direction: column; }
   .hrow { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
