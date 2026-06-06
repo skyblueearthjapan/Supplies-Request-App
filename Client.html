@@ -1055,16 +1055,35 @@
   }
 
   /* ---------- 管理 ---------- */
+  // 管理画面のヘッダー（タイトル＋保存ボタン）を、固定済みの appbar（トップバー＋タブ）の
+  // すぐ下に貼り付けて固定する。下のカード群だけがスクロールする。
+  let adminStickyResizeBound = false;
+  function positionAdminStickyHead() {
+    const head = document.getElementById('adminStickyHead');
+    const appbar = document.querySelector('.appbar');
+    if (!head || !appbar) { return; }
+    head.style.top = appbar.offsetHeight + 'px';
+    if (!adminStickyResizeBound) {
+      adminStickyResizeBound = true;
+      window.addEventListener('resize', () => {
+        const h = document.getElementById('adminStickyHead');
+        const a = document.querySelector('.appbar');
+        if (h && a) { h.style.top = a.offsetHeight + 'px'; }
+      });
+    }
+  }
+
   function renderAdmin() {
     const s = state.bootstrap.settings;
     document.getElementById('main').innerHTML =
       '<div class="fade-in">' +
-        '<div class="page-head"><div class="title-wrap"><span class="eyebrow">Administration</span><h2>管理</h2>' +
-          '<span class="sub">承認ルート・しきい値・通知などアプリ全体の設定を管理します。</span></div>' +
-          '<div class="head-actions">' +
-            '<button class="btn ghost" id="clearSampleBtn">サンプル削除</button>' +
-            '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
-          '</div></div>' +
+        '<div class="admin-sticky-head" id="adminStickyHead">' +
+          '<div class="page-head"><div class="title-wrap"><span class="eyebrow">Administration</span><h2>管理</h2>' +
+            '<span class="sub">承認ルート・しきい値・通知などアプリ全体の設定を管理します。</span></div>' +
+            '<div class="head-actions">' +
+              '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
+            '</div></div>' +
+        '</div>' +
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
           field('社長決裁しきい値', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この金額を超える申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
           field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
@@ -1104,8 +1123,8 @@
       thrInput.addEventListener('blur', () => { thrInput.value = yen(amountDigits(thrInput.value)); });
     }
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
-    document.getElementById('clearSampleBtn').addEventListener('click', () => runSample('clearSampleData', 'サンプル申請（SAMPLE-）をすべて削除します。よろしいですか？'));
     document.getElementById('syncDeptSupBtn').addEventListener('click', syncDeptSupervisors);
+    positionAdminStickyHead();
     renderDeptSupervisorRows();
 
     const approverRows = state.bootstrap.approvers || [];

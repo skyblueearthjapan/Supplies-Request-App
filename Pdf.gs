@@ -105,7 +105,18 @@ function createRequestPdfInternal_(requestId, actor) {
     .newBlob(html, MimeType.HTML, fileName + '.html')
     .getAs(MimeType.PDF)
     .setName(fileName);
-  var file = getPdfFolder_().createFile(blob);
+
+  // 承認ステップごとにPDFが増殖しないよう、1申請＝1ファイルで置き換える。
+  // 既存PDFがあればゴミ箱へ移す（同じ申請IDの旧PDFを残さない）。
+  if (detail.request.pdfFileId) {
+    try {
+      DriveApp.getFileById(detail.request.pdfFileId).setTrashed(true);
+    } catch (trashError) {
+      // 既に削除済みなどは無視
+    }
+  }
+  // 既存PDFフォルダの中に、申請日ごとのサブフォルダを作って保管する。
+  var file = getPdfFolderForDate_(detail.request.requestDate).createFile(blob);
 
   updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
     updatedAt: nowString_(),

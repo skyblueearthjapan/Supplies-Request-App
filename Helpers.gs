@@ -111,6 +111,21 @@ function getPdfFolder_() {
   return folder;
 }
 
+// 申請日ごとのサブフォルダ（例「2026-06-06」）を取得（無ければ作成）。
+// PDFが1フォルダに溢れないよう、日付フォルダに整理して保管する。
+function getPdfFolderForDate_(dateStr) {
+  var root = getPdfFolder_();
+  var name = String(dateStr || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(name)) {
+    name = todayString_().slice(0, 10);
+  }
+  var existing = root.getFoldersByName(name);
+  if (existing.hasNext()) {
+    return existing.next();
+  }
+  return root.createFolder(name);
+}
+
 function jsonParse_(value, fallback) {
   if (!value) {
     return fallback;
