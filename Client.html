@@ -17,7 +17,14 @@
     PRESIDENT: '社長決裁',
     PURCHASING: '発注手配'
   };
-  const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓', ESCALATE: '⤴' };
+  const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓', ESCALATE: '⤴', QUOTE: '¥', EXPEDITE: '⚡' };
+
+  // 確定金額の表示。金額未入力でも「金額不要／至急承認」案件は明示する。
+  function amountLabel(r) {
+    if (r.totalAmount > 0) { return yen(r.totalAmount); }
+    if (r.amountWaived) { return '金額不要（至急）'; }
+    return '未確定';
+  }
   const NG_REASONS = ['金額が過大', '用途・必要性が不明確', '見積書の添付が必要', '時期尚早・要再検討', '他部署と要調整'];
 
   // 差し戻し時の運用ルール（注記）。各差し戻し操作の直前に表示する。
@@ -429,7 +436,7 @@
         '<td class="num" style="color:var(--muted)">' + escapeHtml(r.requestDate) + '</td>' +
         '<td><div class="who"><span class="av" style="background:' + avColor(r.applicantName) + '">' + escapeHtml(initials(r.applicantName)) + '</span><div><div class="nm">' + escapeHtml(r.applicantName) + '</div></div></div></td>' +
         '<td>' + escapeHtml(r.department) + '</td>' +
-        '<td class="cell-amt">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
+        '<td class="cell-amt">' + escapeHtml(amountLabel(r)) + '</td>' +
         '<td>' + badge(r.status, currentStateLabel(r)) + '</td>' +
         '<td>' + stepCell + '</td>' +
         '<td style="text-align:right;white-space:nowrap">' + action + '</td>' +
@@ -524,7 +531,7 @@
       dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
       dcell('申請者', escapeHtml(r.applicantName)) +
       dcell('部署', escapeHtml(r.department)) +
-      dcell('確定金額', '<span class="big">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</span>') +
+      dcell('確定金額', '<span class="big">' + escapeHtml(amountLabel(r)) + '</span>') +
       '<div class="dcell" style="grid-column:span 2"><div class="dl">購入理由</div><div class="dv">' + escapeHtml(r.reasonCode) + '. ' + escapeHtml(r.reasonLabel) + '</div></div>' +
       dcell('現在ステップ', escapeHtml(r.status === 'COMPLETED' ? '完了' : r.currentStepLabel)) +
       dcell('承認者', escapeHtml(r.currentApproverName || '—')) +
@@ -551,7 +558,7 @@
         '<td style="color:var(--muted)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
       '</tbody><tfoot><tr><td colspan="5" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
-      '<td class="cell-amt" style="font-size:15px">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
+      '<td class="cell-amt" style="font-size:15px">' + escapeHtml(amountLabel(r)) + '</td>' +
       '<td colspan="2"></td></tr></tfoot></table></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認履歴</h3><span class="hint">' + detail.history.length + ' 件のアクション</span></div>' +
@@ -620,8 +627,11 @@
       field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
       '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
         '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+        '<button class="btn lg" id="expediteBtn" style="background:var(--warn);border-color:var(--warn);color:#fff">⚡ 金額不要／至急承認</button>' +
         '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
-      '</div></div>';
+      '</div>' +
+      '<div class="hint" style="text-align:right;margin-top:6px">価格が商社と確定済みの標準品（CO2・酸素・溶接ワイヤー・標準塗装色・標準作動油 等）は「金額不要／至急承認」で総務部長へ至急回せます。</div>' +
+      '</div>';
   }
 
   function bindQuotePanel(detail) {
@@ -641,6 +651,27 @@
     document.querySelectorAll('.q-unit').forEach(input => input.addEventListener('input', recompute));
     const btn = document.getElementById('quoteBtn');
     if (btn) { btn.addEventListener('click', () => confirmQuoteAction(detail)); }
+    const eb = document.getElementById('expediteBtn');
+    if (eb) { eb.addEventListener('click', () => confirmExpeditedAction(detail)); }
+  }
+
+  async function confirmExpeditedAction(detail) {
+    if (!window.confirm('金額確定を行わず「至急承認（金額確定不要）」として総務部長へ回します。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      const comment = (document.getElementById('approveComment') || {}).value || '';
+      const updated = await gas('confirmExpedited', state.currentDetail.request.requestId, comment);
+      state.currentDetail = updated;
+      await refreshCounts();
+      renderDetail(updated);
+      renderTabs();
+      toast('至急承認（金額確定不要）として総務部長へ回しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmQuoteAction(detail) {
@@ -707,7 +738,7 @@
     if (key === 'APPLICANT') { return r.applicantName; }
     if (key === 'DONE') { return ''; }
     if (key === r.currentStep && r.status !== 'COMPLETED') { return r.currentApproverName || ''; }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE'));
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE' || x.action === 'EXPEDITE'));
     return h ? (h.actorName || '') : '';
   }
 
@@ -784,7 +815,7 @@
       '<div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt">' + escapeHtml(r.applicantEmail) + '</div></div>' +
       mcell('明細件数', '<span class="mono">' + detail.items.length + ' 件</span>') +
       mcell('状態', escapeHtml(r.statusLabel)) +
-      '<div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</div></div>' +
+      '<div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt">' + escapeHtml(amountLabel(r)) + '</div></div>' +
       '</div>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
@@ -802,7 +833,7 @@
         '<td style="font-size:8pt;color:var(--gray)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
       '</tbody><tfoot><tr><td colspan="4" class="tl">合計金額（税込）</td>' +
-      '<td class="tv">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</td>' +
+      '<td class="tv">' + escapeHtml(amountLabel(r)) + '</td>' +
       '<td colspan="2"></td></tr></tfoot></table>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div><div class="reasons-grid">' +
@@ -838,9 +869,14 @@
       const h = detail.history.slice().reverse().find(x => x.action === 'SUBMIT' || x.action === 'RESUBMIT');
       return h ? { name: h.actorName, date: h.happenedAt, kind: 'apply' } : null;
     }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE'));
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE' || x.action === 'EXPEDITE'));
     if (!h) { return null; }
-    return { name: h.actorName, date: h.happenedAt, kind: h.action === 'RETURN' ? 'ng' : 'approve' };
+    // 購買（見積・手配）のハンコは承認者マスタの購買氏名（例: 五十嵐）で表示する。
+    let stampName = h.actorName;
+    if ((key === 'PURCHASING_QUOTE' || key === 'PURCHASING') && detail.purchasingStampName) {
+      stampName = detail.purchasingStampName;
+    }
+    return { name: stampName, date: h.happenedAt, kind: h.action === 'RETURN' ? 'ng' : 'approve' };
   }
 
   function barcodeHtml(seed) {
@@ -948,7 +984,7 @@
       const sheetSub = isPurchasing ? '記録後、総務部へ通知されます。' : (isPres ? '承認後、購買へ進みます。' : '承認後、次のステップへ進みます。');
       const confirmWord = isPurchasing ? '手配完了を確定' : '承認を確定';
       sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ok">✓</div>' +
-        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '<br>' + escapeHtml(sheetSub) + '</p>' +
+        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + escapeHtml(amountLabel(r)) + '<br>' + escapeHtml(sheetSub) + '</p>' +
         '<input class="psheet-input" id="pmComment" placeholder="コメント（任意）" value="' + escapeAttr(pmodeState.comment) + '">' +
         '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ok" id="pmConfirmOk">' + escapeHtml(confirmWord) + '</button></div></div></div>';
     } else if (pmodeState.phase === 'confirm-return') {
@@ -974,7 +1010,7 @@
       '<div class="pmode-bar"><div class="pmode-bar-l"><span class="pmode-kicker">' + escapeHtml(kicker) + '</span>' +
         '<span class="pmode-id mono">' + escapeHtml(r.requestId) + '</span>' +
         '<span class="pmode-meta">' + escapeHtml(r.applicantName) + '（' + escapeHtml(r.department) + '）</span></div>' +
-        '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">確定金額</span><span class="pa-v mono">' + (r.totalAmount > 0 ? escapeHtml(yen(r.totalAmount)) : '未確定') + '</span></div>' +
+        '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">確定金額</span><span class="pa-v mono">' + escapeHtml(amountLabel(r)) + '</span></div>' +
         '<button class="pmode-close" id="pmClose">閉じる ✕</button></div></div>' +
       '<div class="pmode-stage" id="pmStage"><div class="pmode-paper" id="pmPaper"><div class="pmode-paper-inner" id="pmPaperInner">' + pdfDocHtml(detail, { variant: 'decision' }) + '</div></div></div>' +
       actions + sheet + '</div>';

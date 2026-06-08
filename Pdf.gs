@@ -78,8 +78,13 @@ function createRequestPdfInternal_(requestId, actor) {
       }
       for (i = history.length - 1; i >= 0; i--) {
         if (history[i].fromStep === stepKey &&
-          (history[i].action === ACTION.APPROVE || history[i].action === ACTION.COMPLETE || history[i].action === ACTION.RETURN || history[i].action === ACTION.QUOTE)) {
-          return { name: history[i].actorName || history[i].actorEmail, date: history[i].happenedAt, kind: history[i].action === ACTION.RETURN ? 'ng' : 'approve' };
+          (history[i].action === ACTION.APPROVE || history[i].action === ACTION.COMPLETE || history[i].action === ACTION.RETURN || history[i].action === ACTION.QUOTE || history[i].action === ACTION.EXPEDITE)) {
+          var stampName = history[i].actorName || history[i].actorEmail;
+          // 購買（見積・手配）のハンコは承認者マスタの購買氏名（例: 五十嵐）で表示する。
+          if ((stepKey === STEPS.PURCHASING_QUOTE || stepKey === STEPS.PURCHASING) && detail.purchasingStampName) {
+            stampName = detail.purchasingStampName;
+          }
+          return { name: stampName, date: history[i].happenedAt, kind: history[i].action === ACTION.RETURN ? 'ng' : 'approve' };
         }
       }
       return null;
@@ -161,6 +166,7 @@ function buildPdfDetail_(requestId) {
     items: items,
     history: history,
     stepTitles: resolveStepTitles_(request, history),
+    purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name),
     generatedAt: nowString_(),
     thresholdAmount: getThresholdAmount_()
   };

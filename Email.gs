@@ -47,12 +47,13 @@ function salutationForStep_(request, step, approver) {
   return approverSalutation_(nt.name, nt.title, label);
 }
 
-function sendApprovalRequestEmail_(request, approver, extraNote) {
+function sendApprovalRequestEmail_(request, approver, extraNote, subjectPrefix) {
   if (!approver || !approver.email) {
     return;
   }
   var clientRequest = toClientRequest_(request);
-  var subject = (extraNote ? '【★至急・要社長決裁★】' : '') + '[貯蔵品購入申請] 承認依頼 ' + request.requestId;
+  var prefix = subjectPrefix || (extraNote ? '【★至急・要社長決裁★】' : '');
+  var subject = prefix + '[貯蔵品購入申請] 承認依頼 ' + request.requestId;
   var lines = [
     salutationForStep_(request, request.currentStep, approver),
     ''
@@ -230,9 +231,13 @@ function resolvePurchasingEmail_(request) {
 
 // 確定金額の表記。購買確定前（0）は「未確定（購買確定前）」を返す。
 function amountText_(request) {
-  return parseNumber_(request.totalAmount) > 0
-    ? formatCurrency_(request.totalAmount)
-    : '未確定（購買確定前）';
+  if (parseNumber_(request.totalAmount) > 0) {
+    return formatCurrency_(request.totalAmount);
+  }
+  if (parseBoolean_(request.amountWaived)) {
+    return '金額確定不要（至急手配）';
+  }
+  return '未確定（購買確定前）';
 }
 
 function sendEmail_(to, subject, body) {

@@ -23,6 +23,11 @@ function normalizeEmail_(value) {
   return sanitizeText_(value, 256).toLowerCase();
 }
 
+// 氏名欄の役職カッコ（例「五十嵐（購買）」）を除去して姓名のみにする。
+function stripRoleParen_(name) {
+  return String(name || '').replace(/[（(][^）)]*[）)]/g, '').trim();
+}
+
 function parseNumber_(value) {
   if (value === '' || value === null || value === undefined) {
     return 0;
@@ -160,6 +165,7 @@ function toClientRequest_(request) {
     currentApproverName: request.currentApproverName,
     route: jsonParse_(request.routeJson, []),
     isPresidentPending: request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PRESIDENT,
+    amountWaived: parseBoolean_(request.amountWaived),
     pdfFileId: request.pdfFileId,
     pdfUrl: request.pdfUrl,
     version: request.version

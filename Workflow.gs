@@ -319,7 +319,8 @@ function getRequestDetail(requestId) {
       canQuote: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING_QUOTE,
       canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
     },
-    stepTitles: resolveStepTitles_(request, history)
+    stepTitles: resolveStepTitles_(request, history),
+    purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name)
   };
 }
 
@@ -554,6 +555,73 @@ function confirmQuote(requestId, items, comment) {
   }
 }
 
+// 購買(見積)ステップの操作（金額確定不要・至急承認）。
+// 価格が商社と確定済みの標準品（CO2・酸素・溶接ワイヤー・標準塗装色・標準作動油 等）で、
+// 生産停止を避けるため金額確定せずに至急手配したい案件向け。金額は入力せず、
+// 経路は通常どおり 総務部長承認→手配。総務部へは通常と区別した「至急承認」メールを送る。
+function confirmExpedited(requestId, comment) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    if (!canApprove_(request, user) || request.currentStep !== STEPS.PURCHASING_QUOTE) {
+      throw new Error('購買担当者のみ操作できます。');
+    }
+
+    // 金額確定不要のため社長決裁は経由しない（総務部長承認→手配）。
+    var newRoute = [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
+    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+    var gm = getApproverForStep_(approverRule, STEPS.GENERAL_MANAGER);
+    var cleanComment = sanitizeText_(comment, 1000);
+    var now = nowString_();
+
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+      updatedAt: now,
+      amountWaived: 'true',
+      routeJson: JSON.stringify(newRoute),
+      status: STATUS.IN_REVIEW,
+      currentStep: STEPS.GENERAL_MANAGER,
+      currentApproverEmail: gm.email,
+      currentApproverName: gm.name
+    });
+    addHistory_({
+      requestId: requestId,
+      actorEmail: user.email,
+      actorName: user.name,
+      action: ACTION.EXPEDITE,
+      fromStatus: STATUS.IN_REVIEW,
+      toStatus: STATUS.IN_REVIEW,
+      fromStep: STEPS.PURCHASING_QUOTE,
+      toStep: STEPS.GENERAL_MANAGER,
+      comment: ['金額確定不要・至急手配を依頼', cleanComment].filter(Boolean).join(' ')
+    });
+
+    var updated = getRequestById_(requestId);
+    var expediteBanner = [
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      '⚡⚡⚡ 至急承認のお願い（金額確定不要）⚡⚡⚡',
+      '━━━━━━━━━━━━━━━━━━━━━━',
+      'この申請は金額確定が不要な標準品（価格は商社と確定済み）です。',
+      '生産を止めないため、購買にて至急手配を開始したい案件です。',
+      '金額確定は行いません。総務部長の至急承認をお願いします。',
+      '━━━━━━━━━━━━━━━━━━━━━━'
+    ].join('\n');
+    var gaHeading = expediteBanner + '\n\n購買より、金額確定不要・至急手配の申請です。' +
+      (cleanComment ? '\n備考: ' + cleanComment : '');
+    notifyGeneralAffairs_(
+      updated,
+      '【⚡至急承認・金額確定不要⚡】[貯蔵品購入申請] ' + updated.requestId,
+      buildGeneralAffairsBody_(updated, gaHeading),
+      null
+    );
+    sendApprovalRequestEmail_(updated, gm, expediteBanner, '【⚡至急承認・金額確定不要⚡】');
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // 購買(手配)ステップの操作。承認が揃った案件の手配を完了し、案件をクローズする。
 function arrangeComplete(requestId, comment) {
   var lock = LockService.getScriptLock();
@@ -565,7 +633,8 @@ function arrangeComplete(requestId, comment) {
       throw new Error('購買担当者のみ手配完了できます。');
     }
     // 手配完了時点で確定金額が必須（旧フローで見積を経ていない案件の¥0完了・社長決裁迂回を防ぐ）。
-    if (!(parseNumber_(request.totalAmount) > 0)) {
+    // ただし「金額不要・至急承認」で進めた案件は金額確定不要のため対象外。
+    if (!(parseNumber_(request.totalAmount) > 0) && !parseBoolean_(request.amountWaived)) {
       throw new Error('確定金額が未入力です。見積（金額入力）が未完了の案件は、差戻し→再申請してください。');
     }
 

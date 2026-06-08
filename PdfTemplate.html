@@ -148,7 +148,7 @@
         <div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt"><?!= helpers.escapeHtml(req.applicantEmail) ?></div></div>
         <div class="mcell"><div class="mk">明細件数</div><div class="mv mono"><?!= detail.items.length ?> 件</div></div>
         <div class="mcell"><div class="mk">状態</div><div class="mv"><?!= helpers.escapeHtml(helpers.statusLabel(req.status)) ?></div></div>
-        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else { ?>未確定<? } ?></div></div>
+        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></div></div>
       </div>
 
       <div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount"><?!= detail.items.length ?> ITEMS</span></div>
@@ -176,7 +176,7 @@
         <tfoot>
           <tr>
             <td colspan="4" class="tl">合計金額（税込）</td>
-            <td class="tv"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else { ?>未確定<? } ?></td>
+            <td class="tv"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></td>
             <td colspan="2"></td>
           </tr>
         </tfoot>

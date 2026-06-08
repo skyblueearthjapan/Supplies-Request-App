@@ -58,7 +58,8 @@ var REQUEST_COLUMNS = [
   'routeJson',
   'pdfFileId',
   'pdfUrl',
-  'version'
+  'version',
+  'amountWaived'
 ];
 
 var ITEM_COLUMNS = [
@@ -151,6 +152,7 @@ var ACTION = Object.freeze({
   COMPLETE: 'COMPLETE',
   ESCALATE: 'ESCALATE',
   QUOTE: 'QUOTE',
+  EXPEDITE: 'EXPEDITE',
   PDF_GENERATE: 'PDF_GENERATE'
 });
 
@@ -163,6 +165,7 @@ var ACTION_LABELS = Object.freeze({
   COMPLETE: '完了',
   ESCALATE: '社長決裁へ',
   QUOTE: '金額確定',
+  EXPEDITE: '金額不要・至急',
   PDF_GENERATE: 'PDF作成'
 });
 
