@@ -1043,9 +1043,9 @@
     const inner = document.getElementById('pmPaperInner');
     if (!stage || !paper || !inner) { return; }
     const availW = stage.clientWidth - 52;
-    // 視認性優先で「表示エリアの横幅いっぱい」まで拡大（高さがはみ出る分は縦スクロール）。
-    // 大きすぎ防止に上限2.4倍。
-    const scale = Math.max(0.2, Math.min(availW / 793.7, 2.4));
+    // 視認性優先で「表示エリアの横幅いっぱい」付近まで拡大（高さがはみ出る分は縦スクロール）。
+    // 横幅いっぱいだと窮屈なため約13%控えめに。大きすぎ防止に上限2.4倍。
+    const scale = Math.max(0.2, Math.min(availW / 793.7, 2.4)) * 0.87;
     paper.style.width = (793.7 * scale) + 'px';
     paper.style.height = (1122.5 * scale) + 'px';
     inner.style.transform = 'scale(' + scale + ')';
