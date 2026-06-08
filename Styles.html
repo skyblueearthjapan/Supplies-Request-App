@@ -294,6 +294,12 @@
   .return-notice .rn-body b { display: block; margin-bottom: 2px; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
   .psheet-notice { font-size: 12px; line-height: 1.6; color: #7a5510; background: var(--warn-tint); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; text-align: left; }
 
+  /* 承認時の注意事項（責任・代理押印禁止） */
+  .approver-notice { margin: 4px 0 14px; padding: 12px 14px; border: 1.5px solid var(--warn); background: var(--warn-tint); border-radius: var(--radius); }
+  .approver-notice .an-head { font-weight: 800; color: var(--warn); font-size: 13px; margin-bottom: 6px; letter-spacing: .02em; }
+  .approver-notice .an-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; color: #7a5510; }
+  .approver-notice .an-list li { margin: 2px 0; }
+
   .history { display: flex; flex-direction: column; }
   .hrow { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
   .hrow:last-child { border-bottom: 0; }
@@ -379,11 +385,13 @@
   .pmode-close { border: 1px solid #3a3f4d; background: transparent; color: #fff; padding: 9px 16px; border-radius: 10px; font-weight: 700; font-size: 13px; }
   .pmode-close:hover { background: #2a2f3b; }
 
-  .pmode-stage { flex: 1; overflow: hidden; padding: 24px 28px; display: flex; justify-content: center; align-items: center; min-height: 0; }
+  .pmode-stage { flex: 1; overflow: auto; padding: 24px 28px; display: flex; justify-content: center; align-items: flex-start; min-height: 0; }
   .pmode-paper { position: relative; box-shadow: 0 24px 70px -18px rgba(0,0,0,.6); border-radius: 2px; flex: none; }
   .pmode-paper-inner { transform-origin: top left; width: 793.7px; height: 1122.5px; position: absolute; top: 0; left: 0; }
 
   .pmode-actions { flex: none; background: rgba(22,25,34,.96); border-top: 1px solid #2a2f3b; padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .pmode-notice { flex-basis: 100%; width: 100%; color: #ffd9a3; background: rgba(208,130,20,.18); border: 1px solid var(--warn); border-radius: 8px; padding: 9px 13px; font-size: 12.5px; line-height: 1.6; }
+  .pmode-notice b { color: #ffcf8a; }
   .pmode-prompt { color: #fff; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
   .pmode-prompt .pp-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 35%, transparent); }
   .pmode-btns { display: flex; gap: 14px; }
