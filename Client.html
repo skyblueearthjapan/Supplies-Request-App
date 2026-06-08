@@ -41,6 +41,8 @@
     '内容を確認せずに承認しないでください。確認不十分な承認の責任は承認者が負います。',
     '本人不在時の代理押印（ハンコの代用）は固く禁止します。承認は必ずご本人が行ってください。'
   ];
+  // 全画面モードのバナー用（画面を覆わないよう短縮版）。
+  const APPROVER_NOTICE_SHORT = '内容を必ず確認のうえ承認を。確認不十分な承認の責任は承認者が負います。本人不在時の代理押印（ハンコ代用）は禁止です。';
   function isApproverNoticeStep(step) {
     return step === 'SUPERVISOR' || step === 'GENERAL_MANAGER';
   }
@@ -503,13 +505,15 @@
     const isArrange = r.currentStep === 'PURCHASING';
     const approveWord = isArrange ? '手配完了' : '承認する';
 
-    // タブレット（全画面）CTAは上席・総務部長・社長のみ。見積／手配ステップでは出さない。
-    if ((p.canTabletApprove || p.canPresident) && !p.canQuote && !p.canArrange) {
-      const isPres = p.canPresident && !p.canApprove;
+    // 全画面（タブレット）承認モードは、上席・総務部長・社長の承認ステップなら
+    // どのアカウントでも開ける（自分の端末で承認者に見せてその場で承認を得る運用）。
+    if (r.status === 'IN_REVIEW' &&
+        (r.currentStep === 'SUPERVISOR' || r.currentStep === 'GENERAL_MANAGER' || r.currentStep === 'PRESIDENT')) {
+      const isPres = r.currentStep === 'PRESIDENT';
       const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して承認';
       const ctaDesc = isPres
         ? 'タブレットで申請書を提示し、その場で承認・差戻しを記録できます。'
-        : '申請書を全画面で確認し、その場で承認・差戻しを記録できます。';
+        : '申請書を全画面で提示し、承認者にその場で承認・差戻しをしてもらえます。';
       const ctaBtn = isPres ? '➤ 社長決裁モードを開く' : '➤ 全画面で確認して承認';
       html += '<div class="president-cta"><div class="pc-l"><div class="pc-ic">▣</div><div class="pc-t">' +
         '<b>' + escapeHtml(ctaTitle) + '</b><div>' + escapeHtml(ctaDesc) + '</div></div></div>' +
@@ -942,10 +946,7 @@
     try {
       const detail = await gas('getRequestDetail', requestId);
       const p = detail.permissions || {};
-      if (!p.canApprove && !p.canPresident) {
-        toast('この案件を承認できる権限がありません。', 'err');
-        return;
-      }
+      // 全画面承認モードは誰でも開ける（承認者に見せてその場で承認を得るキオスク運用）。
       pmodeState.detail = detail;
       pmodeState.phase = 'view';
       pmodeState.comment = '';
@@ -986,7 +987,7 @@
     if (pmodeState.phase === 'view') {
       const prompt = isPurchasing ? 'この申請の手配が完了しましたか？' : 'この申請を承認してよろしいでしょうか？';
       actions = '<div class="pmode-actions">' +
-        (isApproverNoticeStep(r.currentStep) ? '<div class="pmode-notice"><b>⚠ 承認は責任を伴います</b>　' + escapeHtml(APPROVER_NOTICE_LINES.join(' ')) + '</div>' : '') +
+        (isApproverNoticeStep(r.currentStep) ? '<div class="pmode-notice"><b>⚠ 承認は責任を伴います</b>　' + escapeHtml(APPROVER_NOTICE_SHORT) + '</div>' : '') +
         '<div class="pmode-prompt"><span class="pp-dot"></span>' + escapeHtml(prompt) + '</div>' +
         '<div class="pmode-btns">' +
           '<button class="pbtn ng" id="pmNg"><span class="pbtn-ic">✕</span><span><b>差し戻す</b><small>NG・要修正</small></span></button>' +
@@ -1042,10 +1043,9 @@
     const inner = document.getElementById('pmPaperInner');
     if (!stage || !paper || !inner) { return; }
     const availW = stage.clientWidth - 52;
-    const availH = stage.clientHeight - 44;
-    // 通常は画面に収まる倍率だが、視認性のため約130%に拡大（高さがはみ出る分はスクロール）。
-    const baseScale = Math.max(0.2, Math.min(availW / 793.7, availH / 1122.5));
-    const scale = baseScale * 1.3;
+    // 視認性優先で「表示エリアの横幅いっぱい」まで拡大（高さがはみ出る分は縦スクロール）。
+    // 大きすぎ防止に上限2.4倍。
+    const scale = Math.max(0.2, Math.min(availW / 793.7, 2.4));
     paper.style.width = (793.7 * scale) + 'px';
     paper.style.height = (1122.5 * scale) + 'px';
     inner.style.transform = 'scale(' + scale + ')';
@@ -1086,22 +1086,22 @@
     setBusy(true);
     try {
       let updated;
-      if (pmodeState.canApprove) {
-        // ログインユーザー自身が現承認者（上席・総務部長・購買 等）。
-        updated = decision === 'approve'
-          ? await gas('approveRequest', r.requestId, comment)
-          : await gas('returnRequest', r.requestId, comment);
+      const step = r.currentStep;
+      if (step === 'PRESIDENT') {
+        // 社長決裁。本人/管理者でなければキオスク代理として記録。
+        const kiosk = !pmodeState.canPresident;
+        updated = await gas('recordPresidentDecision', r.requestId, decision, comment, kiosk);
       } else {
-        // 管理者が社長の代理として決裁を記録。
-        updated = await gas('recordPresidentDecision', r.requestId, decision, comment);
+        // 上席・総務部長の承認/差戻し。本人でなければキオスク代理として記録。
+        const kiosk = !pmodeState.canApprove;
+        updated = decision === 'approve'
+          ? await gas('approveRequest', r.requestId, comment, kiosk)
+          : await gas('returnRequest', r.requestId, comment, kiosk);
       }
       pmodeState.detail = updated;
       pmodeState.phase = decision === 'approve' ? 'done-approve' : 'done-return';
       renderPmode();
-      const okMsg = pmodeState.canApprove
-        ? (decision === 'approve' ? (isPurchasing ? '手配完了を記録しました' : '承認しました') : '差戻ししました')
-        : '社長決裁の結果を記録しました';
-      toast(okMsg, 'ok');
+      toast(decision === 'approve' ? '承認を記録しました' : '差戻しを記録しました', 'ok');
     } catch (error) {
       toast(errText(error), 'err');
     } finally {

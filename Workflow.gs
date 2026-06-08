@@ -324,13 +324,14 @@ function getRequestDetail(requestId) {
   };
 }
 
-function approveRequest(requestId, comment) {
+function approveRequest(requestId, comment, kiosk) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (!canApprove_(request, user)) {
+    // kiosk=全画面承認モードでの代理記録時は本人以外でも可（運用・物理管理に依存）。
+    if (!kiosk && !canApprove_(request, user)) {
       throw new Error('現在の承認者のみ承認できます。');
     }
     // 購買(見積)は金額入力が必須のため confirmQuote 経由のみ許可する。
@@ -371,17 +372,23 @@ function approveRequest(requestId, comment) {
       patch.currentApproverName = nextApprover.name;
     }
 
+    var actEmail = user.email, actName = user.name, cmt = sanitizeText_(comment, 1000);
+    if (kiosk) {
+      var ka = kioskAttribution_(request, user, comment);
+      actEmail = ka.email; actName = ka.name; cmt = ka.comment;
+    }
+
     updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, patch);
     addHistory_({
       requestId: requestId,
-      actorEmail: user.email,
-      actorName: user.name,
+      actorEmail: actEmail,
+      actorName: actName,
       action: nextStep === STEPS.DONE ? ACTION.COMPLETE : ACTION.APPROVE,
       fromStatus: request.status,
       toStatus: patch.status,
       fromStep: request.currentStep,
       toStep: patch.currentStep,
-      comment: sanitizeText_(comment, 1000)
+      comment: cmt
     });
 
     var updated = getRequestById_(requestId);
@@ -668,19 +675,25 @@ function arrangeComplete(requestId, comment) {
   }
 }
 
-function returnRequest(requestId, comment) {
+function returnRequest(requestId, comment, kiosk) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (!canApprove_(request, user)) {
+    if (!kiosk && !canApprove_(request, user)) {
       throw new Error('現在の承認者のみ差戻しできます。');
     }
 
     var cleanComment = sanitizeText_(comment, 1000);
     if (!cleanComment) {
       throw new Error('差戻しコメントを入力してください。');
+    }
+
+    var actEmail = user.email, actName = user.name, histComment = cleanComment;
+    if (kiosk) {
+      var ka = kioskAttribution_(request, user, comment);
+      actEmail = ka.email; actName = ka.name; histComment = ka.comment;
     }
 
     updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
@@ -692,14 +705,14 @@ function returnRequest(requestId, comment) {
     });
     addHistory_({
       requestId: requestId,
-      actorEmail: user.email,
-      actorName: user.name,
+      actorEmail: actEmail,
+      actorName: actName,
       action: ACTION.RETURN,
       fromStatus: request.status,
       toStatus: STATUS.RETURNED,
       fromStep: request.currentStep,
       toStep: STEPS.APPLICANT,
-      comment: cleanComment
+      comment: histComment
     });
 
     var updated = getRequestById_(requestId);
@@ -750,13 +763,14 @@ function getTabCounts() {
   return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange };
 }
 
-function recordPresidentDecision(requestId, decision, comment) {
+function recordPresidentDecision(requestId, decision, comment, kiosk) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (!canPresident_(request, user)) {
+    // kiosk=全画面承認モードでの代理記録時は本人以外でも可。代理は履歴に注記される。
+    if (!kiosk && !canPresident_(request, user)) {
       throw new Error('社長または管理者（総務部長）のみ社長決裁を記録できます。');
     }
 
@@ -1064,6 +1078,16 @@ function isCurrentApprover_(request, userEmail) {
     return false;
   }
   return splitEmails_(request.currentApproverEmail).indexOf(target) !== -1;
+}
+
+// キオスク代理（全画面承認モードを他人の端末で操作）時の記録属性。
+// ハンコ・履歴には現ステップの正規承認者を記録し、操作者は注記で明示する。
+function kioskAttribution_(request, user, comment) {
+  return {
+    email: request.currentApproverEmail || user.email,
+    name: request.currentApproverName || user.name,
+    comment: [sanitizeText_(comment, 1000), '（' + user.name + 'の端末で代理記録）'].filter(Boolean).join(' ')
+  };
 }
 
 function canApprove_(request, user) {
