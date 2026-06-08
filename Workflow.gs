@@ -230,33 +230,25 @@ function getRequests(filter) {
         }
         return admin && isPresidentPendingRow_(request);
       }
+      // 進捗確認のため、ステップ別一覧・全申請は全アカウントで閲覧可能（読み取り専用）。
+      // 承認・金額入力などの操作可否は canApprove_ 等で別途制御されるため、見えても操作はできない。
       if (mode === 'supervisor') {
-        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR &&
-          (admin || isCurrentApprover_(request, user.email) ||
-            isSupervisorFor_(user.email, request.applicantEmail, request.department));
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.SUPERVISOR;
       }
       if (mode === 'quote') {
-        return request.currentStep === STEPS.PURCHASING_QUOTE &&
-          (admin || isCurrentApprover_(request, user.email) ||
-            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PURCHASING_QUOTE));
+        return request.currentStep === STEPS.PURCHASING_QUOTE;
       }
       if (mode === 'gm') {
-        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.GENERAL_MANAGER &&
-          (admin || isCurrentApprover_(request, user.email) ||
-            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.GENERAL_MANAGER));
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.GENERAL_MANAGER;
       }
       if (mode === 'president') {
-        return isPresidentPendingRow_(request) &&
-          (admin || isCurrentApprover_(request, user.email) ||
-            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PRESIDENT));
+        return isPresidentPendingRow_(request);
       }
       if (mode === 'arrange') {
-        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PURCHASING &&
-          (admin || isCurrentApprover_(request, user.email) ||
-            isStepApproverFor_(user.email, request.applicantEmail, request.department, STEPS.PURCHASING));
+        return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PURCHASING;
       }
       if (mode === 'all') {
-        return admin;
+        return true;
       }
       return normalizeEmail_(request.applicantEmail) === user.email;
     })
@@ -662,29 +654,28 @@ function getTabCounts() {
     var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
     var isQuote = request.currentStep === STEPS.PURCHASING_QUOTE;
-    var mineApprove = isCurrentApprover_(request, user.email);
-    // 現ステップの承認者集合（上席／購買・総務部長・社長の複数登録）に含まれるか。
-    var mineMember = (inReview || isPres) &&
-      isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep);
-    var mineSupervisor = inReview && request.currentStep === STEPS.SUPERVISOR &&
-      isSupervisorFor_(user.email, request.applicantEmail, request.department);
-    if (mineApprove || mineMember || (admin && isPres)) {
-      pending++;
-    }
-    if (inReview && request.currentStep === STEPS.SUPERVISOR && (admin || mineApprove || mineSupervisor)) {
+    // ステップ別の件数は全アカウント共通（一覧が全員に見えるため、バッジも全体件数で揃える）。
+    if (inReview && request.currentStep === STEPS.SUPERVISOR) {
       supervisor++;
     }
-    if (isQuote && (admin || mineApprove || mineMember)) {
+    if (isQuote) {
       quote++;
     }
-    if (inReview && request.currentStep === STEPS.GENERAL_MANAGER && (admin || mineApprove || mineMember)) {
+    if (inReview && request.currentStep === STEPS.GENERAL_MANAGER) {
       gm++;
     }
-    if (isPres && (admin || mineApprove || mineMember)) {
+    if (isPres) {
       president++;
     }
-    if (inReview && request.currentStep === STEPS.PURCHASING && (admin || mineApprove || mineMember)) {
+    if (inReview && request.currentStep === STEPS.PURCHASING) {
       arrange++;
+    }
+    // pending は「自分が対応すべき件数」（個人別）。タブには未使用だが従来どおり返す。
+    var mineApprove = isCurrentApprover_(request, user.email);
+    var mineMember = (inReview || isPres) &&
+      isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep);
+    if (mineApprove || mineMember || (admin && isPres)) {
+      pending++;
     }
   });
   return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange };
@@ -973,18 +964,23 @@ function assertReadable_(request, user) {
   }
 }
 
+// 認証済みユーザーは全申請を閲覧できる（進捗確認用・読み取り専用）。
+// 承認・金額入力・差戻し等の操作可否は canApprove_ 等で別途制御される。
 function canRead_(request, user) {
+  return !!(user && user.email);
+}
+
+// 申請に直接関与している人か（申請者／現承認者／管理者／現ステップ承認者集合／過去の操作者）。
+// PDF再作成など、閲覧より強い操作の可否判定に使う。
+function isInvolved_(request, user) {
   if (normalizeEmail_(request.applicantEmail) === user.email ||
     isCurrentApprover_(request, user.email) ||
     isAdmin_(user.email)) {
     return true;
   }
-
-  // 現ステップの承認者集合（上席／購買・総務部長・社長の複数登録）に含まれる人も閲覧可。
   if (isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep)) {
     return true;
   }
-
   return readObjects_(SHEETS.HISTORY, HISTORY_COLUMNS).some(function(row) {
     return row.requestId === request.requestId && normalizeEmail_(row.actorEmail) === user.email;
   });
@@ -1024,7 +1020,7 @@ function canEdit_(request, user) {
 }
 
 function canGeneratePdf_(request, user) {
-  return request.status === STATUS.COMPLETED && canRead_(request, user);
+  return request.status === STATUS.COMPLETED && isInvolved_(request, user);
 }
 
 function requireApproverRule_(applicantEmail, department) {
