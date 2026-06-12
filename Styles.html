@@ -269,6 +269,12 @@
   .cat-opt:hover { border-color: var(--muted); }
   .cat-opt.on { border-color: var(--primary); background: var(--primary-tint); color: var(--primary); }
 
+  /* 一覧・詳細で品目区分を一目で示すバッジ */
+  .cat-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1.7; border: 1px solid transparent; white-space: nowrap; }
+  .cat-chip.MECH { color: #1d4ed8; background: rgba(37,99,235,.12); border-color: rgba(37,99,235,.32); }
+  .cat-chip.ELEC { color: #b45309; background: rgba(208,130,20,.16); border-color: rgba(208,130,20,.42); }
+  .cat-chip.GENERAL { color: var(--muted); background: var(--surface-2); border-color: var(--line); }
+
   /* ---------- Stepper（B案：縦タイムライン） ---------- */
   .stepper-card { padding: var(--pad); }
   .step-t { display: flex; flex-direction: column; }
@@ -513,7 +519,7 @@
   .pdf-doc .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; border: .8pt solid var(--ink); }
   .pdf-doc .mcell { padding: 6px 9px; border-right: .6pt solid var(--hair); border-bottom: .6pt solid var(--hair); }
   .pdf-doc .mcell.wide { grid-column: span 2; }
-  .pdf-doc .mcell:nth-child(4n) { border-right: 0; }
+  /* 各行の右端セルは個別に style="border-right:0" を付ける（wideセルでDOM順と列がずれるため一律ルールは使わない）。 */
   .pdf-doc .mcell .mk { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
   .pdf-doc .mcell .mv { font-size: 10pt; font-weight: 500; }
   .pdf-doc .mcell .mv.amt { font-family: var(--mono); font-weight: 700; font-size: 12pt; }
