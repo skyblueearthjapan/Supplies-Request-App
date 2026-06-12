@@ -35,7 +35,22 @@ var RECIPIENT_COLUMNS = ['type', 'email', 'name', 'active', 'sendAs'];
 
 var RECIPIENT_TYPES = Object.freeze({
   GENERAL_AFFAIRS: 'GENERAL_AFFAIRS',
-  PURCHASING: 'PURCHASING'
+  PURCHASING: 'PURCHASING',
+  PURCHASING_ELEC: 'PURCHASING_ELEC'
+});
+
+// 申請の品目区分。メール送付先（メカ購買／電気購買）の振り分けに使う。
+// メカ購買は一般兼用のため、GENERAL（一般・不明）は MECH と同じ宛先に送る。
+var CATEGORIES = Object.freeze({
+  MECH: 'MECH',
+  ELEC: 'ELEC',
+  GENERAL: 'GENERAL'
+});
+
+var CATEGORY_LABELS = Object.freeze({
+  MECH: 'メカ',
+  ELEC: '電気',
+  GENERAL: '一般・不明'
 });
 
 var REQUEST_COLUMNS = [
@@ -59,7 +74,8 @@ var REQUEST_COLUMNS = [
   'pdfFileId',
   'pdfUrl',
   'version',
-  'amountWaived'
+  'amountWaived',
+  'category'
 ];
 
 var ITEM_COLUMNS = [
@@ -92,7 +108,10 @@ var APPROVER_COLUMNS = [
   'supervisorTitle',
   'generalManagerTitle',
   'presidentTitle',
-  'purchasingTitle'
+  'purchasingTitle',
+  'purchasingElecEmail',
+  'purchasingElecName',
+  'purchasingElecTitle'
 ];
 
 var HISTORY_COLUMNS = [

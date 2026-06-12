@@ -173,24 +173,25 @@ function notifyGeneralAffairs_(request, subject, body, pdfFile) {
 function sendPurchasingPdfEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 手配依頼 ' + request.requestId;
   var body = [
-    salutationForStep_(request, STEPS.PURCHASING, null),
+    approverSalutation_('', '', stepRoleSalutationLabel_(STEPS.PURCHASING)),
     '',
     '押印済の申請書PDFを添付します。手配をお願いします。',
     '',
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
     '部署: ' + request.department,
+    '品目区分: ' + categoryLabel_(request),
     '確定金額: ' + amountText_(request),
     '',
     getRequestUrl_(request.requestId)
   ].join('\n');
-  sendTypedNotification_(RECIPIENT_TYPES.PURCHASING, resolvePurchasingEmail_(request), subject, body, pdfFile);
+  sendPurchasingByCategory_(request, subject, body, pdfFile);
 }
 
 function sendQuoteRequestEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 見積依頼 ' + request.requestId;
   var body = [
-    salutationForStep_(request, STEPS.PURCHASING, null),
+    approverSalutation_('', '', stepRoleSalutationLabel_(STEPS.PURCHASING)),
     '',
     '見積をお願いします。金額確定後、アプリ内で各明細の単価をご入力ください。',
     '押印済の申請書PDFを添付します。',
@@ -198,11 +199,98 @@ function sendQuoteRequestEmail_(request, pdfFile) {
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
     '部署: ' + request.department,
+    '品目区分: ' + categoryLabel_(request),
     '確定金額: ' + amountText_(request),
     '',
     getRequestUrl_(request.requestId)
   ].join('\n');
-  sendTypedNotification_(RECIPIENT_TYPES.PURCHASING, resolvePurchasingEmail_(request), subject, body, pdfFile);
+  sendPurchasingByCategory_(request, subject, body, pdfFile);
+}
+
+function categoryLabel_(request) {
+  return CATEGORY_LABELS[normalizeCategory_(request.category)];
+}
+
+// 品目区分に応じて主担当購買（TO）ともう一方の購買（CC）を決める。
+// 電気 → 電気購買が主担当、メカ／一般・不明 → メカ購買（一般兼用）が主担当。
+function purchasingTypesForCategory_(category) {
+  if (normalizeCategory_(category) === CATEGORIES.ELEC) {
+    return { primary: RECIPIENT_TYPES.PURCHASING_ELEC, secondary: RECIPIENT_TYPES.PURCHASING };
+  }
+  return { primary: RECIPIENT_TYPES.PURCHASING, secondary: RECIPIENT_TYPES.PURCHASING_ELEC };
+}
+
+// 種別ごとのフォールバック宛先（通知宛先マスタが空のとき承認者マスタを参照）。
+function purchasingFallbackByType_(type, request) {
+  return type === RECIPIENT_TYPES.PURCHASING_ELEC
+    ? resolvePurchasingElecEmail_(request)
+    : resolvePurchasingEmail_(request);
+}
+
+// 見積依頼・手配依頼メールを品目区分で振り分けて1通送る。
+// TO  = 主担当購買（区分の担当）の To 宛先（無ければ承認者マスタの該当購買メールにフォールバック、
+//       それも無く CC のみなら CC を To に昇格）。
+// CC  = 主担当の CC 宛先 ＋ もう一方の購買（共有用、無ければ承認者マスタにフォールバック）。
+//       To と重複する宛先は除外する。
+function sendPurchasingByCategory_(request, subject, body, pdfFile) {
+  var settings = getSettings_();
+  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+    return;
+  }
+
+  var roles = purchasingTypesForCategory_(request.category);
+  var primarySplit = getRecipientsSplit_(roles.primary);
+  var to = primarySplit.to.slice();
+  var cc = primarySplit.cc.slice();
+
+  if (to.length === 0) {
+    var fb = splitEmails_(purchasingFallbackByType_(roles.primary, request));
+    if (fb.length > 0) {
+      to = fb;
+    } else if (cc.length > 0) {
+      // 主担当が CC のみ設定のとき、To を確保するため CC を昇格。
+      to = cc;
+      cc = [];
+    }
+  }
+
+  // もう一方の購買は共有のため必ず CC へ（通知宛先が無ければ承認者マスタにフォールバック）。
+  var secondaryEmails = getRecipientEmails_(roles.secondary);
+  if (secondaryEmails.length === 0) {
+    secondaryEmails = splitEmails_(purchasingFallbackByType_(roles.secondary, request));
+  }
+
+  var seen = {};
+  to.forEach(function(email) { seen[email] = true; });
+  var mergedCc = [];
+  cc.concat(secondaryEmails).forEach(function(email) {
+    if (email && !seen[email]) {
+      seen[email] = true;
+      mergedCc.push(email);
+    }
+  });
+
+  if (to.length === 0 && mergedCc.length === 0) {
+    return;
+  }
+  if (to.length === 0) {
+    to = mergedCc;
+    mergedCc = [];
+  }
+
+  var options = {
+    to: to.join(','),
+    subject: subject,
+    body: body,
+    name: APP.NAME
+  };
+  if (mergedCc.length > 0) {
+    options.cc = mergedCc.join(',');
+  }
+  if (pdfFile) {
+    options.attachments = [pdfFile.getBlob()];
+  }
+  MailApp.sendEmail(options);
 }
 
 function resolveGeneralManagerEmail_(request) {
@@ -222,6 +310,18 @@ function resolvePurchasingEmail_(request) {
     var rule = findApproverRule_(request.applicantEmail, request.department);
     if (rule && rule.purchasingEmail) {
       return splitEmails_(rule.purchasingEmail).join(',');
+    }
+  } catch (error) {
+    // ignore
+  }
+  return '';
+}
+
+function resolvePurchasingElecEmail_(request) {
+  try {
+    var rule = findApproverRule_(request.applicantEmail, request.department);
+    if (rule && rule.purchasingElecEmail) {
+      return splitEmails_(rule.purchasingElecEmail).join(',');
     }
   } catch (error) {
     // ignore

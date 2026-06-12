@@ -156,6 +156,8 @@ function toClientRequest_(request) {
     reasonCode: request.reasonCode,
     reasonLabel: getReasonLabel_(request.reasonCode),
     reasonDetail: request.reasonDetail,
+    category: normalizeCategory_(request.category),
+    categoryLabel: CATEGORY_LABELS[normalizeCategory_(request.category)],
     totalAmount: parseNumber_(request.totalAmount),
     status: request.status,
     statusLabel: STATUS_LABELS[request.status] || request.status,
@@ -177,6 +179,12 @@ function getReasonLabel_(code) {
     return item.code === code;
   });
   return reason ? reason.label : '';
+}
+
+// 品目区分を正規化する。未知・空（旧申請）は GENERAL（一般・不明＝メカ購買宛）に倒す。
+function normalizeCategory_(category) {
+  var key = sanitizeText_(category, 20).toUpperCase();
+  return Object.prototype.hasOwnProperty.call(CATEGORIES, key) ? key : CATEGORIES.GENERAL;
 }
 
 function formatCurrency_(value) {

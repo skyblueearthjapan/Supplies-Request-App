@@ -259,6 +259,16 @@
   .reason.on .rc { background: var(--primary); color: #fff; }
   .reason .rl { font-size: 12.5px; line-height: 1.5; }
 
+  /* ---------- 品目区分セグメント ---------- */
+  .cat-seg { display: flex; gap: 10px; flex-wrap: wrap; }
+  .cat-opt {
+    flex: 1 1 0; min-width: 120px; padding: 12px 16px; border: 1px solid var(--line);
+    border-radius: var(--radius); cursor: pointer; transition: all .14s; background: var(--surface);
+    font-family: var(--font-head); font-weight: 700; font-size: 14px; color: var(--ink-soft); text-align: center;
+  }
+  .cat-opt:hover { border-color: var(--muted); }
+  .cat-opt.on { border-color: var(--primary); background: var(--primary-tint); color: var(--primary); }
+
   /* ---------- Stepper（B案：縦タイムライン） ---------- */
   .stepper-card { padding: var(--pad); }
   .step-t { display: flex; flex-direction: column; }

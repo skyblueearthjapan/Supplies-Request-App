@@ -50,7 +50,8 @@
       .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 12px; border: .8pt solid var(--ink); }
       .mcell { padding: 6px 9px; border-right: .6pt solid var(--hair); border-bottom: .6pt solid var(--hair); }
       .mcell.wide { grid-column: span 2; }
-      .mcell:nth-child(4n) { border-right: 0; }
+      /* 各行の右端セルは個別に style="border-right:0" を付与して制御する
+         （wide セルがあると nth-child のDOM順と表示列がずれるため一律ルールは使わない）。 */
       .mcell .mk { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
       .mcell .mv { font-size: 10pt; font-weight: 500; }
       .mcell .mv.amt { font-family: var(--mono); font-weight: 700; font-size: 12pt; }
@@ -145,10 +146,11 @@
       <div class="meta">
         <div class="mcell"><div class="mk">部署</div><div class="mv"><?!= helpers.escapeHtml(req.department) ?></div></div>
         <div class="mcell"><div class="mk">申請者</div><div class="mv"><?!= helpers.escapeHtml(req.applicantName) ?></div></div>
-        <div class="mcell wide"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt"><?!= helpers.escapeHtml(req.applicantEmail) ?></div></div>
+        <div class="mcell wide" style="border-right:0"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt"><?!= helpers.escapeHtml(req.applicantEmail) ?></div></div>
+        <div class="mcell"><div class="mk">品目区分</div><div class="mv"><?!= helpers.escapeHtml(req.categoryLabel) ?></div></div>
         <div class="mcell"><div class="mk">明細件数</div><div class="mv mono"><?!= detail.items.length ?> 件</div></div>
         <div class="mcell"><div class="mk">状態</div><div class="mv"><?!= helpers.escapeHtml(helpers.statusLabel(req.status)) ?></div></div>
-        <div class="mcell wide" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></div></div>
+        <div class="mcell" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></div></div>
       </div>
 
       <div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount"><?!= detail.items.length ?> ITEMS</span></div>

@@ -62,7 +62,14 @@
     { key: 'admin', view: 'adminView', label: '管理', admin: true }
   ];
 
-  const formState = { editingId: '', requestDate: '', applicantName: '', department: '', reasonCode: '', reasonDetail: '', items: [] };
+  const formState = { editingId: '', requestDate: '', applicantName: '', department: '', category: 'GENERAL', reasonCode: '', reasonDetail: '', items: [] };
+
+  // 品目区分（メール送付先の振り分けに使用）。メカ購買は一般兼用のため一般・不明はメカ購買宛。
+  const CATEGORY_OPTIONS = [['MECH', 'メカ'], ['ELEC', '電気'], ['GENERAL', '一般・不明']];
+  function categoryLabel(code) {
+    const found = CATEGORY_OPTIONS.find(c => c[0] === code);
+    return found ? found[1] : '一般・不明';
+  }
 
   document.addEventListener('DOMContentLoaded', initialize);
 
@@ -177,6 +184,7 @@
     formState.requestDate = draft ? draft.request.requestDate : todayStr();
     formState.applicantName = draft ? draft.request.applicantName : '';
     formState.department = draft ? draft.request.department : '';
+    formState.category = draft ? (draft.request.category || 'GENERAL') : 'GENERAL';
     formState.reasonCode = draft ? draft.request.reasonCode : '';
     formState.reasonDetail = draft ? draft.request.reasonDetail : '';
     formState.items = draft ? draft.items.map(it => ({
@@ -211,6 +219,15 @@
           applicantDeptCell +
           applicantNameCell +
         '</div></div></div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>品目区分</h3><span class="hint">購買の担当（メール送付先）を振り分けます。メカ・一般／不明はメカ購買、電気は電気購買へ送付します</span></div>' +
+          '<div class="card-pad"><div class="cat-seg" id="categorySeg">' +
+            CATEGORY_OPTIONS.map(c =>
+              '<button type="button" class="cat-opt' + (formState.category === c[0] ? ' on' : '') + '" data-cat="' + escapeAttr(c[0]) + '">' + escapeHtml(c[1]) + '</button>'
+            ).join('') +
+          '</div></div>' +
+        '</div>' +
 
         '<div class="card">' +
           '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・数量・希望納期などを入力してください</span></div>' +
@@ -252,6 +269,13 @@
       document.getElementById('f-applicant').addEventListener('input', e => { formState.applicantName = e.target.value; });
     }
     document.getElementById('f-reasonDetail').addEventListener('input', e => { formState.reasonDetail = e.target.value; });
+    const categorySeg = document.getElementById('categorySeg');
+    if (categorySeg) {
+      categorySeg.querySelectorAll('.cat-opt').forEach(btn => btn.addEventListener('click', () => {
+        formState.category = btn.dataset.cat;
+        categorySeg.querySelectorAll('.cat-opt').forEach(b => b.classList.toggle('on', b.dataset.cat === formState.category));
+      }));
+    }
     document.getElementById('clearFormBtn').addEventListener('click', () => renderForm(null));
     document.getElementById('addItemBtn').addEventListener('click', () => { formState.items.push(emptyItem()); renderItemCards(); });
     document.getElementById('submitBtn').addEventListener('click', submitForm);
@@ -319,6 +343,7 @@
         requestDate: formState.requestDate,
         applicantName: formState.applicantName,
         department: formState.department,
+        category: formState.category,
         reasonCode: formState.reasonCode,
         reasonDetail: formState.reasonDetail,
         items: formState.items
@@ -549,6 +574,7 @@
       dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
       dcell('申請者', escapeHtml(r.applicantName)) +
       dcell('部署', escapeHtml(r.department)) +
+      dcell('品目区分', escapeHtml(r.categoryLabel || categoryLabel(r.category))) +
       dcell('確定金額', '<span class="big">' + escapeHtml(amountLabel(r)) + '</span>') +
       '<div class="dcell" style="grid-column:span 2"><div class="dl">購入理由</div><div class="dv">' + escapeHtml(r.reasonCode) + '. ' + escapeHtml(r.reasonLabel) + '</div></div>' +
       dcell('現在ステップ', escapeHtml(r.status === 'COMPLETED' ? '完了' : r.currentStepLabel)) +
@@ -1167,7 +1193,7 @@
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
             '<th>種別</th><th>送信区分</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
           '</tr></thead><tbody id="recipientBody"></tbody></table></div>' +
-          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先、購買＝押印済PDFの送付先。同一種別に複数宛先を登録でき、同じ1通のメールに送られます。送信区分で To / CC を選べます（CC のみの場合は To に昇格して送信）。</span></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先。購買（メカ・一般兼用）＝メカ／一般・不明の見積依頼・手配依頼の送付先。電気購買＝電気区分の送付先。見積・手配メールは品目区分で主担当購買を To に、もう一方の購買を CC に入れて1通で送ります（区分が電気なら電気購買が To、それ以外はメカ購買が To）。電気購買が未設定なら自動的にメカ購買へ送られます。同一種別に複数宛先を登録でき、送信区分で To / CC を選べます（CC のみの場合は To に昇格）。</span></div>' +
         '</div>' +
       '</div>';
 
@@ -1215,7 +1241,7 @@
     }
   }
 
-  const RECIPIENT_TYPES = [['GENERAL_AFFAIRS', '総務部'], ['PURCHASING', '購買']];
+  const RECIPIENT_TYPES = [['GENERAL_AFFAIRS', '総務部'], ['PURCHASING', '購買（メカ・一般兼用）'], ['PURCHASING_ELEC', '電気購買']];
 
   function addRecipientRow(row) {
     row = row || {};
@@ -1270,7 +1296,8 @@
 
   // 承認者マスタを役職ごとのカードに分割。各カードは部署/メール/氏名/役職。
   const APPROVER_ROLES = [
-    { key: 'purchasing', title: '購買', body: 'purApproverBody', addBtn: 'addPurApproverBtn' },
+    { key: 'purchasing', title: '購買（メカ・一般兼用）', body: 'purApproverBody', addBtn: 'addPurApproverBtn' },
+    { key: 'purchasingElec', title: '電気購買', body: 'purElecApproverBody', addBtn: 'addPurElecApproverBtn' },
     { key: 'generalManager', title: '総務部長', body: 'gmApproverBody', addBtn: 'addGmApproverBtn' },
     { key: 'president', title: '社長', body: 'presApproverBody', addBtn: 'addPresApproverBtn' }
   ];

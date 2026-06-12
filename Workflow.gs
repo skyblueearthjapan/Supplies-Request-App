@@ -64,6 +64,7 @@ function createRequest(payload) {
       reasonCode: normalized.reasonCode,
       reasonDetail: normalized.reasonDetail,
       totalAmount: normalized.totalAmount,
+      category: normalized.category,
       status: STATUS.IN_REVIEW,
       currentStep: firstStep,
       currentApproverEmail: firstApprover.email,
@@ -121,7 +122,8 @@ function updateRequestDraft(requestId, payload) {
       requestDate: normalized.requestDate,
       reasonCode: normalized.reasonCode,
       reasonDetail: normalized.reasonDetail,
-      totalAmount: normalized.totalAmount
+      totalAmount: normalized.totalAmount,
+      category: normalized.category
     });
     replaceItems_(requestId, normalized.items);
     addHistory_({
@@ -954,6 +956,7 @@ function normalizeRequestPayload_(payload, user) {
   var input = payload || {};
   var requestDate = sanitizeText_(input.requestDate, 20) || todayString_();
   var department = sanitizeText_(input.department, 100);
+  var category = normalizeCategory_(input.category);
   var reasonCode = sanitizeText_(input.reasonCode, 1);
   var validReason = REASONS.some(function(reason) {
     return reason.code === reasonCode;
@@ -1001,6 +1004,7 @@ function normalizeRequestPayload_(payload, user) {
   return {
     applicantName: sanitizeText_(input.applicantName, 100) || user.name,
     department: department,
+    category: category,
     requestDate: requestDate,
     reasonCode: reasonCode,
     reasonDetail: sanitizeText_(input.reasonDetail, 2000),
@@ -1164,7 +1168,24 @@ function resolveStepApprovers_(rule, step) {
   if (!rule) { return []; }
   var field = stepRoleField_(step);
   if (!field) { return []; }
-  var name = rule[field + 'Name'] || stepRoleDefaultName_(step);
+  var members = approverMembersFromField_(rule, field, stepRoleDefaultName_(step));
+  // 購買ステップ（見積／手配）は、品目区分に関わらずメカ購買・電気購買の双方が
+  // アプリ上で操作（見積入力・手配完了・承認）できる。メール宛先の振り分け（TO/CC）は
+  // 区分で行うが、操作権限は両購買に開放する。代表（先頭）はメカ購買を優先する。
+  if (field === 'purchasing') {
+    var elec = approverMembersFromField_(rule, 'purchasingElec', '電気購買');
+    var seen = {};
+    members.forEach(function(m) { seen[m.email] = true; });
+    elec.forEach(function(m) {
+      if (m.email && !seen[m.email]) { seen[m.email] = true; members.push(m); }
+    });
+  }
+  return members;
+}
+
+// 承認者ルールの <field>Email / <field>Name / <field>Title から承認者配列を作る。
+function approverMembersFromField_(rule, field, defaultName) {
+  var name = rule[field + 'Name'] || defaultName || '';
   var title = rule[field + 'Title'] || '';
   return splitEmails_(rule[field + 'Email']).map(function(email) {
     return { email: email, name: name, title: title };
@@ -1262,11 +1283,14 @@ function toClientApprover_(row) {
     presidentName: sanitizeText_(row.presidentName, 100),
     purchasingEmail: normalizeEmailList_(row.purchasingEmail),
     purchasingName: sanitizeText_(row.purchasingName, 100),
+    purchasingElecEmail: normalizeEmailList_(row.purchasingElecEmail),
+    purchasingElecName: sanitizeText_(row.purchasingElecName, 100),
     active: row.active === '' ? true : parseBoolean_(row.active),
     supervisorTitle: sanitizeText_(row.supervisorTitle, 40),
     generalManagerTitle: sanitizeText_(row.generalManagerTitle, 40),
     presidentTitle: sanitizeText_(row.presidentTitle, 40),
-    purchasingTitle: sanitizeText_(row.purchasingTitle, 40)
+    purchasingTitle: sanitizeText_(row.purchasingTitle, 40),
+    purchasingElecTitle: sanitizeText_(row.purchasingElecTitle, 40)
   };
 }
 
@@ -1321,10 +1345,13 @@ function toServerApprover_(row) {
     presidentName: client.presidentName,
     purchasingEmail: client.purchasingEmail,
     purchasingName: client.purchasingName,
+    purchasingElecEmail: client.purchasingElecEmail,
+    purchasingElecName: client.purchasingElecName,
     active: String(client.active),
     supervisorTitle: client.supervisorTitle,
     generalManagerTitle: client.generalManagerTitle,
     presidentTitle: client.presidentTitle,
-    purchasingTitle: client.purchasingTitle
+    purchasingTitle: client.purchasingTitle,
+    purchasingElecTitle: client.purchasingElecTitle
   };
 }
