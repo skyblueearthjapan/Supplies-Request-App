@@ -956,7 +956,8 @@ function normalizeRequestPayload_(payload, user) {
   var input = payload || {};
   var requestDate = sanitizeText_(input.requestDate, 20) || todayString_();
   var department = sanitizeText_(input.department, 100);
-  var category = normalizeCategory_(input.category);
+  // 品目区分は必須。未選択（空・未知の値）は既定に倒さずエラーにする。
+  var category = sanitizeText_(input.category, 20).toUpperCase();
   var reasonCode = sanitizeText_(input.reasonCode, 1);
   var validReason = REASONS.some(function(reason) {
     return reason.code === reasonCode;
@@ -964,6 +965,9 @@ function normalizeRequestPayload_(payload, user) {
 
   if (!department) {
     throw new Error('部署を入力してください。');
+  }
+  if (!Object.prototype.hasOwnProperty.call(CATEGORIES, category)) {
+    throw new Error('品目区分（メカ／電気／一般・不明）を選択してください。');
   }
   if (!validReason) {
     throw new Error('購入理由A-Fを選択してください。');

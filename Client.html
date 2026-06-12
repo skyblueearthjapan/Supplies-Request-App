@@ -62,7 +62,7 @@
     { key: 'admin', view: 'adminView', label: '管理', admin: true }
   ];
 
-  const formState = { editingId: '', requestDate: '', applicantName: '', department: '', category: 'GENERAL', reasonCode: '', reasonDetail: '', items: [] };
+  const formState = { editingId: '', requestDate: '', applicantName: '', department: '', category: '', reasonCode: '', reasonDetail: '', items: [] };
 
   // 品目区分（メール送付先の振り分けに使用）。メカ購買は一般兼用のため一般・不明はメカ購買宛。
   const CATEGORY_OPTIONS = [['MECH', 'メカ'], ['ELEC', '電気'], ['GENERAL', '一般・不明']];
@@ -184,7 +184,7 @@
     formState.requestDate = draft ? draft.request.requestDate : todayStr();
     formState.applicantName = draft ? draft.request.applicantName : '';
     formState.department = draft ? draft.request.department : '';
-    formState.category = draft ? (draft.request.category || 'GENERAL') : 'GENERAL';
+    formState.category = draft ? (draft.request.category || '') : '';
     formState.reasonCode = draft ? draft.request.reasonCode : '';
     formState.reasonDetail = draft ? draft.request.reasonDetail : '';
     formState.items = draft ? draft.items.map(it => ({
@@ -221,7 +221,7 @@
         '</div></div></div>' +
 
         '<div class="card">' +
-          '<div class="card-head"><h3>品目区分</h3><span class="hint">購買の担当（メール送付先）を振り分けます。メカ・一般／不明はメカ購買、電気は電気購買へ送付します</span></div>' +
+          '<div class="card-head"><h3>品目区分 <span class="req">必須</span></h3><span class="hint">購買の担当（メール送付先）を振り分けます。メカ・一般／不明はメカ購買、電気は電気購買へ送付します</span></div>' +
           '<div class="card-pad"><div class="cat-seg" id="categorySeg">' +
             CATEGORY_OPTIONS.map(c =>
               '<button type="button" class="cat-opt' + (formState.category === c[0] ? ' on' : '') + '" data-cat="' + escapeAttr(c[0]) + '">' + escapeHtml(c[1]) + '</button>'
@@ -335,6 +335,7 @@
   async function submitForm() {
     if (!String(formState.department || '').trim()) { toast('部署を選択してください', 'err'); return; }
     if (!String(formState.applicantName || '').trim()) { toast('申請者を選択してください', 'err'); return; }
+    if (!formState.category) { toast('品目区分を選択してください', 'err'); return; }
     if (!formState.reasonCode) { toast('購入理由を選択してください', 'err'); return; }
     if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
     setBusy(true);
