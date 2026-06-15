@@ -34,6 +34,26 @@ function getRecipientEmails_(type) {
     });
 }
 
+// 指定種別の有効な TO 宛先の表示名一覧（重複除去・表示名未設定はスキップ）。
+// メール本文の宛名生成に使う。CC 宛先は宛名に含めないため対象外。
+function getRecipientToNames_(type) {
+  var seen = {};
+  return getRecipients_()
+    .filter(function(row) {
+      return row.active && row.type === type && row.email && row.sendAs === 'TO' && row.name;
+    })
+    .filter(function(row) {
+      if (seen[row.email]) {
+        return false;
+      }
+      seen[row.email] = true;
+      return true;
+    })
+    .map(function(row) {
+      return row.name;
+    });
+}
+
 // 指定種別の有効宛先を To / CC に振り分けて返す（重複除去・同一メールは先勝ち）。
 function getRecipientsSplit_(type) {
   var to = [];

@@ -170,10 +170,22 @@ function notifyGeneralAffairs_(request, subject, body, pdfFile) {
   sendTypedNotification_(RECIPIENT_TYPES.GENERAL_AFFAIRS, resolveGeneralManagerEmail_(request), subject, body, pdfFile);
 }
 
+// 手配依頼・見積依頼メールの宛名。品目区分の主担当購買（TO 宛先）の表示名をそのまま使う。
+// 「様」等の敬称は表示名側で付与する運用のため付けない。CC 宛先は宛名に含めない。
+// 複数 TO は改行で並べ、表示名付き TO が無ければ従来の汎用宛名にフォールバック。
+function purchasingSalutation_(request) {
+  var roles = purchasingTypesForCategory_(request.category);
+  var names = getRecipientToNames_(roles.primary);
+  if (names.length === 0) {
+    return approverSalutation_('', '', stepRoleSalutationLabel_(STEPS.PURCHASING));
+  }
+  return names.join('\n');
+}
+
 function sendPurchasingPdfEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 手配依頼 ' + request.requestId;
   var body = [
-    approverSalutation_('', '', stepRoleSalutationLabel_(STEPS.PURCHASING)),
+    purchasingSalutation_(request),
     '',
     '押印済の申請書PDFを添付します。手配をお願いします。',
     '',
@@ -191,7 +203,7 @@ function sendPurchasingPdfEmail_(request, pdfFile) {
 function sendQuoteRequestEmail_(request, pdfFile) {
   var subject = '[貯蔵品購入申請] 見積依頼 ' + request.requestId;
   var body = [
-    approverSalutation_('', '', stepRoleSalutationLabel_(STEPS.PURCHASING)),
+    purchasingSalutation_(request),
     '',
     '見積をお願いします。金額確定後、アプリ内で各明細の単価をご入力ください。',
     '押印済の申請書PDFを添付します。',
