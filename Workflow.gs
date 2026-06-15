@@ -367,7 +367,7 @@ function approveRequest(requestId, comment, kiosk) {
       patch.completedAt = now;
     } else {
       var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-      nextApprover = getApproverForStep_(approverRule, nextStep);
+      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
       patch.status = STATUS.IN_REVIEW;
       patch.currentStep = nextStep;
       patch.currentApproverEmail = nextApprover.email;
@@ -835,7 +835,7 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
       patch.completedAt = now;
     } else {
       var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-      nextApprover = getApproverForStep_(approverRule, nextStep);
+      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
       patch.status = STATUS.IN_REVIEW;
       patch.currentStep = nextStep;
       patch.currentApproverEmail = nextApprover.email;
@@ -1168,23 +1168,30 @@ function stepRoleDefaultName_(step) {
 
 // 役職ステップの承認者集合を解決する（購買/総務部長/社長はメール欄に複数人を許可）。
 // 戻り値: [{ email, name, title }]。先頭が代表（通知先・currentApproverEmail）。
-function resolveStepApprovers_(rule, step) {
+// category（任意）: 購買ステップの代表者を品目区分で切り替えるために渡す。
+function resolveStepApprovers_(rule, step, category) {
   if (!rule) { return []; }
   var field = stepRoleField_(step);
   if (!field) { return []; }
-  var members = approverMembersFromField_(rule, field, stepRoleDefaultName_(step));
   // 購買ステップ（見積／手配）は、品目区分に関わらずメカ購買・電気購買の双方が
   // アプリ上で操作（見積入力・手配完了・承認）できる。メール宛先の振り分け（TO/CC）は
-  // 区分で行うが、操作権限は両購買に開放する。代表（先頭）はメカ購買を優先する。
+  // 区分で行うが、操作権限は両購買に開放する。
+  // 代表（先頭＝currentApproverName／通知先）は品目区分に追従させる：電気区分は電気購買、
+  // メカ・一般／不明はメカ購買を代表にする。category 未指定時は従来どおりメカ購買を優先。
   if (field === 'purchasing') {
+    var mech = approverMembersFromField_(rule, 'purchasing', stepRoleDefaultName_(step));
     var elec = approverMembersFromField_(rule, 'purchasingElec', '電気購買');
+    var ordered = normalizeCategory_(category) === CATEGORIES.ELEC
+      ? elec.concat(mech)
+      : mech.concat(elec);
     var seen = {};
-    members.forEach(function(m) { seen[m.email] = true; });
-    elec.forEach(function(m) {
+    var members = [];
+    ordered.forEach(function(m) {
       if (m.email && !seen[m.email]) { seen[m.email] = true; members.push(m); }
     });
+    return members;
   }
-  return members;
+  return approverMembersFromField_(rule, field, stepRoleDefaultName_(step));
 }
 
 // 承認者ルールの <field>Email / <field>Name / <field>Title から承認者配列を作る。
@@ -1210,15 +1217,15 @@ function findStarRule_() {
 
 // 役職ステップの承認者集合を解決し、部署別ルールに該当役職が無ければ '*' にフォールバックする。
 // これにより「購買は全社共通（*）で1回設定」すれば、部署別行で購買を空にしていても通る。
-function resolveStepApproversWithStar_(rule, step) {
-  var approvers = resolveStepApprovers_(rule, step);
+function resolveStepApproversWithStar_(rule, step, category) {
+  var approvers = resolveStepApprovers_(rule, step, category);
   if (approvers.length > 0) {
     return approvers;
   }
   if (!rule || rule.department !== '*') {
     var star = findStarRule_();
     if (star) {
-      return resolveStepApprovers_(star, step);
+      return resolveStepApprovers_(star, step, category);
     }
   }
   return approvers;
@@ -1242,7 +1249,8 @@ function isStepApproverFor_(email, applicantEmail, department, step) {
   });
 }
 
-function getApproverForStep_(rule, step) {
+// category（任意）: 購買ステップの代表者（currentApproverName/Email・通知先）を品目区分で切り替える。
+function getApproverForStep_(rule, step, category) {
   if (step === STEPS.SUPERVISOR) {
     var supervisor = { email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上席' };
     if (!supervisor.email) {
@@ -1252,7 +1260,7 @@ function getApproverForStep_(rule, step) {
   }
   // 複数登録時は先頭を代表として currentApproverEmail / 通知の既定にする。
   // 部署別ルールに該当役職が無ければ '*' にフォールバックする。
-  var approvers = resolveStepApproversWithStar_(rule, step);
+  var approvers = resolveStepApproversWithStar_(rule, step, category);
   if (approvers.length === 0 || !approvers[0].email) {
     throw new Error(STEP_LABELS[step] + 'の承認者メールアドレスが未設定です。');
   }
