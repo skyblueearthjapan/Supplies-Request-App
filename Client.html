@@ -530,6 +530,7 @@
         '<button class="btn ghost" id="backBtn">‹ 一覧へ戻る</button>' +
         (r.pdfUrl ? '<a class="btn" href="' + escapeAttr(r.pdfUrl) + '" target="_blank" rel="noopener">⤓ PDFを開く</a>' : '') +
         (p.canGeneratePdf ? '<button class="btn" id="genPdfBtn">⤓ PDF再作成</button>' : '') +
+        (p.canDelete ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
         (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
       '</div></div>';
 
@@ -563,6 +564,7 @@
         returnNoticeHtml() +
         field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
           '<button class="btn primary lg" id="arrangeBtn">✓ 手配完了</button>' +
         '</div></div>';
@@ -574,6 +576,7 @@
         returnNoticeHtml() +
         field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
           '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
           '<button class="btn primary lg" id="approveBtn">✓ ' + escapeHtml(approveWord) + '</button>' +
         '</div></div>';
@@ -623,6 +626,8 @@
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
     bind('backBtn', () => showView('listView'));
     bind('editBtn', () => renderForm(detail));
+    bind('delBtnHead', () => deleteRequestAction(r.requestId));
+    bind('delBtn', () => deleteRequestAction(r.requestId));
     bind('genPdfBtn', () => regeneratePdf(r.requestId));
     bind('presBtn', () => openTabletMode(r.requestId));
     bind('presBtn2', () => openTabletMode(r.requestId));
@@ -650,6 +655,23 @@
       renderTabs();
       toast(message, 'ok');
       window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 申請の取消（論理削除）。確認後に取消し、一覧へ戻る。
+  async function deleteRequestAction(requestId) {
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    if (!window.confirm('この申請を取り消します。取消した申請は承認フローから外れ、申請書PDFは削除されます。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      await gas('deleteRequest', requestId, comment);
+      await refreshCounts();
+      toast('申請を取り消しました', 'ok');
+      showView('listView');
     } catch (error) {
       toast(errText(error), 'err');
     } finally {
@@ -1420,6 +1442,7 @@
   function currentStateLabel(r) {
     if (r.status === 'RETURNED') { return '差戻し'; }
     if (r.status === 'COMPLETED') { return '完了'; }
+    if (r.status === 'CANCELLED') { return '取消'; }
     const byStep = {
       SUPERVISOR: '上席承認待ち',
       PURCHASING_QUOTE: '見積金額待ち',

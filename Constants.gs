@@ -133,13 +133,15 @@ var SETTING_COLUMNS = ['key', 'value', 'description'];
 var STATUS = Object.freeze({
   IN_REVIEW: 'IN_REVIEW',
   RETURNED: 'RETURNED',
-  COMPLETED: 'COMPLETED'
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED'
 });
 
 var STATUS_LABELS = Object.freeze({
   IN_REVIEW: '承認中',
   RETURNED: '差戻し',
-  COMPLETED: '完了'
+  COMPLETED: '完了',
+  CANCELLED: '取消'
 });
 
 var STEPS = Object.freeze({
@@ -172,7 +174,8 @@ var ACTION = Object.freeze({
   ESCALATE: 'ESCALATE',
   QUOTE: 'QUOTE',
   EXPEDITE: 'EXPEDITE',
-  PDF_GENERATE: 'PDF_GENERATE'
+  PDF_GENERATE: 'PDF_GENERATE',
+  CANCEL: 'CANCEL'
 });
 
 var ACTION_LABELS = Object.freeze({
@@ -185,7 +188,8 @@ var ACTION_LABELS = Object.freeze({
   ESCALATE: '社長決裁へ',
   QUOTE: '金額確定',
   EXPEDITE: '金額不要・至急',
-  PDF_GENERATE: 'PDF作成'
+  PDF_GENERATE: 'PDF作成',
+  CANCEL: '取消'
 });
 
 var REASONS = [

@@ -220,6 +220,11 @@ function getRequests(filter) {
 
   var rows = readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS)
     .filter(function(request) {
+      // 取消（論理削除）済は対応系・ステップ別の各セクションから除外する。
+      // 申請者本人の「自分の申請(mine)」と「全申請(all)」では取消バッジ付きで残す。
+      if (request.status === STATUS.CANCELLED && mode !== 'mine' && mode !== 'all') {
+        return false;
+      }
       if (mode === 'pending') {
         // 自分が承認者の案件 ＋ 社長承認待ち（総務部長/管理者が社長へ提示すべき案件）も残す
         // ＋ 各ステップは承認者集合（上席／購買・総務部長・社長の複数登録）の誰でも承認待ちに含める
@@ -314,6 +319,7 @@ function getRequestDetail(requestId) {
     permissions: {
       canApprove: canApprove_(request, user),
       canReturn: canApprove_(request, user),
+      canDelete: canDelete_(request, user),
       canEdit: canEdit_(request, user),
       canGeneratePdf: canGeneratePdf_(request, user),
       canPresident: canPresident_(request, user),
@@ -725,6 +731,67 @@ function returnRequest(requestId, comment, kiosk) {
   }
 }
 
+// 申請の取消（論理削除）。レコードと履歴は監査のため残し、status を CANCELLED にする。
+// PDF はDriveから破棄し参照をクリアする（取消済の申請書を残さない）。
+// 権限: 管理者は常時、申請者は自分の申請かつ完了前まで（canDelete_）。
+function deleteRequest(requestId, comment) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    if (!canDelete_(request, user)) {
+      throw new Error('この申請を取り消す権限がありません。');
+    }
+
+    // PDFはDriveから破棄（取消済の申請書を残さない）。既に削除済みなどは無視。
+    if (request.pdfFileId) {
+      try {
+        DriveApp.getFileById(request.pdfFileId).setTrashed(true);
+      } catch (trashError) {
+        Logger.log('deleteRequest: trash pdf skipped: ' + trashError.message);
+      }
+    }
+
+    var cleanComment = sanitizeText_(comment, 1000);
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+      updatedAt: nowString_(),
+      status: STATUS.CANCELLED,
+      currentApproverEmail: '',
+      currentApproverName: '',
+      pdfFileId: '',
+      pdfUrl: ''
+    });
+    addHistory_({
+      requestId: requestId,
+      actorEmail: user.email,
+      actorName: user.name,
+      action: ACTION.CANCEL,
+      fromStatus: request.status,
+      toStatus: STATUS.CANCELLED,
+      fromStep: request.currentStep,
+      toStep: request.currentStep,
+      comment: cleanComment
+    });
+
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 取消可否。取消済は不可。管理者は常時、申請者本人は完了前（COMPLETED以外）まで。
+function canDelete_(request, user) {
+  if (request.status === STATUS.CANCELLED) {
+    return false;
+  }
+  if (isAdmin_(user.email)) {
+    return true;
+  }
+  return normalizeEmail_(request.applicantEmail) === user.email &&
+    request.status !== STATUS.COMPLETED;
+}
+
 function getTabCounts() {
   var user = getCurrentUser_();
   var admin = isAdmin_(user.email);
@@ -735,6 +802,10 @@ function getTabCounts() {
   var gm = 0;
   var arrange = 0;
   readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
+    // 取消（論理削除）済はどのバッジ件数にも数えない。
+    if (request.status === STATUS.CANCELLED) {
+      return;
+    }
     var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
     var isQuote = request.currentStep === STEPS.PURCHASING_QUOTE;
