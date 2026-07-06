@@ -8,7 +8,8 @@ function getDeptSupervisors_() {
         email: normalizeEmail_(row.email),
         name: sanitizeText_(row.name, 100),
         title: sanitizeText_(row.title, 40),
-        active: row.active === '' ? true : parseBoolean_(row.active)
+        active: row.active === '' ? true : parseBoolean_(row.active),
+        notifyEmail: normalizeEmail_(row.notifyEmail)
       };
     });
 }
