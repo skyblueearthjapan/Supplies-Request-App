@@ -1245,7 +1245,7 @@
         '</div></div></div>' +
         '<div class="card"><div class="card-head"><h3>部署別 上席マスタ（外部 DeptApprovers と同期・読み取り専用）</h3><button class="btn sm" id="syncDeptSupBtn">↻ 外部シートから同期</button></div>' +
           '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
-            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>役職</th><th>有効</th>' +
+            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>役職</th><th>通知メール</th><th>有効</th>' +
           '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
           '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span></div>' +
         '</div>' +
@@ -1343,11 +1343,11 @@
     if (!body) { return; }
     const rows = state.bootstrap.deptSupervisors || [];
     if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="5"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上席はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上席にフォールバックします）。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="6"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上席はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上席にフォールバックします）。</div></td></tr>';
       return;
     }
     body.innerHTML = rows.map(r =>
-      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + escapeHtml(r.title || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
+      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + escapeHtml(r.title || '—') + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.notifyEmail || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
     ).join('');
   }
 
