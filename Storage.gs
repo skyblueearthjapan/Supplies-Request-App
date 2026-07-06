@@ -39,33 +39,62 @@ function getSpreadsheet_() {
 }
 
 function ensureSchema_(spreadsheet) {
-  ensureSheet_(spreadsheet, SHEETS.REQUESTS, REQUEST_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.ITEMS, ITEM_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.APPROVERS, APPROVER_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.HISTORY, HISTORY_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.SETTINGS, SETTING_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.WORKERS_CACHE, WORKER_CACHE_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.RECIPIENTS, RECIPIENT_COLUMNS);
-  ensureSheet_(spreadsheet, SHEETS.DEPT_SUPERVISORS, DEPT_SUPERVISOR_COLUMNS);
+  ensureSheet_(spreadsheet, SHEETS.REQUESTS, REQUEST_COLUMNS, REQUEST_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.ITEMS, ITEM_COLUMNS, ITEM_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.APPROVERS, APPROVER_COLUMNS, APPROVER_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.HISTORY, HISTORY_COLUMNS, HISTORY_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.SETTINGS, SETTING_COLUMNS, SETTING_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.WORKERS_CACHE, WORKER_CACHE_COLUMNS, WORKER_CACHE_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.RECIPIENTS, RECIPIENT_COLUMNS, RECIPIENT_HEADERS);
+  ensureSheet_(spreadsheet, SHEETS.DEPT_SUPERVISORS, DEPT_SUPERVISOR_COLUMNS, DEPT_SUPERVISOR_HEADERS);
   seedSettings_(spreadsheet);
 }
 
-function ensureSheet_(spreadsheet, name, columns) {
-  var sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
-  var currentMaxColumns = sheet.getMaxColumns();
-  if (currentMaxColumns < columns.length) {
-    sheet.insertColumnsAfter(currentMaxColumns, columns.length - currentMaxColumns);
+// 新しい日本語タブ名に対応する旧英語タブ名を返す（無ければ空）。
+function legacyNameFor_(newName) {
+  var legacy = '';
+  Object.keys(LEGACY_SHEET_NAMES).forEach(function(oldName) {
+    if (LEGACY_SHEET_NAMES[oldName] === newName) {
+      legacy = oldName;
+    }
+  });
+  return legacy;
+}
+
+// columns: 内部キー（位置ベースの読み書き用・英語）。headers: row1に書く表示ラベル（日本語）。
+function ensureSheet_(spreadsheet, name, columns, headers) {
+  var labels = headers || columns;
+  var sheet = spreadsheet.getSheetByName(name);
+
+  // 旧英語名タブが残っていれば新日本語名へ改名して引き継ぐ（移行前アクセス／デプロイ順序事故の自己修復）。
+  if (!sheet) {
+    var legacyName = legacyNameFor_(name);
+    if (legacyName) {
+      var legacy = spreadsheet.getSheetByName(legacyName);
+      if (legacy) {
+        legacy.setName(name);
+        sheet = legacy;
+      }
+    }
+  }
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(name);
   }
 
-  var existing = sheet.getRange(1, 1, 1, columns.length).getValues()[0];
+  var currentMaxColumns = sheet.getMaxColumns();
+  if (currentMaxColumns < labels.length) {
+    sheet.insertColumnsAfter(currentMaxColumns, labels.length - currentMaxColumns);
+  }
+
+  var existing = sheet.getRange(1, 1, 1, labels.length).getValues()[0];
   var needsHeader = existing.join('') === '' || existing.some(function(value, index) {
-    return value !== columns[index];
+    return value !== labels[index];
   });
 
   if (needsHeader) {
-    sheet.getRange(1, 1, 1, columns.length).setValues([columns]);
+    sheet.getRange(1, 1, 1, labels.length).setValues([labels]);
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, columns.length).setFontWeight('bold');
+    sheet.getRange(1, 1, 1, labels.length).setFontWeight('bold');
   }
 }
 

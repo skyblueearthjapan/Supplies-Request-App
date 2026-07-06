@@ -92,6 +92,127 @@ function sendReturnedEmail_(request, comment) {
   sendEmail_(request.applicantEmail, subject, body);
 }
 
+// 通知宛先マスタの有効な全宛先を、種別横断で To / CC に振り分けて返す。
+// 各行の送信区分（sendAs）に従う。同一メールが To と CC の双方に登場する場合は To を優先し、
+// CC からは除外する（登録順に依らず To が勝つよう2パスで判定）。
+function getAllRecipientsSplit_() {
+  var rows = getRecipients_().filter(function(row) {
+    return row.active && row.email;
+  });
+  var toSeen = {};
+  var to = [];
+  rows.forEach(function(row) {
+    if (row.sendAs !== 'CC' && !toSeen[row.email]) {
+      toSeen[row.email] = true;
+      to.push(row.email);
+    }
+  });
+  var ccSeen = {};
+  var cc = [];
+  rows.forEach(function(row) {
+    if (row.sendAs === 'CC' && !toSeen[row.email] && !ccSeen[row.email]) {
+      ccSeen[row.email] = true;
+      cc.push(row.email);
+    }
+  });
+  return { to: to, cc: cc };
+}
+
+// 申請明細を行番号順で取得する。
+function getRequestItems_(requestId) {
+  return readObjects_(SHEETS.ITEMS, ITEM_COLUMNS)
+    .filter(function(item) {
+      return item.requestId === requestId;
+    })
+    .sort(function(a, b) {
+      return parseNumber_(a.lineNo) - parseNumber_(b.lineNo);
+    });
+}
+
+// 差戻しになった「段階」を分かりやすい語に変換する。
+function returnedStagePhrase_(step) {
+  if (step === STEPS.SUPERVISOR) { return '上席承認'; }
+  if (step === STEPS.PURCHASING_QUOTE) { return '購買（見積・金額入力）'; }
+  if (step === STEPS.GENERAL_MANAGER) { return '総務部長承認'; }
+  if (step === STEPS.PRESIDENT) { return '社長決裁'; }
+  if (step === STEPS.PURCHASING) { return '購買手配'; }
+  return STEP_LABELS[step] || String(step || '');
+}
+
+// 明細の金額表記。購買確定前（0）は「未定」。
+function itemMoneyText_(value) {
+  return parseNumber_(value) > 0 ? formatCurrency_(value) : '未定';
+}
+
+// 差戻し時、通知宛先マスタの全宛先へ「誰の・どの案件が・どの段階で差戻しになったか」を明細付きで一斉共有する。
+// stepAtReturn は差戻し時点のステップ（申請者へ戻す前の currentStep）を渡すこと。
+function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
+  var settings = getSettings_();
+  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+    return;
+  }
+  // 通知宛先マスタの送信区分どおり To / CC で送る。
+  // 申請者には個別の差戻しメールが届くため、一斉共有の宛先からは除外する。
+  var applicant = normalizeEmail_(request.applicantEmail);
+  var split = getAllRecipientsSplit_();
+  var to = split.to.filter(function(email) { return email !== applicant; });
+  var cc = split.cc.filter(function(email) { return email !== applicant; });
+  if (to.length === 0 && cc.length === 0) {
+    return;
+  }
+  if (to.length === 0) {
+    // CC のみのとき、MailApp は To を必須とするため CC を To に昇格。
+    to = cc;
+    cc = [];
+  }
+
+  var applicantName = request.applicantName || '（不明）';
+  var stage = returnedStagePhrase_(stepAtReturn);
+  var items = getRequestItems_(request.requestId);
+  var subject = '[貯蔵品購入申請] 差戻し共有 ' + request.requestId;
+
+  var lines = [];
+  lines.push(applicantName + ' さんが申請した貯蔵品購入申請が、' + stage + 'の段階で差戻しになりました。');
+  lines.push('');
+  lines.push('申請番号: ' + request.requestId);
+  lines.push('申請者　: ' + applicantName + '（' + request.applicantEmail + '）');
+  lines.push('部署　　: ' + (request.department || '（未設定）'));
+  lines.push('差戻し段階: ' + stage);
+  if (actorName) {
+    lines.push('差戻し者: ' + actorName);
+  }
+  lines.push('理由　　: ' + (comment || '（コメントなし）'));
+  lines.push('確定金額: ' + amountText_(request));
+  lines.push('');
+  lines.push('― 申請明細（品名／型式／数量／単価／金額） ―');
+  if (items.length === 0) {
+    lines.push('（明細なし）');
+  } else {
+    items.forEach(function(it, index) {
+      lines.push(
+        (index + 1) + '. ' + it.name +
+        '／型式: ' + (it.model || '—') +
+        '／数量: ' + (parseNumber_(it.quantity) || 0) +
+        '／単価: ' + itemMoneyText_(it.unitPrice) +
+        '／金額: ' + itemMoneyText_(it.amount)
+      );
+    });
+  }
+  lines.push('');
+  lines.push(getRequestUrl_(request.requestId));
+
+  var options = {
+    to: to.join(','),
+    subject: subject,
+    body: lines.join('\n'),
+    name: APP.NAME
+  };
+  if (cc.length > 0) {
+    options.cc = cc.join(',');
+  }
+  MailApp.sendEmail(options);
+}
+
 function sendCompletedEmail_(request) {
   var subject = '[貯蔵品購入申請] 完了 ' + request.requestId;
   var body = [

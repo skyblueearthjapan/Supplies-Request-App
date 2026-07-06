@@ -82,7 +82,10 @@ function saveRecipients_(rows) {
     .map(function(row) {
       var input = row || {};
       var type = sanitizeText_(input.type, 50);
-      if (!Object.prototype.hasOwnProperty.call(RECIPIENT_TYPES, type)) {
+      var validTypes = Object.keys(RECIPIENT_TYPES).map(function(key) {
+        return RECIPIENT_TYPES[key];
+      });
+      if (validTypes.indexOf(type) === -1) {
         throw new Error('通知宛先の区分が不正です: ' + type);
       }
       var email = normalizeEmail_(input.email);

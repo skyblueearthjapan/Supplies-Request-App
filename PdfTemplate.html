@@ -100,7 +100,7 @@
     </style>
   </head>
   <body>
-    <? var req = detail.request; var wm = req.status === 'COMPLETED' ? '完了' : (req.status === 'RETURNED' ? '差戻' : ''); ?>
+    <? var req = detail.request; var wm = req.status === '完了' ? '完了' : (req.status === '差戻し' ? '差戻' : ''); ?>
     <div class="pdf-doc">
       <? if (wm) { ?><div class="wm"><?!= wm ?></div><? } ?>
 

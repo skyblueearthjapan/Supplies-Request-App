@@ -10,14 +10,19 @@
   };
 
   const STEP_DESC = {
-    APPLICANT: '申請内容の作成',
-    SUPERVISOR: '上席確認',
-    PURCHASING_QUOTE: '見積・金額入力',
-    GENERAL_MANAGER: '部門承認',
-    PRESIDENT: '社長決裁',
-    PURCHASING: '発注手配'
+    '申請者': '申請内容の作成',
+    '上席': '上席確認',
+    '購買見積': '見積・金額入力',
+    '総務部長': '部門承認',
+    '社長': '社長決裁',
+    '購買手配': '発注手配'
   };
-  const HIST_GLYPH = { SUBMIT: '➤', RESUBMIT: '➤', APPROVE: '✓', RETURN: '‹', COMPLETE: '✓', UPDATE: '✎', PDF_GENERATE: '⤓', ESCALATE: '⤴', QUOTE: '¥', EXPEDITE: '⚡' };
+  const HIST_GLYPH = { '申請': '➤', '再申請': '➤', '承認': '✓', '差戻': '‹', '完了処理': '✓', '更新': '✎', 'PDF作成': '⤓', '社長決裁へ': '⤴', '金額確定': '¥', '金額不要至急': '⚡', '前段戻し': '↩' };
+
+  // セル格納コード（日本語）→ CSSクラス（英語ASCII・Styles.html はそのまま）への対応表。
+  const STATUS_CLASS = { '承認中': 'IN_REVIEW', '差戻し': 'RETURNED', '完了': 'COMPLETED', '取消': 'CANCELLED' };
+  const CAT_CLASS = { 'メカ': 'MECH', '電気': 'ELEC', '一般不明': 'GENERAL' };
+  const ACTION_CLASS = { '申請': 'SUBMIT', '再申請': 'RESUBMIT', '承認': 'APPROVE', '差戻': 'RETURN', '完了処理': 'COMPLETE', '更新': 'UPDATE', 'PDF作成': 'PDF_GENERATE', '社長決裁へ': 'ESCALATE', '前段戻し': 'RETURN' };
 
   // 確定金額の表示。金額未入力でも「金額不要／至急承認」案件は明示する。
   function amountLabel(r) {
@@ -44,7 +49,7 @@
   // 全画面モードのバナー用（画面を覆わないよう短縮版）。
   const APPROVER_NOTICE_SHORT = '内容を必ず確認のうえ承認を。確認不十分な承認の責任は承認者が負います。本人不在時の代理押印（ハンコ代用）は禁止です。';
   function isApproverNoticeStep(step) {
-    return step === 'SUPERVISOR' || step === 'GENERAL_MANAGER';
+    return step === '上席' || step === '総務部長';
   }
   function approverNoticeHtml() {
     return '<div class="approver-notice"><div class="an-head">⚠ 承認は責任を伴います</div>' +
@@ -65,17 +70,18 @@
   const formState = { editingId: '', requestDate: '', applicantName: '', department: '', category: '', reasonCode: '', reasonDetail: '', items: [] };
 
   // 品目区分（メール送付先の振り分けに使用）。メカ購買は一般兼用のため一般・不明はメカ購買宛。
-  const CATEGORY_OPTIONS = [['MECH', 'メカ'], ['ELEC', '電気'], ['GENERAL', '一般・不明']];
+  const CATEGORY_OPTIONS = [['メカ', 'メカ'], ['電気', '電気'], ['一般不明', '一般・不明']];
   function categoryLabel(code) {
     const found = CATEGORY_OPTIONS.find(c => c[0] === code);
     return found ? found[1] : '一般・不明';
   }
   // 一覧・詳細用の品目区分バッジ。色で電気/メカ/一般を一目で区別する。
+  // 格納コードは日本語だが、色分けCSSクラスは英語ASCII（Styles.html）のまま維持する。
   function categoryChip(r) {
-    const code = (r && (r.category || '')) || 'GENERAL';
-    const key = ['MECH', 'ELEC', 'GENERAL'].indexOf(code) >= 0 ? code : 'GENERAL';
+    const code = (r && (r.category || '')) || '一般不明';
+    const key = ['メカ', '電気', '一般不明'].indexOf(code) >= 0 ? code : '一般不明';
     const label = (r && r.categoryLabel) || categoryLabel(key);
-    return '<span class="cat-chip ' + key + '">' + escapeHtml(label) + '</span>';
+    return '<span class="cat-chip ' + (CAT_CLASS[key] || 'GENERAL') + '">' + escapeHtml(label) + '</span>';
   }
 
   document.addEventListener('DOMContentLoaded', initialize);
@@ -401,7 +407,7 @@
         '<div class="card">' +
           '<div class="card-pad" style="padding-bottom:14px"><div class="filters">' +
             '<div class="field"><span class="lbl">状態</span><div class="seg-filter" id="statusSeg">' +
-              [['', 'すべて'], ['IN_REVIEW', '承認中'], ['RETURNED', '差戻し'], ['COMPLETED', '完了']].map(s =>
+              [['', 'すべて'], ['承認中', '承認中'], ['差戻し', '差戻し'], ['完了', '完了']].map(s =>
                 '<button data-v="' + s[0] + '"' + (s[0] === '' ? ' class="on"' : '') + '>' + s[1] + '</button>').join('') +
             '</div></div>' +
             field('検索', false, '<input class="control" type="search" id="queryFilter" placeholder="申請番号・部署・申請者" style="min-width:220px">') +
@@ -446,9 +452,9 @@
   function renderStats(rows) {
     const host = document.getElementById('statsHost');
     if (!host) { return; }
-    const inReview = rows.filter(r => r.status === 'IN_REVIEW').length;
-    const returned = rows.filter(r => r.status === 'RETURNED').length;
-    const amount = rows.filter(r => r.status !== 'COMPLETED').reduce((t, r) => t + (r.totalAmount || 0), 0);
+    const inReview = rows.filter(r => r.status === '承認中').length;
+    const returned = rows.filter(r => r.status === '差戻し').length;
+    const amount = rows.filter(r => r.status !== '完了').reduce((t, r) => t + (r.totalAmount || 0), 0);
     const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
     const totalLabel = totalLabelMap[state.listMode] || '件数';
     host.innerHTML =
@@ -468,8 +474,8 @@
     }
     const admin = !!state.bootstrap.isAdmin;
     body.innerHTML = rows.map(r => {
-      const isQuote = r.currentStep === 'PURCHASING_QUOTE';
-      const stepCell = r.status === 'COMPLETED'
+      const isQuote = r.currentStep === '購買見積';
+      const stepCell = r.status === '完了'
         ? '<span style="color:var(--muted)">—</span>'
         : '<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>' + escapeHtml(r.currentStepLabel) + '</b>' +
           (r.currentApproverName ? '<span style="color:var(--muted)">' + escapeHtml(r.currentApproverName) + '</span>' : '') +
@@ -519,7 +525,7 @@
   function renderDetail(detail) {
     const r = detail.request;
     const p = detail.permissions;
-    const over = (r.route || []).indexOf('PRESIDENT') !== -1;
+    const over = (r.route || []).indexOf('社長') !== -1;
 
     let html = '<div class="fade-in">';
     html += '<div class="page-head"><div class="title-wrap">' +
@@ -530,6 +536,7 @@
         '<button class="btn ghost" id="backBtn">‹ 一覧へ戻る</button>' +
         (r.pdfUrl ? '<a class="btn" href="' + escapeAttr(r.pdfUrl) + '" target="_blank" rel="noopener">⤓ PDFを開く</a>' : '') +
         (p.canGeneratePdf ? '<button class="btn" id="genPdfBtn">⤓ PDF再作成</button>' : '') +
+        (p.canRecall ? '<button class="btn ghost" id="recallBtn">↩ 1つ前のステージへ戻す</button>' : '') +
         (p.canDelete ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
         (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
       '</div></div>';
@@ -537,14 +544,14 @@
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
       '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
 
-    const isArrange = r.currentStep === 'PURCHASING';
+    const isArrange = r.currentStep === '購買手配';
     const approveWord = isArrange ? '手配完了' : '承認する';
 
     // 全画面（タブレット）承認モードは、上席・総務部長・社長の承認ステップなら
     // どのアカウントでも開ける（自分の端末で承認者に見せてその場で承認を得る運用）。
-    if (r.status === 'IN_REVIEW' &&
-        (r.currentStep === 'SUPERVISOR' || r.currentStep === 'GENERAL_MANAGER' || r.currentStep === 'PRESIDENT')) {
-      const isPres = r.currentStep === 'PRESIDENT';
+    if (r.status === '承認中' &&
+        (r.currentStep === '上席' || r.currentStep === '総務部長' || r.currentStep === '社長')) {
+      const isPres = r.currentStep === '社長';
       const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して承認';
       const ctaDesc = isPres
         ? 'タブレットで申請書を提示し、その場で承認・差戻しを記録できます。'
@@ -589,7 +596,7 @@
       dcell('品目区分', escapeHtml(r.categoryLabel || categoryLabel(r.category))) +
       dcell('確定金額', '<span class="big">' + escapeHtml(amountLabel(r)) + '</span>') +
       '<div class="dcell" style="grid-column:span 2"><div class="dl">購入理由</div><div class="dv">' + escapeHtml(r.reasonCode) + '. ' + escapeHtml(r.reasonLabel) + '</div></div>' +
-      dcell('現在ステップ', escapeHtml(r.status === 'COMPLETED' ? '完了' : r.currentStepLabel)) +
+      dcell('現在ステップ', escapeHtml(r.status === '完了' ? '完了' : r.currentStepLabel)) +
       dcell('承認者', escapeHtml(r.currentApproverName || '—')) +
       '</div>' +
       (r.reasonDetail ? '<div style="margin-top:16px"><div class="dl" style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px">理由詳細</div>' +
@@ -626,6 +633,7 @@
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
     bind('backBtn', () => showView('listView'));
     bind('editBtn', () => renderForm(detail));
+    bind('recallBtn', () => recallAction(r.requestId));
     bind('delBtnHead', () => deleteRequestAction(r.requestId));
     bind('delBtn', () => deleteRequestAction(r.requestId));
     bind('genPdfBtn', () => regeneratePdf(r.requestId));
@@ -662,6 +670,29 @@
     }
   }
 
+  // 1つ前のステージへ戻す（1段リコール）。誤操作リカバリ用。理由コメントは必須。
+  async function recallAction(requestId) {
+    const preset = (document.getElementById('approveComment') || {}).value || '';
+    const reason = window.prompt('この申請を1つ前のステージへ戻します。理由を入力してください（必須）。', preset);
+    if (reason === null) { return; }
+    const comment = String(reason).trim();
+    if (!comment) { toast('戻す理由を入力してください', 'err'); return; }
+    setBusy(true);
+    try {
+      const detail = await gas('recallStep', requestId, comment);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast('1つ前のステージへ戻しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // 申請の取消（論理削除）。確認後に取消し、一覧へ戻る。
   async function deleteRequestAction(requestId) {
     const comment = (document.getElementById('approveComment') || {}).value || '';
@@ -684,6 +715,7 @@
     const rows = detail.items.map((it, i) =>
       '<tr data-qrow="' + i + '">' +
         '<td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
+        '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
         '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
         '<td><input class="control num q-unit" data-qidx="' + i + '" type="number" min="0" step="1" value="' + escapeAttr(it.unitPrice > 0 ? it.unitPrice : '') + '" placeholder="0"></td>' +
         '<td class="cell-amt q-amt" data-qamt="' + i + '">' + escapeHtml(yen(it.amount > 0 ? it.amount : 0)) + '</td>' +
@@ -693,9 +725,9 @@
       '<span class="badge RETURNED"><span class="dot"></span>見積・金額入力待ち</span>' +
       '<span class="pill">各明細の単価を入力して金額を確定、または見積不可・要修正としてコメント付きで差戻しできます</span></div>' +
       '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3><span class="hint">単価を入力すると金額・合計が自動計算されます</span></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th class="r">数量</th><th class="r" style="width:160px">単価</th><th class="r" style="width:160px">金額</th></tr></thead>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:160px">単価</th><th class="r" style="width:160px">金額</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
-      '<tfoot><tr><td colspan="3" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
+      '<tfoot><tr><td colspan="4" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
       '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr></tfoot>' +
       '</table></div></div>' +
       returnNoticeHtml() +
@@ -797,8 +829,8 @@
   /* ---------- 承認フロー（縦タイムライン） ---------- */
   function routeNodes(detail) {
     const r = detail.request;
-    const keys = ['APPLICANT'].concat(r.route || []).concat(['DONE']);
-    const completed = r.status === 'COMPLETED';
+    const keys = ['申請者'].concat(r.route || []).concat(['完了済']);
+    const completed = r.status === '完了';
     let curIdx = completed ? keys.length - 1 : keys.indexOf(r.currentStep);
     if (curIdx < 0) { curIdx = 0; }
     return keys.map((key, i) => ({
@@ -810,10 +842,14 @@
 
   function approverNameForStep(detail, key) {
     const r = detail.request;
-    if (key === 'APPLICANT') { return r.applicantName; }
-    if (key === 'DONE') { return ''; }
-    if (key === r.currentStep && r.status !== 'COMPLETED') { return r.currentApproverName || ''; }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE' || x.action === 'EXPEDITE'));
+    if (key === '申請者') { return r.applicantName; }
+    if (key === '完了済') { return ''; }
+    if (key === r.currentStep && r.status !== '完了') { return r.currentApproverName || ''; }
+    // リコールで未処理に戻った後続ステップには、以前の承認者名を残さない。
+    const route = r.route || [];
+    const ki = route.indexOf(key), ci = route.indexOf(r.currentStep);
+    if (ki >= 0 && ci >= 0 && ki > ci && r.status !== '完了') { return ''; }
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === '承認' || x.action === '完了処理' || x.action === '差戻' || x.action === '金額確定' || x.action === '金額不要至急'));
     return h ? (h.actorName || '') : '';
   }
 
@@ -821,9 +857,9 @@
     const nodes = routeNodes(detail);
     return '<div class="step-t">' + nodes.map((n, i) => {
       const nextDone = i < nodes.length - 1 && (nodes[i + 1].state === 'done' || n.state === 'done');
-      const avInner = n.key === 'DONE' ? '◎' : (n.state === 'done' ? '✓' : escapeHtml(initials(n.name)));
+      const avInner = n.key === '完了済' ? '◎' : (n.state === 'done' ? '✓' : escapeHtml(initials(n.name)));
       const nameLine = n.name ? '<div class="t-name">' + escapeHtml(n.name) + '</div>' : (STEP_DESC[n.key] ? '<div class="t-name">' + escapeHtml(STEP_DESC[n.key]) + '</div>' : '');
-      const tag = n.state === 'current' ? '<span class="t-tag">承認待ち</span>' : (n.state === 'done' && n.key !== 'DONE' ? '<span class="t-tag">完了</span>' : '');
+      const tag = n.state === 'current' ? '<span class="t-tag">承認待ち</span>' : (n.state === 'done' && n.key !== '完了済' ? '<span class="t-tag">完了</span>' : '');
       return '<div class="trow ' + n.state + '"><div class="rail"><div class="av">' + avInner + '</div>' +
         (i < nodes.length - 1 ? '<div class="bar' + (nextDone ? ' done' : '') + '"></div>' : '') + '</div>' +
         '<div class="tbody"><div class="t-lbl">' + escapeHtml(stepLabel(n.key)) + tag + '</div>' + nameLine + '</div></div>';
@@ -834,7 +870,7 @@
     if (!history.length) { return '<div class="empty">履歴はありません。</div>'; }
     return '<div class="history">' + history.slice().reverse().map(h => {
       const label = (state.bootstrap.actionLabels && state.bootstrap.actionLabels[h.action]) || h.actionLabel || h.action;
-      return '<div class="hrow"><div class="hicon ' + escapeAttr(h.action) + '">' + (HIST_GLYPH[h.action] || '•') + '</div>' +
+      return '<div class="hrow"><div class="hicon ' + escapeAttr(ACTION_CLASS[h.action] || '') + '">' + (HIST_GLYPH[h.action] || '•') + '</div>' +
         '<div class="hbody"><div class="ht"><span class="ha">' + escapeHtml(label) + '</span>' +
         '<span class="hw">' + escapeHtml(h.actorName || h.actorEmail || '') + '</span>' +
         '<span class="htime">' + escapeHtml(h.happenedAt) + '</span></div>' +
@@ -848,10 +884,10 @@
     const o = opts || {};
     const decision = o.variant === 'decision';
     const r = detail.request;
-    const over = (r.route || []).indexOf('PRESIDENT') !== -1;
+    const over = (r.route || []).indexOf('社長') !== -1;
     const dateOnly = d => String(d || '').slice(0, 10);
-    const stampKeys = ['APPLICANT'].concat(r.route || []);
-    const wm = decision ? '' : (r.status === 'COMPLETED' ? '完了' : r.status === 'RETURNED' ? '差戻' : '');
+    const stampKeys = ['申請者'].concat(r.route || []);
+    const wm = decision ? '' : (r.status === '完了' ? '完了' : r.status === '差戻し' ? '差戻' : '');
 
     let html = '<div class="pdf-doc' + (decision ? ' pdf-doc--decision' : '') + '">';
     if (wm) { html += '<div class="wm">' + wm + '</div>'; }
@@ -941,18 +977,22 @@
   function mcell(k, vHtml) { return '<div class="mcell"><div class="mk">' + escapeHtml(k) + '</div><div class="mv">' + vHtml + '</div></div>'; }
 
   function stampFor(detail, key) {
-    if (key === 'APPLICANT') {
-      const h = detail.history.slice().reverse().find(x => x.action === 'SUBMIT' || x.action === 'RESUBMIT');
+    if (key === '申請者') {
+      const h = detail.history.slice().reverse().find(x => x.action === '申請' || x.action === '再申請');
       return h ? { name: h.actorName, date: h.happenedAt, kind: 'apply' } : null;
     }
-    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === 'APPROVE' || x.action === 'COMPLETE' || x.action === 'RETURN' || x.action === 'QUOTE' || x.action === 'EXPEDITE'));
+    // リコールで未処理に戻ったステップ（現在ステップ以降）には押印を出さない（完了案件は全押印を表示）。
+    const route = detail.request.route || [];
+    const ki = route.indexOf(key), ci = route.indexOf(detail.request.currentStep);
+    if (ki >= 0 && ci >= 0 && ki >= ci && detail.request.status !== '完了') { return null; }
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === '承認' || x.action === '完了処理' || x.action === '差戻' || x.action === '金額確定' || x.action === '金額不要至急'));
     if (!h) { return null; }
     // 購買（見積・手配）のハンコは承認者マスタの購買氏名（例: 五十嵐）で表示する。
     let stampName = h.actorName;
-    if ((key === 'PURCHASING_QUOTE' || key === 'PURCHASING') && detail.purchasingStampName) {
+    if ((key === '購買見積' || key === '購買手配') && detail.purchasingStampName) {
       stampName = detail.purchasingStampName;
     }
-    return { name: stampName, date: h.happenedAt, kind: h.action === 'RETURN' ? 'ng' : 'approve' };
+    return { name: stampName, date: h.happenedAt, kind: h.action === '差戻' ? 'ng' : 'approve' };
   }
 
   function barcodeHtml(seed) {
@@ -1035,7 +1075,7 @@
     const r = detail.request;
     const root = document.getElementById('pmodeRoot');
     const isPres = pmodeState.canPresident && !pmodeState.canApprove;
-    const isPurchasing = r.currentStep === 'PURCHASING';
+    const isPurchasing = r.currentStep === '購買手配';
     const stepLbl = r.currentStepLabel || stepLabel(r.currentStep);
     const kicker = isPres ? '社長決裁モード' : (stepLbl + ' モード');
     const approveWord = isPurchasing ? '手配完了' : '承認する';
@@ -1135,7 +1175,7 @@
   async function decidePresident(decision) {
     const detail = pmodeState.detail;
     const r = detail.request;
-    const isPurchasing = r.currentStep === 'PURCHASING';
+    const isPurchasing = r.currentStep === '購買手配';
     let comment = pmodeState.comment;
     if (decision === 'return') {
       comment = [pmodeState.chips.join('、'), pmodeState.comment].filter(Boolean).join(' / ');
@@ -1145,7 +1185,7 @@
     try {
       let updated;
       const step = r.currentStep;
-      if (step === 'PRESIDENT') {
+      if (step === '社長') {
         // 社長決裁。本人/管理者でなければキオスク代理として記録。
         const kiosk = !pmodeState.canPresident;
         updated = await gas('recordPresidentDecision', r.requestId, decision, comment, kiosk);
@@ -1264,16 +1304,16 @@
       }
     });
 
-    document.getElementById('addRecipientBtn').addEventListener('click', () => addRecipientRow({ type: 'GENERAL_AFFAIRS', active: true }));
+    document.getElementById('addRecipientBtn').addEventListener('click', () => addRecipientRow({ type: '総務部', active: true }));
     const recipients = state.bootstrap.recipients || [];
     recipients.forEach(addRecipientRow);
     if (recipients.length === 0) {
-      addRecipientRow({ type: 'GENERAL_AFFAIRS', active: true });
-      addRecipientRow({ type: 'PURCHASING', active: true });
+      addRecipientRow({ type: '総務部', active: true });
+      addRecipientRow({ type: '購買', active: true });
     }
   }
 
-  const RECIPIENT_TYPES = [['GENERAL_AFFAIRS', '総務部'], ['PURCHASING', '購買（メカ・一般兼用）'], ['PURCHASING_ELEC', '電気購買']];
+  const RECIPIENT_TYPES = [['総務部', '総務部'], ['購買', '購買（メカ・一般兼用）'], ['電気購買', '電気購買']];
 
   function addRecipientRow(row) {
     row = row || {};
@@ -1436,19 +1476,20 @@
     return '<label class="field"><span class="lbl">' + escapeHtml(label) + (required ? '<span class="req">必須</span>' : '') + '</span>' +
       controlHtml + (hint ? '<span class="hint">' + escapeHtml(hint) + '</span>' : '') + '</label>';
   }
-  function badge(status, label) { return '<span class="badge ' + escapeAttr(status) + '"><span class="dot"></span>' + escapeHtml(label || status) + '</span>'; }
+  // 色クラスは英語ASCII（Styles.html）のまま。status は日本語コードなので STATUS_CLASS で変換する。
+  function badge(status, label) { return '<span class="badge ' + escapeAttr(STATUS_CLASS[status] || '') + '"><span class="dot"></span>' + escapeHtml(label || status) + '</span>'; }
   function stepLabel(key) { return (state.bootstrap.stepLabels && state.bootstrap.stepLabels[key]) || key || ''; }
   // 一覧・詳細の状態バッジ表示用。色クラスは r.status のまま、テキストだけ分かりやすく。
   function currentStateLabel(r) {
-    if (r.status === 'RETURNED') { return '差戻し'; }
-    if (r.status === 'COMPLETED') { return '完了'; }
-    if (r.status === 'CANCELLED') { return '取消'; }
+    if (r.status === '差戻し') { return '差戻し'; }
+    if (r.status === '完了') { return '完了'; }
+    if (r.status === '取消') { return '取消'; }
     const byStep = {
-      SUPERVISOR: '上席承認待ち',
-      PURCHASING_QUOTE: '見積金額待ち',
-      GENERAL_MANAGER: '総務部長承認待ち',
-      PRESIDENT: '社長承認待ち',
-      PURCHASING: '手配待ち'
+      '上席': '上席承認待ち',
+      '購買見積': '見積金額待ち',
+      '総務部長': '総務部長承認待ち',
+      '社長': '社長承認待ち',
+      '購買手配': '手配待ち'
     };
     return byStep[r.currentStep] || r.currentStepLabel || '';
   }

@@ -325,7 +325,8 @@ function getRequestDetail(requestId) {
       canPresident: canPresident_(request, user),
       canTabletApprove: canApprove_(request, user),
       canQuote: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING_QUOTE,
-      canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING
+      canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING,
+      canRecall: canRecall_(request, user)
     },
     stepTitles: resolveStepTitles_(request, history),
     purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name)
@@ -725,10 +726,142 @@ function returnRequest(requestId, comment, kiosk) {
 
     var updated = getRequestById_(requestId);
     sendReturnedEmail_(updated, cleanComment);
+    // 通知宛先マスタの全宛先へ、差戻しになった旨を明細付きで一斉共有する。
+    // 差戻し段階は「申請者へ戻す前の」currentStep（＝request.currentStep）を渡す。
+    // 一斉送信の失敗が差戻し自体（DB更新済み）を巻き戻さないよう握りつぶす。
+    try {
+      sendReturnedBroadcast_(request, request.currentStep, cleanComment, actName);
+    } catch (broadcastError) {
+      Logger.log('sendReturnedBroadcast_ failed: ' + broadcastError.message);
+    }
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
   }
+}
+
+// 1段リコール（1つ前のステージへ戻す）。
+// 誤操作リカバリ用。差戻し（申請者へ全戻し）とは別に、承認チェーン内で1段だけ巻き戻す。
+// 操作できるのは「現在の承認者／このステップへ直前に進めた本人（購買担当者など）／管理者」。
+function recallStep(requestId, comment) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    var route = jsonParse_(request.routeJson, []);
+
+    if (!canRecall_(request, user)) {
+      throw new Error('この申請を前段へ戻す権限がありません。');
+    }
+
+    var currentIndex = route.indexOf(request.currentStep);
+    if (currentIndex <= 0) {
+      throw new Error('先頭ステップのため前段へ戻せません。申請者へ戻す場合は「差戻し」をご利用ください。');
+    }
+
+    var cleanComment = sanitizeText_(comment, 1000);
+    if (!cleanComment) {
+      throw new Error('戻す理由（コメント）を入力してください。');
+    }
+
+    var prevStep = route[currentIndex - 1];
+    var now = nowString_();
+    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+
+    var patch = { updatedAt: now, status: STATUS.IN_REVIEW };
+
+    // 購買（見積）まで戻す場合は、金額確定不要フラグを解除し経路を標準へ再構築する
+    // （誤って挿入された社長決裁を除去）。totalAmount は意図的に保持する：
+    // 次の confirmQuote が totalAmount と閾値で社長決裁の要否を再判定・再挿入するため、
+    // 金額をリセットしなくても決裁ルートは正しく復元される。
+    if (prevStep === STEPS.PURCHASING_QUOTE) {
+      patch.amountWaived = 'false';
+      patch.routeJson = JSON.stringify([STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING]);
+    }
+
+    var resolved = resolveStepApproverForRecall_(request, prevStep, approverRule);
+    patch.currentStep = prevStep;
+    patch.currentApproverEmail = resolved.approver.email;
+    patch.currentApproverName = resolved.approver.name;
+
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, patch);
+    addHistory_({
+      requestId: requestId,
+      actorEmail: user.email,
+      actorName: user.name,
+      action: ACTION.RECALL,
+      fromStatus: request.status,
+      toStatus: STATUS.IN_REVIEW,
+      fromStep: request.currentStep,
+      toStep: prevStep,
+      comment: cleanComment
+    });
+
+    // 戻し先ステップの承認者（複数登録に対応）へ再承認依頼を送る。
+    var updated = getRequestById_(requestId);
+    resolved.members.forEach(function(member) {
+      sendApprovalRequestEmail_(updated, member);
+    });
+
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 1段リコールの権限判定。承認中かつ先頭でない案件を、
+// 現在の承認者／直前にこのステップへ進めた本人／管理者が戻せる。
+function canRecall_(request, user) {
+  if (request.status !== STATUS.IN_REVIEW) {
+    return false;
+  }
+  var route = jsonParse_(request.routeJson, []);
+  var currentIndex = route.indexOf(request.currentStep);
+  if (currentIndex <= 0) {
+    return false;
+  }
+  // 管理者／現在の承認者（canApprove_ に内包）
+  if (canApprove_(request, user)) {
+    return true;
+  }
+  // このステップへ直前に進めた本人（例: 誤って至急送信した購買担当者）
+  var advancer = lastAdvanceActorEmail_(request.requestId, request.currentStep);
+  return !!advancer && advancer === normalizeEmail_(user.email);
+}
+
+// 現在のステップへ「前進で」進めた直前の履歴の操作者メールを返す（無ければ ''）。
+function lastAdvanceActorEmail_(requestId, currentStep) {
+  var forwardActions = [ACTION.SUBMIT, ACTION.RESUBMIT, ACTION.APPROVE, ACTION.QUOTE, ACTION.EXPEDITE];
+  var rows = readObjects_(SHEETS.HISTORY, HISTORY_COLUMNS)
+    .filter(function(row) {
+      return row.requestId === requestId &&
+        row.toStep === currentStep &&
+        forwardActions.indexOf(row.action) !== -1;
+    })
+    .sort(function(a, b) {
+      return String(a.happenedAt).localeCompare(String(b.happenedAt));
+    });
+  var last = rows[rows.length - 1];
+  return last ? normalizeEmail_(last.actorEmail) : '';
+}
+
+// リコール先ステップの承認者を解決する。上席は上席マスタ、その他は承認者マスタ。
+// 戻り値: { approver: {email,name}, members: [{email,name,...}] }（members は再承認依頼の宛先）。
+function resolveStepApproverForRecall_(request, step, approverRule) {
+  if (step === STEPS.SUPERVISOR) {
+    var supervisors = resolveSupervisors_(request.applicantEmail, request.department);
+    if (supervisors.length === 0) {
+      throw new Error('上席承認者が未設定です。部署別 上席マスタ（または承認者マスタの上席）を設定してください。');
+    }
+    return {
+      approver: { email: supervisors[0].email, name: supervisors[0].name },
+      members: supervisors
+    };
+  }
+  var approver = getApproverForStep_(approverRule, step, request.category);
+  var members = resolveStepApproversWithStar_(approverRule, step, request.category);
+  return { approver: approver, members: members.length > 0 ? members : [approver] };
 }
 
 // 申請の取消（論理削除）。レコードと履歴は監査のため残し、status を CANCELLED にする。
@@ -882,6 +1015,12 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
       });
       var returned = getRequestById_(requestId);
       sendReturnedEmail_(returned, cleanComment);
+      // 社長決裁段階での差戻しも、通知宛先マスタの全宛先へ一斉共有する。
+      try {
+        sendReturnedBroadcast_(request, STEPS.PRESIDENT, cleanComment, presidentName);
+      } catch (broadcastError) {
+        Logger.log('sendReturnedBroadcast_ failed: ' + broadcastError.message);
+      }
       return getRequestDetail(requestId);
     }
 
@@ -1028,7 +1167,11 @@ function normalizeRequestPayload_(payload, user) {
   var requestDate = sanitizeText_(input.requestDate, 20) || todayString_();
   var department = sanitizeText_(input.department, 100);
   // 品目区分は必須。未選択（空・未知の値）は既定に倒さずエラーにする。
-  var category = sanitizeText_(input.category, 20).toUpperCase();
+  // 格納コードは日本語化済みのため、CATEGORIES の「値」の集合で照合する（キー照合は不可）。
+  var category = sanitizeText_(input.category, 20);
+  var validCategories = Object.keys(CATEGORIES).map(function(key) {
+    return CATEGORIES[key];
+  });
   var reasonCode = sanitizeText_(input.reasonCode, 1);
   var validReason = REASONS.some(function(reason) {
     return reason.code === reasonCode;
@@ -1037,7 +1180,7 @@ function normalizeRequestPayload_(payload, user) {
   if (!department) {
     throw new Error('部署を入力してください。');
   }
-  if (!Object.prototype.hasOwnProperty.call(CATEGORIES, category)) {
+  if (validCategories.indexOf(category) === -1) {
     throw new Error('品目区分（メカ／電気／一般・不明）を選択してください。');
   }
   if (!validReason) {

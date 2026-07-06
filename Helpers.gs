@@ -182,9 +182,19 @@ function getReasonLabel_(code) {
 }
 
 // 品目区分を正規化する。未知・空（旧申請）は GENERAL（一般・不明＝メカ購買宛）に倒す。
+// コード値の集合（CATEGORIES の値）で照合する。旧英語コード(MECH/ELEC/GENERAL)も後方互換で受け付ける。
 function normalizeCategory_(category) {
-  var key = sanitizeText_(category, 20).toUpperCase();
-  return Object.prototype.hasOwnProperty.call(CATEGORIES, key) ? key : CATEGORIES.GENERAL;
+  var value = sanitizeText_(category, 20);
+  var validValues = Object.keys(CATEGORIES).map(function(key) {
+    return CATEGORIES[key];
+  });
+  if (validValues.indexOf(value) !== -1) {
+    return value;
+  }
+  // 後方互換: 旧英語コード（大文字）を新コードへ読み替える。
+  var legacy = { MECH: CATEGORIES.MECH, ELEC: CATEGORIES.ELEC, GENERAL: CATEGORIES.GENERAL };
+  var upper = value.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(legacy, upper) ? legacy[upper] : CATEGORIES.GENERAL;
 }
 
 function formatCurrency_(value) {
