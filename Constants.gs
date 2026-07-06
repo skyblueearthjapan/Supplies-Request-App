@@ -31,7 +31,9 @@ var LEGACY_SHEET_NAMES = Object.freeze({
   'DeptSupervisors': SHEETS.DEPT_SUPERVISORS
 });
 
-var DEPT_SUPERVISOR_COLUMNS = ['department', 'email', 'name', 'active', 'title'];
+// notifyEmail（通知メール）は任意。承認依頼メールを認証メール(email)とは別アドレスへも送る場合に使う。
+// 末尾に追加することで既存の列位置（位置ベースの読み書き）を変えない。
+var DEPT_SUPERVISOR_COLUMNS = ['department', 'email', 'name', 'active', 'title', 'notifyEmail'];
 
 // 外部マスタシート（読み取り専用、作業員マスタのソース）
 var EXTERNAL_MASTER_SPREADSHEET_ID = '1iu5HoaknlW1W1HheeYv0jqcRq-aY0SyEE2seQd2pHkQ';
@@ -177,7 +179,7 @@ var WORKER_CACHE_HEADERS = ['作業員コード', '氏名', '部署', '勤務地
 
 var RECIPIENT_HEADERS = ['種別', 'メール', '表示名', '有効', '送信区分'];
 
-var DEPT_SUPERVISOR_HEADERS = ['部署', 'メール', '氏名', '有効', '役職'];
+var DEPT_SUPERVISOR_HEADERS = ['部署', 'メール', '氏名', '有効', '役職', '通知メール'];
 
 var STATUS = Object.freeze({
   IN_REVIEW: '承認中',

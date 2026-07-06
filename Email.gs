@@ -73,7 +73,15 @@ function sendApprovalRequestEmail_(request, approver, extraNote, subjectPrefix) 
     getRequestUrl_(request.requestId)
   );
 
-  sendEmail_(approver.email, subject, lines.join('\n'));
+  // 上席マスタに「通知メール」が設定されていれば、認証メール(To)に加えて Cc で追加通知する。
+  var cc = '';
+  if (approver.notifyEmail) {
+    var notify = normalizeEmail_(approver.notifyEmail);
+    if (notify && notify !== normalizeEmail_(approver.email)) {
+      cc = notify;
+    }
+  }
+  sendEmail_(approver.email, subject, lines.join('\n'), cc);
 }
 
 function sendReturnedEmail_(request, comment) {
@@ -473,7 +481,7 @@ function amountText_(request) {
   return '未確定（購買確定前）';
 }
 
-function sendEmail_(to, subject, body) {
+function sendEmail_(to, subject, body, cc) {
   var settings = getSettings_();
   if (String(settings.enableEmailNotifications || 'true') === 'false') {
     return;
@@ -481,12 +489,16 @@ function sendEmail_(to, subject, body) {
   if (!to) {
     return;
   }
-  MailApp.sendEmail({
+  var options = {
     to: to,
     subject: subject,
     body: body,
     name: APP.NAME
-  });
+  };
+  if (cc) {
+    options.cc = cc;
+  }
+  MailApp.sendEmail(options);
 }
 
 function getRequestUrl_(requestId) {

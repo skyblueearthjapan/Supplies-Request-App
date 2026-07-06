@@ -32,14 +32,14 @@ function resolveSupervisors_(applicantEmail, department) {
 
   if (matched.length > 0) {
     return matched.map(function(row) {
-      return { email: row.email, name: row.name || '上席', title: row.title || '' };
+      return { email: row.email, name: row.name || '上席', title: row.title || '', notifyEmail: row.notifyEmail || '' };
     });
   }
 
-  // フォールバック: 承認者マスタの上席（単一）。
+  // フォールバック: 承認者マスタの上席（単一）。通知メールの分離は上席マスタのみ対象のため空。
   var rule = findApproverRule_(applicantEmail, department);
   if (rule && rule.supervisorEmail) {
-    return [{ email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上席', title: rule.supervisorTitle || '' }];
+    return [{ email: normalizeEmail_(rule.supervisorEmail), name: rule.supervisorName || '上席', title: rule.supervisorTitle || '', notifyEmail: '' }];
   }
   return [];
 }
@@ -124,7 +124,9 @@ function syncDeptSupervisorsMaster() {
     email: findHeaderIndex_(header, ['承認者メール', 'メール', 'mail', 'email', 'approveremail', 'approver']),
     name: findHeaderIndex_(header, ['氏名', '名前', 'approvername', 'name']),
     title: findHeaderIndex_(header, ['役職', 'title', 'position']),
-    active: findHeaderIndex_(header, ['有効', 'active', 'enabled'])
+    active: findHeaderIndex_(header, ['有効', 'active', 'enabled']),
+    // 任意。承認依頼メールの追加送信先（認証メールとは別に Cc で通知する）。
+    notify: findHeaderIndex_(header, ['通知メール', '通知先', '通知', 'notifyemail', 'notify', '送信先'])
   };
   if (idx.dept < 0) { idx.dept = 0; }
   if (idx.email < 0) { idx.email = 1; }
@@ -142,12 +144,14 @@ function syncDeptSupervisorsMaster() {
     }
     var name = idx.name >= 0 ? sanitizeText_(row[idx.name], 100) : '';
     var title = idx.title >= 0 ? sanitizeText_(row[idx.title], 40) : '';
+    var notifyEmail = idx.notify >= 0 ? normalizeEmail_(row[idx.notify]) : '';
     var emailsRaw = String(row[idx.email] === null || row[idx.email] === undefined ? '' : row[idx.email]);
     emailsRaw.split(/[,;\n]/).forEach(function(part) {
       var email = normalizeEmail_(part);
       if (email) {
-        // 列順 [department, email, name, active, title]
-        rows.push([dept, email, name, 'true', title]);
+        // 列順 [department, email, name, active, title, notifyEmail]
+        // 1行に複数メールがある場合、通知メールは同じ値が各行へ適用される。
+        rows.push([dept, email, name, 'true', title, notifyEmail]);
       }
     });
   }
