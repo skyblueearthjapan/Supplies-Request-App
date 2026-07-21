@@ -22,6 +22,8 @@ function createRequestPdfInternal_(requestId, actor) {
   template.helpers = {
     escapeHtml: escapeHtml_,
     currency: formatCurrency_,
+    tax: taxAmount_,
+    gross: grossAmount_,
     statusLabel: function(status) {
       return STATUS_LABELS[status] || status;
     },

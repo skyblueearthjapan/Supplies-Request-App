@@ -201,6 +201,18 @@ function formatCurrency_(value) {
   return '¥' + Math.round(parseNumber_(value)).toLocaleString('ja-JP');
 }
 
+// 税抜額 net に対する消費税額。端数は切り捨て。
+// インボイス準拠のため、明細ごとではなく税抜小計にまとめて1回課税する用途で使う。
+function taxAmount_(net) {
+  return Math.floor(parseNumber_(net) * APP.TAX_RATE);
+}
+
+// 税込額（税抜額 + 消費税額）。
+function grossAmount_(net) {
+  net = parseNumber_(net);
+  return net + taxAmount_(net);
+}
+
 function sanitizeFileName_(value) {
   return sanitizeText_(value, 120).replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, '_') || '申請者';
 }

@@ -24,11 +24,35 @@
   const CAT_CLASS = { 'メカ': 'MECH', '電気': 'ELEC', '一般不明': 'GENERAL' };
   const ACTION_CLASS = { '申請': 'SUBMIT', '再申請': 'RESUBMIT', '承認': 'APPROVE', '差戻': 'RETURN', '完了処理': 'COMPLETE', '更新': 'UPDATE', 'PDF作成': 'PDF_GENERATE', '社長決裁へ': 'ESCALATE', '前段戻し': 'RETURN' };
 
-  // 確定金額の表示。金額未入力でも「金額不要／至急承認」案件は明示する。
+  // 確定金額（税込）の表示。totalAmount は税抜のため税込に換算して表示する。
+  // 金額未入力でも「金額不要／至急承認」案件は明示する。
   function amountLabel(r) {
-    if (r.totalAmount > 0) { return yen(r.totalAmount); }
+    if (r.totalAmount > 0) { return yen(grossOf(r.totalAmount)); }
     if (r.amountWaived) { return '金額不要（至急）'; }
     return '未確定';
+  }
+  // 明細テーブル（8列）の合計行。確定済みは 小計(税抜)・消費税・合計(税込) の3段、
+  // 未確定／金額不要は従来どおり1行（合計にラベル表示）。
+  function detailTotalRows(r) {
+    const net = Number(r.totalAmount) || 0;
+    const lbl = 'class="r" style="font-weight:700;letter-spacing:.08em"';
+    const val = 'class="cell-amt" style="font-size:15px"';
+    if (net > 0) {
+      return '<tr><td colspan="5" class="r">小計（税抜）</td><td class="cell-amt">' + escapeHtml(yen(net)) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="5" class="r">消費税（10%）</td><td class="cell-amt">' + escapeHtml(yen(taxOf(net))) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="5" ' + lbl + '>合計（税込）</td><td ' + val + '>' + escapeHtml(yen(grossOf(net))) + '</td><td colspan="2"></td></tr>';
+    }
+    return '<tr><td colspan="5" ' + lbl + '>合計</td><td ' + val + '>' + escapeHtml(amountLabel(r)) + '</td><td colspan="2"></td></tr>';
+  }
+  // 申請書プレビュー明細（7列）の合計行。確定済みは3段、未確定／金額不要は1行。
+  function previewTotalRows(r) {
+    const net = Number(r.totalAmount) || 0;
+    if (net > 0) {
+      return '<tr><td colspan="4" class="tl">小計（税抜）</td><td class="tv">' + escapeHtml(yen(net)) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="4" class="tl">消費税（10%）</td><td class="tv">' + escapeHtml(yen(taxOf(net))) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="4" class="tl">合計金額（税込）</td><td class="tv">' + escapeHtml(yen(grossOf(net))) + '</td><td colspan="2"></td></tr>';
+    }
+    return '<tr><td colspan="4" class="tl">合計金額（税込）</td><td class="tv">' + escapeHtml(amountLabel(r)) + '</td><td colspan="2"></td></tr>';
   }
   const NG_REASONS = ['金額が過大', '用途・必要性が不明確', '見積書の添付が必要', '時期尚早・要再検討', '他部署と要調整'];
 
@@ -454,7 +478,7 @@
     if (!host) { return; }
     const inReview = rows.filter(r => r.status === '承認中').length;
     const returned = rows.filter(r => r.status === '差戻し').length;
-    const amount = rows.filter(r => r.status !== '完了').reduce((t, r) => t + (r.totalAmount || 0), 0);
+    const amount = rows.filter(r => r.status !== '完了').reduce((t, r) => t + grossOf(r.totalAmount || 0), 0);
     const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
     const totalLabel = totalLabelMap[state.listMode] || '件数';
     host.innerHTML =
@@ -609,7 +633,7 @@
       '<div class="pdf-preview-body"><div id="pdfPreviewWrap" style="width:100%;display:flex;justify-content:center"></div></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>申請明細</h3><span class="hint">' + detail.items.length + ' 件</span></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価</th><th class="r">金額</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価(税抜)</th><th class="r">金額(税抜)</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map(it =>
         '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
@@ -620,9 +644,7 @@
         '<td class="num" style="color:var(--muted)">' + escapeHtml(it.desiredDeliveryDate || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody><tfoot><tr><td colspan="5" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
-      '<td class="cell-amt" style="font-size:15px">' + escapeHtml(amountLabel(r)) + '</td>' +
-      '<td colspan="2"></td></tr></tfoot></table></div></div>';
+      '</tbody><tfoot>' + detailTotalRows(r) + '</tfoot></table></div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認履歴</h3><span class="hint">' + detail.history.length + ' 件のアクション</span></div>' +
       '<div class="card-pad">' + historyHtml(detail.history) + '</div></div>';
@@ -724,11 +746,14 @@
     return '<div class="approve-panel"><div class="ap-head">' +
       '<span class="badge RETURNED"><span class="dot"></span>見積・金額入力待ち</span>' +
       '<span class="pill">各明細の単価を入力して金額を確定、または見積不可・要修正としてコメント付きで差戻しできます</span></div>' +
-      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3><span class="hint">単価を入力すると金額・合計が自動計算されます</span></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:160px">単価</th><th class="r" style="width:160px">金額</th></tr></thead>' +
+      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3><span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:160px">単価(税抜)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
-      '<tfoot><tr><td colspan="4" class="r" style="font-weight:700;letter-spacing:.08em">合計</td>' +
-      '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr></tfoot>' +
+      '<tfoot>' +
+      '<tr><td colspan="4" class="r">小計（税抜）</td><td class="cell-amt" id="q-subtotal">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr>' +
+      '<tr><td colspan="4" class="r">消費税（10%）</td><td class="cell-amt" id="q-tax">' + escapeHtml(yen(detail.request.totalAmount > 0 ? taxOf(detail.request.totalAmount) : 0)) + '</td></tr>' +
+      '<tr><td colspan="4" class="r" style="font-weight:700;letter-spacing:.08em">合計（税込）</td>' +
+      '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? grossOf(detail.request.totalAmount) : 0)) + '</td></tr></tfoot>' +
       '</table></div></div>' +
       returnNoticeHtml() +
       field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
@@ -752,8 +777,12 @@
         const cell = document.querySelector('[data-qamt="' + i + '"]');
         if (cell) { cell.textContent = yen(amount); }
       });
+      const subEl = document.getElementById('q-subtotal');
+      if (subEl) { subEl.textContent = yen(total); }
+      const taxEl = document.getElementById('q-tax');
+      if (taxEl) { taxEl.textContent = yen(taxOf(total)); }
       const totalEl = document.getElementById('q-total');
-      if (totalEl) { totalEl.textContent = yen(total); }
+      if (totalEl) { totalEl.textContent = yen(grossOf(total)); }
     };
     document.querySelectorAll('.q-unit').forEach(input => input.addEventListener('input', recompute));
     const btn = document.getElementById('quoteBtn');
@@ -933,7 +962,7 @@
     html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
       '<table class="items"><thead><tr>' +
       '<th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th><th class="r" style="width:8%">数量</th>' +
-      '<th class="r" style="width:13%">単価</th><th class="r" style="width:14%">金額</th>' +
+      '<th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>' +
       '<th style="width:14%">希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map((it, i) =>
         '<tr><td class="no">' + (i + 1) + '</td>' +
@@ -944,9 +973,7 @@
         '<td class="mono" style="font-size:8pt">' + escapeHtml(dateOnly(it.desiredDeliveryDate) || '—') + '</td>' +
         '<td style="font-size:8pt;color:var(--gray)">' + escapeHtml(it.note || '—') + '</td></tr>'
       ).join('') +
-      '</tbody><tfoot><tr><td colspan="4" class="tl">合計金額（税込）</td>' +
-      '<td class="tv">' + escapeHtml(amountLabel(r)) + '</td>' +
-      '<td colspan="2"></td></tr></tfoot></table>';
+      '</tbody><tfoot>' + previewTotalRows(r) + '</tfoot></table>';
 
     html += '<div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div><div class="reasons-grid">' +
       state.bootstrap.reasons.map(x =>
@@ -1238,7 +1265,7 @@
             '</div></div>' +
         '</div>' +
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
-          field('社長決裁しきい値', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この金額を超える申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
+          field('社長決裁しきい値（税抜）', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この税抜金額を超える申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
           field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
           field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
           field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
@@ -1547,6 +1574,11 @@
   function yen(value) {
     return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value || 0));
   }
+  // 消費税率。サーバの Constants.gs APP.TAX_RATE と一致させること。
+  // 税抜額 net から消費税（端数切り捨て）・税込額を算出する。
+  const TAX_RATE = 0.10;
+  function taxOf(net) { return Math.floor((Number(net) || 0) * TAX_RATE); }
+  function grossOf(net) { net = Number(net) || 0; return net + taxOf(net); }
   // 文字列から数字だけを取り出して整数に（¥・カンマ等を除去）。
   function amountDigits(value) {
     return Number(String(value == null ? '' : value).replace(/[^0-9]/g, '')) || 0;

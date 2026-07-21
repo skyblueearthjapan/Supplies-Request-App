@@ -192,7 +192,7 @@ function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
   lines.push('理由　　: ' + (comment || '（コメントなし）'));
   lines.push('確定金額: ' + amountText_(request));
   lines.push('');
-  lines.push('― 申請明細（品名／型式／数量／単価／金額） ―');
+  lines.push('― 申請明細（品名／型式／数量／単価(税抜)／金額(税抜)） ―');
   if (items.length === 0) {
     lines.push('（明細なし）');
   } else {
@@ -205,6 +205,11 @@ function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
         '／金額: ' + itemMoneyText_(it.amount)
       );
     });
+  }
+  var breakdown = amountBreakdownLines_(request);
+  if (breakdown.length > 0) {
+    lines.push('');
+    breakdown.forEach(function(line) { lines.push(line); });
   }
   lines.push('');
   lines.push(getRequestUrl_(request.requestId));
@@ -470,15 +475,30 @@ function resolvePurchasingElecEmail_(request) {
   return '';
 }
 
-// 確定金額の表記。購買確定前（0）は「未確定（購買確定前）」を返す。
+// 確定金額の表記。totalAmount は税抜のため、税込に換算して表記する。
+// 購買確定前（0）は「未確定（購買確定前）」を返す。
 function amountText_(request) {
-  if (parseNumber_(request.totalAmount) > 0) {
-    return formatCurrency_(request.totalAmount);
+  var net = parseNumber_(request.totalAmount);
+  if (net > 0) {
+    return formatCurrency_(grossAmount_(net)) + '（税込）';
   }
   if (parseBoolean_(request.amountWaived)) {
     return '金額確定不要（至急手配）';
   }
   return '未確定（購買確定前）';
+}
+
+// 金額内訳（小計・消費税・合計）の3行。確定前・金額免除の場合は空配列。
+function amountBreakdownLines_(request) {
+  var net = parseNumber_(request.totalAmount);
+  if (!(net > 0)) {
+    return [];
+  }
+  return [
+    '小計（税抜）　: ' + formatCurrency_(net),
+    '消費税（10%） : ' + formatCurrency_(taxAmount_(net)),
+    '合計（税込）　: ' + formatCurrency_(grossAmount_(net))
+  ];
 }
 
 function sendEmail_(to, subject, body, cc) {

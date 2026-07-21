@@ -150,7 +150,7 @@
         <div class="mcell"><div class="mk">品目区分</div><div class="mv"><?!= helpers.escapeHtml(req.categoryLabel) ?></div></div>
         <div class="mcell"><div class="mk">明細件数</div><div class="mv mono"><?!= detail.items.length ?> 件</div></div>
         <div class="mcell"><div class="mk">状態</div><div class="mv"><?!= helpers.escapeHtml(helpers.statusLabel(req.status)) ?></div></div>
-        <div class="mcell" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></div></div>
+        <div class="mcell" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt"><? if (req.totalAmount > 0) { ?><?= helpers.currency(helpers.gross(req.totalAmount)) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></div></div>
       </div>
 
       <div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount"><?!= detail.items.length ?> ITEMS</span></div>
@@ -158,7 +158,7 @@
         <thead>
           <tr>
             <th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th>
-            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価</th><th class="r" style="width:14%">金額</th>
+            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>
             <th style="width:14%">希望納期</th><th>備考</th>
           </tr>
         </thead>
@@ -176,11 +176,29 @@
           <? } ?>
         </tbody>
         <tfoot>
-          <tr>
-            <td colspan="4" class="tl">合計金額（税込）</td>
-            <td class="tv"><? if (req.totalAmount > 0) { ?><?= helpers.currency(req.totalAmount) ?><? } else if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></td>
-            <td colspan="2"></td>
-          </tr>
+          <? if (req.totalAmount > 0) { ?>
+            <tr>
+              <td colspan="4" class="tl">小計（税抜）</td>
+              <td class="tv"><?= helpers.currency(req.totalAmount) ?></td>
+              <td colspan="2"></td>
+            </tr>
+            <tr>
+              <td colspan="4" class="tl">消費税（10%）</td>
+              <td class="tv"><?= helpers.currency(helpers.tax(req.totalAmount)) ?></td>
+              <td colspan="2"></td>
+            </tr>
+            <tr>
+              <td colspan="4" class="tl">合計金額（税込）</td>
+              <td class="tv"><?= helpers.currency(helpers.gross(req.totalAmount)) ?></td>
+              <td colspan="2"></td>
+            </tr>
+          <? } else { ?>
+            <tr>
+              <td colspan="4" class="tl">合計金額（税込）</td>
+              <td class="tv"><? if (req.amountWaived) { ?>金額確定不要（至急）<? } else { ?>未確定<? } ?></td>
+              <td colspan="2"></td>
+            </tr>
+          <? } ?>
         </tfoot>
       </table>
 

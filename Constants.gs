@@ -4,6 +4,9 @@ var APP = Object.freeze({
   VERSION: '1.0.0',
   REQUEST_ID_PREFIX: 'REQ',
   DEFAULT_THRESHOLD: 100000,
+  // 消費税率。単価・金額はすべて税抜で保存し、消費税・税込は表示時に算出する。
+  // 税率改定時はこの1箇所を変更する（クライアントは bootstrap 経由で受け取る）。
+  TAX_RATE: 0.10,
   PROP_SPREADSHEET_ID: 'DATA_SPREADSHEET_ID',
   PROP_PDF_FOLDER_ID: 'PDF_FOLDER_ID'
 });
@@ -256,7 +259,7 @@ var REASONS = [
 ];
 
 var DEFAULT_SETTINGS = [
-  { key: 'thresholdAmount', value: String(APP.DEFAULT_THRESHOLD), description: '社長決裁が必要になる合計金額（超過判定）' },
+  { key: 'thresholdAmount', value: String(APP.DEFAULT_THRESHOLD), description: '社長決裁が必要になる合計金額（税抜・超過判定）' },
   { key: 'pdfFolderId', value: '', description: '完了PDFを保存するGoogle DriveフォルダID。空欄なら自動作成。' },
   { key: 'adminEmails', value: 'imaizumi@lineworks-local.info', description: '管理者メールアドレス。カンマ区切り。空欄の間は全員を初期管理者として扱う。' },
   { key: 'enableEmailNotifications', value: 'true', description: '承認依頼・差戻し・完了メールを送信する。' }

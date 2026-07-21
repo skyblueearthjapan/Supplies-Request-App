@@ -461,8 +461,9 @@ function completeAndNotify_(updated, user) {
   sendCompletedEmail_(updated);
 }
 
-// 購買(見積)ステップの操作。各明細の単価を入力し金額を確定する。
-// 合計が10万円以上なら社長決裁を経路へ追加し、総務部長承認へ進める。
+// 購買(見積)ステップの操作。各明細の税抜単価を入力し金額を確定する。
+// 単価・金額・totalAmount はすべて税抜。消費税・税込は表示時に算出する。
+// 税抜小計が10万円（社長決裁しきい値・税抜基準）以上なら社長決裁を経路へ追加する。
 // items = [{ itemId, unitPrice }]
 function confirmQuote(requestId, items, comment) {
   var lock = LockService.getScriptLock();
@@ -516,7 +517,11 @@ function confirmQuote(requestId, items, comment) {
     replaceItems_(requestId, rebuilt);
 
     var threshold = getThresholdAmount_();
+    // total は税抜小計。しきい値も税抜基準のため、そのまま比較する。
     var over = total >= threshold;
+    var tax = taxAmount_(total);
+    var gross = grossAmount_(total);
+    var amountSummary = '税抜 ' + formatCurrency_(total) + '（消費税 ' + formatCurrency_(tax) + '／税込 ' + formatCurrency_(gross) + '）';
     var newRoute = over
       ? [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT, STEPS.PURCHASING]
       : [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
@@ -544,7 +549,7 @@ function confirmQuote(requestId, items, comment) {
       toStatus: STATUS.IN_REVIEW,
       fromStep: STEPS.PURCHASING_QUOTE,
       toStep: STEPS.GENERAL_MANAGER,
-      comment: ['見積金額 ' + formatCurrency_(total) + (over ? '（10万円以上）' : ''), cleanComment].filter(Boolean).join(' ')
+      comment: ['見積金額 ' + amountSummary + (over ? '（税抜10万円以上）' : ''), cleanComment].filter(Boolean).join(' ')
     });
 
     var updated = getRequestById_(requestId);
@@ -553,16 +558,16 @@ function confirmQuote(requestId, items, comment) {
       '━━━━━━━━━━━━━━━━━━━━━━',
       '🚨🚨🚨  要・社長決裁  🚨🚨🚨',
       '━━━━━━━━━━━━━━━━━━━━━━',
-      '確定金額 ' + formatCurrency_(total) + ' は社長決裁しきい値（' + formatCurrency_(threshold) + '）以上です。',
+      '確定金額（税抜）' + formatCurrency_(total) + ' は社長決裁しきい値（税抜 ' + formatCurrency_(threshold) + '）以上です。',
       '総務部長の承認後、必ず【社長の承認】が必要です。至急ご対応ください。',
       '━━━━━━━━━━━━━━━━━━━━━━'
     ].join('\n');
     var gaSubject = over
-      ? '【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 ' + updated.requestId + '（10万円以上）'
+      ? '【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 ' + updated.requestId + '（税抜10万円以上）'
       : '[貯蔵品購入申請] 金額確定 ' + updated.requestId;
     var gaHeading = over
-      ? overBanner + '\n\n購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。'
-      : '購買が見積金額 ' + formatCurrency_(total) + ' を確定しました。総務部長承認をお願いします。';
+      ? overBanner + '\n\n購買が見積金額 ' + amountSummary + ' を確定しました。'
+      : '購買が見積金額 ' + amountSummary + ' を確定しました。総務部長承認をお願いします。';
     notifyGeneralAffairs_(updated, gaSubject, buildGeneralAffairsBody_(updated, gaHeading), null);
     sendApprovalRequestEmail_(updated, gm, over ? overBanner : '');
     return getRequestDetail(requestId);
