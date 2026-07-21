@@ -407,6 +407,8 @@
   /* ---------- 一覧 ---------- */
   async function renderList() {
     const mode = state.listMode;
+    // リスト表示・タブ切替のたびに上部バッジも最新化（古い件数の取り残し防止）。
+    refreshCounts().then(renderTabs);
     const titleMap = { supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
     const eyebrow = { supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', arrange: 'Awaiting Arrangement', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
     const subMap = {
@@ -442,7 +444,11 @@
         '</div>' +
       '</div>';
 
-    document.getElementById('refreshBtn').addEventListener('click', loadRows);
+    // 「↻ 更新」はリストだけでなく上部バッジ（件数）も再取得して整合させる。
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      refreshCounts().then(renderTabs);
+      loadRows();
+    });
     document.getElementById('queryFilter').addEventListener('input', debounce(loadRows, 300));
     document.getElementById('statusSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
       document.getElementById('statusSeg').querySelectorAll('button').forEach(x => x.classList.remove('on'));
