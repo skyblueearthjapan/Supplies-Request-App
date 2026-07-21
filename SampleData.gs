@@ -205,6 +205,191 @@ function insertSampleRequest_(sample) {
   });
 }
 
+// ===== 「金額不要／至急」メールのテスト用シード（メール送信なし・TEST- 接頭辞） =====
+// 金額入力待ち（購買見積）状態の申請を3件、シートへ直接書き込むだけで生成する。
+// insertSampleRequest_ と同様に一切メールを送らない（申請→上席承認→見積依頼の各メールは発生しない）。
+// 生成後、購買として画面で「金額不要／至急」を押すと、通常フロー通り総務部へ実メールが送られる。
+// 実行: GAS エディタで seedExpediteTest() を実行（管理者のみ）。削除は clearExpediteTest()。
+var TEST_PREFIX = 'TEST-';
+
+function seedExpediteTest(departmentOverride) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    assertAdmin_(user);
+
+    var dept = pickTestDepartment_(departmentOverride);
+    clearExpediteTestRows_();
+
+    var defs = buildExpediteTestRequests_(dept);
+    defs.forEach(insertTestRequest_);
+
+    return {
+      inserted: defs.length,
+      department: dept,
+      message: '金額入力待ちのテスト申請 ' + defs.length + ' 件を生成しました（部署: ' + dept + '／メール送信なし）。画面で「金額不要／至急」を押すと総務部へ実メールが送られます。'
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function clearExpediteTest() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    assertAdmin_(getCurrentUser_());
+    var removed = clearExpediteTestRows_();
+    return { removed: removed, message: 'テスト申請 ' + removed + ' 件を削除しました。' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function clearExpediteTestRows_() {
+  var rows = readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).filter(isTestRow_);
+  rows.forEach(function(request) {
+    deleteObjectsByColumn_(SHEETS.ITEMS, ITEM_COLUMNS, 'requestId', request.requestId);
+    deleteObjectsByColumn_(SHEETS.HISTORY, HISTORY_COLUMNS, 'requestId', request.requestId);
+    deleteObjectsByColumn_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', request.requestId);
+  });
+  return rows.length;
+}
+
+function isTestRow_(request) {
+  return String(request.requestId || '').indexOf(TEST_PREFIX) === 0;
+}
+
+// 承認者マスタから、総務部長メールが引ける具体的な部署を選ぶ（至急時の GM 解決を保証）。
+// 具体部署ルールが無ければ '*'（全社）ルール前提で一般的な部署名を使う。
+function pickTestDepartment_(override) {
+  if (override) {
+    return sanitizeText_(override, 100);
+  }
+  var rules = readObjects_(SHEETS.APPROVERS, APPROVER_COLUMNS)
+    .map(toClientApprover_)
+    .filter(function(r) { return r.active; });
+  var concrete = rules.find(function(r) {
+    return r.department && r.department !== '*' && r.generalManagerEmail;
+  });
+  return concrete ? concrete.department : '製造一課';
+}
+
+function insertTestRequest_(def) {
+  var now = nowString_();
+  // 現在の承認者（購買）を解決できれば凍結表示に使う。解決できなくても admin は canApprove_ で操作可能。
+  var purchasing = { email: '', name: '購買' };
+  try {
+    var rule = findApproverRule_(def.applicantEmail, def.department);
+    if (rule) {
+      var resolved = getApproverForStep_(rule, STEPS.PURCHASING_QUOTE, def.category);
+      if (resolved && resolved.email) { purchasing = resolved; }
+    }
+  } catch (e) { /* 解決できなくても生成は継続 */ }
+
+  appendObject_(SHEETS.REQUESTS, {
+    requestId: def.requestId,
+    createdAt: def.requestDate + ' 09:00:00',
+    updatedAt: now,
+    submittedAt: def.requestDate + ' 09:00:00',
+    completedAt: '',
+    applicantEmail: def.applicantEmail,
+    applicantName: def.applicantName,
+    department: def.department,
+    requestDate: def.requestDate,
+    reasonCode: def.reasonCode,
+    reasonDetail: def.reasonDetail,
+    totalAmount: 0,
+    status: STATUS.IN_REVIEW,
+    currentStep: STEPS.PURCHASING_QUOTE,
+    currentApproverEmail: purchasing.email,
+    currentApproverName: purchasing.name || '購買',
+    routeJson: JSON.stringify([STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING]),
+    pdfFileId: '',
+    pdfUrl: '',
+    version: APP.VERSION,
+    amountWaived: 'false',
+    category: def.category
+  }, REQUEST_COLUMNS);
+
+  // 申請時は金額未確定のため unitPrice/amount は 0。
+  replaceItems_(def.requestId, def.items.map(function(item) {
+    return {
+      name: item.name,
+      model: item.model || '',
+      maker: item.maker || '',
+      quantity: parseNumber_(item.quantity),
+      unitPrice: 0,
+      amount: 0,
+      desiredDeliveryDate: item.desiredDeliveryDate || '',
+      note: item.note || ''
+    };
+  }));
+
+  // 履歴は「申請」→「上席承認（見積へ）」の2件のみ（シート書き込みのみ・メールなし）。
+  appendObject_(SHEETS.HISTORY, testHistoryRow_(def.requestId, def.requestDate + ' 09:00:00',
+    def.applicantEmail, def.applicantName, ACTION.SUBMIT, '', STATUS.IN_REVIEW, STEPS.APPLICANT, STEPS.SUPERVISOR, 'テスト用に生成'), HISTORY_COLUMNS);
+  appendObject_(SHEETS.HISTORY, testHistoryRow_(def.requestId, now,
+    def.supervisorEmail, def.supervisorName, ACTION.APPROVE, STATUS.IN_REVIEW, STATUS.IN_REVIEW, STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, 'テスト用（上席承認済み・見積依頼）'), HISTORY_COLUMNS);
+}
+
+function testHistoryRow_(requestId, at, actorEmail, actorName, action, fromStatus, toStatus, fromStep, toStep, comment) {
+  return {
+    historyId: createId_('HIS'),
+    requestId: requestId,
+    happenedAt: at,
+    actorEmail: actorEmail || '',
+    actorName: actorName || '',
+    action: action,
+    fromStatus: fromStatus || '',
+    toStatus: toStatus || '',
+    fromStep: fromStep || '',
+    toStep: toStep || '',
+    comment: comment || ''
+  };
+}
+
+// 金額入力待ちのテスト申請3件（価格が商社と確定済みの標準品＝至急手配の対象イメージ）。
+function buildExpediteTestRequests_(dept) {
+  var d = '2026-07-21';
+  return [
+    {
+      requestId: 'TEST-EXP-001', requestDate: d,
+      applicantEmail: 'test-exp1@example.com', applicantName: 'テスト申請者1',
+      department: dept, category: CATEGORIES.MECH, reasonCode: 'A',
+      reasonDetail: '【テスト】標準品の至急手配確認用。CO2・溶接ワイヤーの補充。',
+      supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
+      items: [
+        { name: '炭酸ガス（CO2）', model: '30kg', maker: '—', quantity: 4, note: '溶接用' },
+        { name: '溶接ワイヤー', model: 'YM-28 1.2mm', maker: '日鉄溶接', quantity: 10, note: '20kg巻' }
+      ]
+    },
+    {
+      requestId: 'TEST-EXP-002', requestDate: d,
+      applicantEmail: 'test-exp2@example.com', applicantName: 'テスト申請者2',
+      department: dept, category: CATEGORIES.MECH, reasonCode: 'A',
+      reasonDetail: '【テスト】標準品の至急手配確認用。酸素・アセチレンの補充。',
+      supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
+      items: [
+        { name: '酸素ガス', model: '7000L', maker: '—', quantity: 3, note: '' },
+        { name: 'アセチレンガス', model: '7kg', maker: '—', quantity: 2, note: '' }
+      ]
+    },
+    {
+      requestId: 'TEST-EXP-003', requestDate: d,
+      applicantEmail: 'test-exp3@example.com', applicantName: 'テスト申請者3',
+      department: dept, category: CATEGORIES.GENERAL, reasonCode: 'A',
+      reasonDetail: '【テスト】標準品の至急手配確認用。標準塗装色・標準作動油の補充。',
+      supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
+      items: [
+        { name: '標準塗装色（グレー）', model: '16kg', maker: '—', quantity: 2, note: '標準色' },
+        { name: '標準作動油', model: 'ISO VG32 20L', maker: '—', quantity: 4, note: '' }
+      ]
+    }
+  ];
+}
+
 // ----- サンプル申請の定義（全ステータス網羅。承認待ち系は現在ユーザーが操作可能） -----
 
 function buildSampleRequests_(user) {
