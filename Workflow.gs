@@ -106,9 +106,8 @@ function updateRequestDraft(requestId, payload) {
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (normalizeEmail_(request.applicantEmail) !== user.email) {
-      throw new Error('申請者のみ修正できます。');
-    }
+    // 差戻しプールの編集は認証済みユーザーなら誰でも可（申請者本人に限らない）。
+    // 「保存」は差戻し状態のまま内容だけ更新する（再提出は別操作 resubmitRequest）。
     if (request.status !== STATUS.RETURNED) {
       throw new Error('差戻し中の申請のみ修正できます。');
     }
@@ -129,7 +128,7 @@ function updateRequestDraft(requestId, payload) {
     addHistory_({
       requestId: requestId,
       actorEmail: user.email,
-      actorName: normalized.applicantName,
+      actorName: user.name,
       action: ACTION.UPDATE,
       fromStatus: request.status,
       toStatus: request.status,
@@ -207,14 +206,12 @@ function resubmitRequest(requestId) {
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (normalizeEmail_(request.applicantEmail) !== user.email) {
-      throw new Error('申請者のみ再申請できます。');
-    }
+    // 差戻しプールからの再提出は認証済みユーザーなら誰でも可（申請者本人に限らない）。
     if (request.status !== STATUS.RETURNED) {
       throw new Error('差戻し中の申請のみ再申請できます。');
     }
 
-    var approverRule = requireApproverRule_(user.email, request.department);
+    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
     var route = buildRoute_(0, approverRule);
     var firstStep = route[0];
     var supervisors = [];
@@ -244,7 +241,7 @@ function resubmitRequest(requestId) {
     addHistory_({
       requestId: requestId,
       actorEmail: user.email,
-      actorName: request.applicantName,
+      actorName: user.name,
       action: ACTION.RESUBMIT,
       fromStatus: request.status,
       toStatus: STATUS.IN_REVIEW,
@@ -310,6 +307,10 @@ function getRequests(filter) {
       }
       if (mode === 'arrange') {
         return request.status === STATUS.IN_REVIEW && request.currentStep === STEPS.PURCHASING;
+      }
+      // 差戻しプール：差戻し中の申請を全員に表示（編集・再提出・削除は誰でも可）。
+      if (mode === 'returned') {
+        return request.status === STATUS.RETURNED;
       }
       if (mode === 'all') {
         return true;
@@ -378,6 +379,8 @@ function getRequestDetail(requestId) {
       canReturn: canApprove_(request, user),
       canDelete: canDelete_(request, user),
       canEdit: canEdit_(request, user),
+      canResubmit: canResubmit_(request, user),
+      canDeletePool: canDeletePool_(request, user),
       canEditInReview: canEditInReview_(request, user),
       canGeneratePdf: canGeneratePdf_(request, user),
       canPresident: canPresident_(request, user),
@@ -747,25 +750,66 @@ function arrangeComplete(requestId, comment) {
   }
 }
 
-function returnRequest(requestId, comment, kiosk) {
+// discard=true の場合は「却下（削除）」：差戻しプールへ入れず直接 取消(CANCELLED) にする。
+// 差し戻しプールの肥大化を防ぐため、二度と直さない案件を承認者が入口で捨てられるようにする。
+// discard=false（既定）は従来の差戻し：RETURNED にして申請者へ戻す（プールで編集・再提出可能）。
+function returnRequest(requestId, comment, kiosk, discard) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
     if (!kiosk && !canApprove_(request, user)) {
-      throw new Error('現在の承認者のみ差戻しできます。');
+      throw new Error('現在の承認者のみ差戻し・却下できます。');
     }
 
     var cleanComment = sanitizeText_(comment, 1000);
     if (!cleanComment) {
-      throw new Error('差戻しコメントを入力してください。');
+      throw new Error(discard ? '却下理由（コメント）を入力してください。' : '差戻しコメントを入力してください。');
     }
 
     var actEmail = user.email, actName = user.name, histComment = cleanComment;
     if (kiosk) {
       var ka = kioskAttribution_(request, user, comment);
       actEmail = ka.email; actName = ka.name; histComment = ka.comment;
+    }
+
+    if (discard) {
+      // PDFはDriveから破棄（却下済の申請書を残さない）。既に削除済みなどは無視。
+      if (request.pdfFileId) {
+        try {
+          DriveApp.getFileById(request.pdfFileId).setTrashed(true);
+        } catch (trashError) {
+          Logger.log('returnRequest(却下): trash pdf skipped: ' + trashError.message);
+        }
+      }
+      updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+        updatedAt: nowString_(),
+        status: STATUS.CANCELLED,
+        currentApproverEmail: '',
+        currentApproverName: '',
+        pdfFileId: '',
+        pdfUrl: ''
+      });
+      addHistory_({
+        requestId: requestId,
+        actorEmail: actEmail,
+        actorName: actName,
+        action: ACTION.REJECT,
+        fromStatus: request.status,
+        toStatus: STATUS.CANCELLED,
+        fromStep: request.currentStep,
+        toStep: request.currentStep,
+        comment: histComment
+      });
+      var rejected = getRequestById_(requestId);
+      // メール送信の失敗が却下自体（DB更新済み）を巻き戻さないよう握りつぶす。
+      try {
+        sendRejectedEmail_(rejected, cleanComment);
+      } catch (mailError) {
+        Logger.log('sendRejectedEmail_ failed: ' + mailError.message);
+      }
+      return getRequestDetail(requestId);
     }
 
     updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
@@ -984,6 +1028,10 @@ function canDelete_(request, user) {
   if (isAdmin_(user.email)) {
     return true;
   }
+  // 差戻しプールは肥大化防止のため、差戻し中は認証済みユーザーなら誰でも削除（取消）可。
+  if (request.status === STATUS.RETURNED && !!(user && user.email)) {
+    return true;
+  }
   return normalizeEmail_(request.applicantEmail) === user.email &&
     request.status !== STATUS.COMPLETED;
 }
@@ -997,10 +1045,15 @@ function getTabCounts() {
   var supervisor = 0;
   var gm = 0;
   var arrange = 0;
+  var returned = 0;
   readObjects_(SHEETS.REQUESTS, REQUEST_COLUMNS).forEach(function(request) {
     // 取消（論理削除）済はどのバッジ件数にも数えない。
     if (request.status === STATUS.CANCELLED) {
       return;
+    }
+    // 差戻しプールの件数（全員共通）。
+    if (request.status === STATUS.RETURNED) {
+      returned++;
     }
     var inReview = request.status === STATUS.IN_REVIEW;
     var isPres = isPresidentPendingRow_(request);
@@ -1029,7 +1082,7 @@ function getTabCounts() {
       pending++;
     }
   });
-  return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange };
+  return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange, returned: returned };
 }
 
 function recordPresidentDecision(requestId, decision, comment, kiosk) {
@@ -1472,9 +1525,21 @@ function canApprove_(request, user) {
   return isStepApproverFor_(user.email, request.applicantEmail, request.department, request.currentStep);
 }
 
+// 差戻しプールの操作可否。閲覧と同じく認証済みユーザーなら誰でも可（申請者本人に限らない）。
+// 編集（保存）・再提出・削除で共通の判定：差戻し中(RETURNED)であること。操作者は履歴に記録される。
 function canEdit_(request, user) {
-  return request.status === STATUS.RETURNED &&
-    normalizeEmail_(request.applicantEmail) === user.email;
+  return request.status === STATUS.RETURNED && !!(user && user.email);
+}
+
+// 差戻しプールからの再提出可否（編集と同条件）。
+function canResubmit_(request, user) {
+  return request.status === STATUS.RETURNED && !!(user && user.email);
+}
+
+// 差戻しプールからの削除（取消）可否。プールの肥大化防止のため差戻し中は誰でも削除可。
+// 通常の取消（canDelete_：申請者本人・管理者）とは別枠。
+function canDeletePool_(request, user) {
+  return request.status === STATUS.RETURNED && !!(user && user.email);
 }
 
 // 承認前の明細修正（updateRequestInReview）の可否。閲覧と同じく認証済みユーザーなら誰でも可

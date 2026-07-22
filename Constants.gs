@@ -231,7 +231,8 @@ var ACTION = Object.freeze({
   EXPEDITE: '金額不要至急',
   PDF_GENERATE: 'PDF作成',
   CANCEL: '取消処理',
-  RECALL: '前段戻し'
+  RECALL: '前段戻し',
+  REJECT: '却下'
 });
 
 var ACTION_LABELS = Object.freeze({
@@ -246,7 +247,8 @@ var ACTION_LABELS = Object.freeze({
   '金額不要至急': '金額不要・至急',
   'PDF作成': 'PDF作成',
   '取消処理': '取消',
-  '前段戻し': '前段へ戻す'
+  '前段戻し': '前段へ戻す',
+  '却下': '却下'
 });
 
 var REASONS = [

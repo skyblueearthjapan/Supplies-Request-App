@@ -82,6 +82,7 @@
 
   const TAB_DEFS = [
     { key: 'form', view: 'formView', label: '新規申請' },
+    { key: 'returned', view: 'listView', mode: 'returned', label: '差戻しプール', countKey: 'returned' },
     { key: 'supervisor', view: 'listView', mode: 'supervisor', label: '上席承認待ち', countKey: 'supervisor' },
     { key: 'quote', view: 'listView', mode: 'quote', label: '金額入力待ち', countKey: 'quote' },
     { key: 'gm', view: 'listView', mode: 'gm', label: '総務部長承認待ち', countKey: 'gm' },
@@ -244,9 +245,9 @@
       '<div class="fade-in">' +
         '<div class="page-head">' +
           '<div class="title-wrap">' +
-            '<span class="eyebrow">' + (editing ? 'Resubmit' : 'New Request') + '</span>' +
-            '<h2>' + (editing ? '差戻し申請の修正' : '新規申請') + '</h2>' +
-            '<span class="sub">必要事項を入力し、申請してください。金額は購買での確定後に決まります。</span>' +
+            '<span class="eyebrow">' + (editing ? 'Edit' : 'New Request') + '</span>' +
+            '<h2>' + (editing ? '差戻し申請の編集' : '新規申請') + '</h2>' +
+            '<span class="sub">' + (editing ? '内容を編集して保存します。保存後、詳細画面の「再提出」で申請し直せます。' : '必要事項を入力し、申請してください。金額は購買での確定後に決まります。') + '</span>' +
           '</div>' +
           '<div class="head-actions"><button class="btn ghost" id="clearFormBtn">入力をクリア</button></div>' +
         '</div>' +
@@ -285,7 +286,7 @@
         '</div>' +
 
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">' +
-          '<button class="btn lg primary" id="submitBtn">' + (editing ? '↻ 再申請する' : '➤ 申請する') + '</button>' +
+          '<button class="btn lg primary" id="submitBtn">' + (editing ? '💾 保存（プールに残す）' : '➤ 申請する') + '</button>' +
         '</div>' +
       '</div>';
 
@@ -388,9 +389,9 @@
       };
       let detail;
       if (formState.editingId) {
-        await gas('updateRequestDraft', formState.editingId, payload);
-        detail = await gas('resubmitRequest', formState.editingId);
-        toast('再申請しました', 'ok');
+        // 差戻しプールの編集は「保存」のみ（再提出は詳細画面の別ボタンで行う）。
+        detail = await gas('updateRequestDraft', formState.editingId, payload);
+        toast('保存しました（差戻しプールに残しました）', 'ok');
       } else {
         detail = await gas('createRequest', payload);
         toast('申請しました', 'ok');
@@ -472,9 +473,10 @@
     const mode = state.listMode;
     // リスト表示・タブ切替のたびに上部バッジも最新化（古い件数の取り残し防止）。
     refreshCounts().then(renderTabs);
-    const titleMap = { supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
-    const eyebrow = { supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', arrange: 'Awaiting Arrangement', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
+    const titleMap = { returned: '差戻しプール', supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
+    const eyebrow = { returned: 'Returned Pool', supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', arrange: 'Awaiting Arrangement', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
     const subMap = {
+      returned: '差戻しになった申請の一覧です。編集して再提出、または不要なら削除できます（誰でも操作できます）。',
       supervisor: 'あなたが上席として承認すべき案件です（担当部署の案件のみ表示）。',
       quote: '購買が各明細の単価を入力する案件です。',
       gm: 'あなたが総務部長として承認すべき案件です。',
@@ -548,7 +550,7 @@
     const inReview = rows.filter(r => r.status === '承認中').length;
     const returned = rows.filter(r => r.status === '差戻し').length;
     const amount = rows.filter(r => r.status !== '完了').reduce((t, r) => t + grossOf(r.totalAmount || 0), 0);
-    const totalLabelMap = { supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
+    const totalLabelMap = { returned: '差戻し件数', supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
     const totalLabel = totalLabelMap[state.listMode] || '件数';
     host.innerHTML =
       '<div class="stats">' +
@@ -630,12 +632,26 @@
         (r.pdfUrl ? '<a class="btn" href="' + escapeAttr(r.pdfUrl) + '" target="_blank" rel="noopener">⤓ PDFを開く</a>' : '') +
         (p.canGeneratePdf ? '<button class="btn" id="genPdfBtn">⤓ PDF再作成</button>' : '') +
         (p.canRecall ? '<button class="btn ghost" id="recallBtn">↩ 1つ前のステージへ戻す</button>' : '') +
-        (p.canDelete ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
-        (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
+        (p.canDelete && r.status !== '差戻し' ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
       '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
       '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
+
+    // 差戻しプール：差戻し中の申請は、編集（保存）／再提出／削除を行える（誰でも操作可）。
+    if (r.status === '差戻し') {
+      const lastReturn = (detail.history || []).filter(h => h.action === '差戻').slice(-1)[0];
+      const reason = lastReturn ? lastReturn.comment : '';
+      html += '<div class="approve-panel"><div class="ap-head">' +
+        '<span class="badge RETURNED"><span class="dot"></span>差戻し中（プール）</span>' +
+        '<span class="pill">内容を編集して再提出できます。不要な場合は削除してください。編集・再提出・削除は誰でも操作できます。</span></div>' +
+        (reason ? '<div style="margin:4px 0 2px;padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:13px;line-height:1.6;white-space:pre-wrap"><b>差戻し理由:</b> ' + escapeHtml(reason) + '</div>' : '') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDeletePool ? '<button class="btn danger ghost" id="deletePoolBtn" style="margin-right:auto">🗑 削除</button>' : '') +
+          (p.canEdit ? '<button class="btn" id="editReturnedBtn">✎ 編集</button>' : '') +
+          (p.canResubmit ? '<button class="btn primary lg" id="resubmitBtn">➤ 再提出する</button>' : '') +
+        '</div></div>';
+    }
 
     const isArrange = r.currentStep === '購買手配';
     const approveWord = isArrange ? '手配完了' : '承認する';
@@ -665,7 +681,8 @@
         field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
-          '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+          '<button class="btn danger ghost" id="rejectBtn">✕ 却下（削除）</button>' +
+          '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
           '<button class="btn primary lg" id="arrangeBtn">✓ 手配完了</button>' +
         '</div></div>';
     } else if (p.canApprove) {
@@ -677,7 +694,8 @@
         field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
-          '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+          '<button class="btn danger ghost" id="rejectBtn">✕ 却下（削除）</button>' +
+          '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
           '<button class="btn primary lg" id="approveBtn">✓ ' + escapeHtml(approveWord) + '</button>' +
         '</div></div>';
     }
@@ -727,9 +745,12 @@
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
     bind('backBtn', () => showView('listView'));
-    bind('editBtn', () => renderForm(detail));
     bind('editItemsBtn', () => renderItemEditForm(detail));
     bind('editItemsBtn2', () => renderItemEditForm(detail));
+    bind('editReturnedBtn', () => renderForm(detail));
+    bind('resubmitBtn', () => resubmitAction(r.requestId));
+    // プール削除は理由欄なし（低摩擦のクリーンアップ。取消は論理削除で、操作者は履歴に記録される）。
+    bind('deletePoolBtn', () => deleteRequestAction(r.requestId));
     bind('recallBtn', () => recallAction(r.requestId));
     bind('delBtnHead', () => deleteRequestAction(r.requestId));
     bind('delBtn', () => deleteRequestAction(r.requestId));
@@ -738,7 +759,8 @@
     bind('presBtn2', () => openTabletMode(r.requestId));
     bind('approveBtn', () => detailAction('approveRequest', isArrange ? '手配完了を記録しました' : '承認しました'));
     bind('arrangeBtn', () => detailAction('arrangeComplete', '手配完了を記録しました'));
-    bind('returnBtn', () => detailAction('returnRequest', '差戻ししました'));
+    bind('returnBtn', () => returnAction(false));
+    bind('rejectBtn', () => returnAction(true));
 
     if (p.canQuote) { bindQuotePanel(detail); }
 
@@ -807,6 +829,45 @@
     }
   }
 
+  // 差戻しプールからの再提出。確認後、上席の承認から再スタートする。
+  async function resubmitAction(requestId) {
+    if (!window.confirm('この申請を再提出しますか？上席の承認から再スタートします。')) { return; }
+    setBusy(true);
+    try {
+      const detail = await gas('resubmitRequest', requestId);
+      state.currentDetail = detail;
+      toast('再提出しました', 'ok');
+      await refreshCounts();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 差戻し。discard=false は差戻しプールへ、discard=true は却下（プールに入れず取消）。
+  async function returnAction(discard) {
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 却下は理由必須（サーバでも検証）。破壊的操作の確認ダイアログより前にチェックする。
+    if (discard && !comment.trim()) { toast('却下理由（コメント）を入力してください', 'err'); return; }
+    if (discard && !window.confirm('この申請を却下します。差戻しプールに入れず取消となり、申請者は再提出できません。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      const detail = await gas('returnRequest', state.currentDetail.request.requestId, comment, false, discard);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast(discard ? '却下しました' : '差戻ししました（プールへ）', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /* ---------- 見積・金額入力（購買） ---------- */
   function quotePanelHtml(detail) {
     const rows = detail.items.map((it, i) =>
@@ -837,7 +898,8 @@
       returnNoticeHtml() +
       field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
       '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
-        '<button class="btn danger" id="returnBtn">‹ 差戻し</button>' +
+        '<button class="btn danger ghost" id="rejectBtn" style="margin-right:auto">✕ 却下（削除）</button>' +
+        '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
         '<button class="btn lg" id="expediteBtn" style="background:var(--warn);border-color:var(--warn);color:#fff">⚡ 金額不要／至急承認</button>' +
         '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
       '</div>' +

@@ -154,6 +154,25 @@ function itemMoneyText_(value) {
 
 // 差戻し時、通知宛先マスタの全宛先へ「誰の・どの案件が・どの段階で差戻しになったか」を明細付きで一斉共有する。
 // stepAtReturn は差戻し時点のステップ（申請者へ戻す前の currentStep）を渡すこと。
+// 差戻しではなく「却下（削除）」されたとき、申請者へ通知する。
+// 却下はプールに入れず取消(CANCELLED)にするため、再提出はできない旨を明記する。
+function sendRejectedEmail_(request, comment) {
+  var subject = '[貯蔵品購入申請] 却下 ' + request.requestId;
+  var body = [
+    request.applicantName + ' 様',
+    '',
+    '貯蔵品購入申請が却下されました。この申請は取消となり、再提出はできません。',
+    '再度申請が必要な場合は、新規申請を作成してください。',
+    '',
+    '申請番号: ' + request.requestId,
+    '理由: ' + comment,
+    '',
+    getRequestUrl_(request.requestId)
+  ].join('\n');
+
+  sendEmail_(request.applicantEmail, subject, body);
+}
+
 function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
   var settings = getSettings_();
   if (String(settings.enableEmailNotifications || 'true') === 'false') {
