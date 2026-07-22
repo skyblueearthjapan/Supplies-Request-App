@@ -144,21 +144,19 @@ function updateRequestDraft(requestId, payload) {
   }
 }
 
-// 承認前（購買の金額入力より前）に、申請者本人が申請明細（型式・品名など非金額項目）だけを
-// 修正する。差戻し→再申請（updateRequestDraft + resubmitRequest）と異なり、経路・ステップ・
-// 承認済みの状態は一切変えない（＝軽微な記入ミス修正）。変更内容は履歴に旧→新で残し、
-// 現在の承認者へ通知する。編集可否は canEditInReview_ が判定する（ロック内で最新行を再読込して確認）。
+// 承認前（購買の金額入力より前）に、認証済みユーザー（申請者本人に限らず購買担当や他の人も可）が
+// 申請明細（型式・品名など非金額項目）だけを修正する。差戻し→再申請（updateRequestDraft +
+// resubmitRequest）と異なり、経路・ステップ・承認済みの状態は一切変えない（＝軽微な記入ミス修正）。
+// 変更内容は「実際に編集した人」を操作者として履歴に旧→新で残し、現在の承認者へ通知する。
+// 編集可否は canEditInReview_ が判定する（ロック内で最新行を再読込して確認）。
 function updateRequestInReview(requestId, payload) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (normalizeEmail_(request.applicantEmail) !== user.email) {
-      throw new Error('申請者のみ修正できます。');
-    }
     if (!canEditInReview_(request, user)) {
-      throw new Error('この申請は現在修正できません。購買が金額を入力する前（承認中）の申請のみ、申請者本人が明細を修正できます。');
+      throw new Error('この申請は現在修正できません。承認中かつ購買が金額を入力する前の申請のみ、明細を修正できます。');
     }
 
     var oldItems = readObjects_(SHEETS.ITEMS, ITEM_COLUMNS)
@@ -185,7 +183,7 @@ function updateRequestInReview(requestId, payload) {
     addHistory_({
       requestId: requestId,
       actorEmail: user.email,
-      actorName: request.applicantName,
+      actorName: user.name,
       action: ACTION.UPDATE,
       fromStatus: request.status,
       toStatus: request.status,
@@ -194,8 +192,8 @@ function updateRequestInReview(requestId, payload) {
       comment: summary
     });
 
-    // 変更後の最新行で現承認者（上席ステップは全上席）へ通知する。
-    sendRequestUpdatedEmail_(getRequestById_(requestId), summary);
+    // 変更後の最新行で現承認者（上席ステップは全上席）へ通知する。編集者自身は宛先から除外する。
+    sendRequestUpdatedEmail_(getRequestById_(requestId), summary, user.name, user.email);
 
     return getRequestDetail(requestId);
   } finally {
@@ -1479,13 +1477,14 @@ function canEdit_(request, user) {
     normalizeEmail_(request.applicantEmail) === user.email;
 }
 
-// 承認前の明細修正（updateRequestInReview）の可否。申請者本人・承認中で、かつ購買が
-// 金額を確定する前（currentStep が 上席／購買見積、totalAmount 未確定、金額免除でない）に限る。
+// 承認前の明細修正（updateRequestInReview）の可否。閲覧と同じく認証済みユーザーなら誰でも可
+// （申請者本人に限らない。購買担当や他部署の人が記入ミスを直せるようにする運用）。ただし承認中で、
+// かつ購買が金額を確定する前（currentStep が 上席／購買見積、totalAmount 未確定、金額免除でない）に限る。
 // confirmQuote/confirmExpedited が実行されるとステップが総務部長へ進む or amountWaived が立つため、
-// この窓は金額入力の瞬間に自動的に閉じる（承認済み金額・経路との矛盾を防ぐ）。
+// この窓は金額入力の瞬間に自動的に閉じる（承認済み金額・経路との矛盾を防ぐ）。編集者は履歴に記録される。
 function canEditInReview_(request, user) {
-  return request.status === STATUS.IN_REVIEW &&
-    normalizeEmail_(request.applicantEmail) === user.email &&
+  return !!(user && user.email) &&
+    request.status === STATUS.IN_REVIEW &&
     !parseBoolean_(request.amountWaived) &&
     parseNumber_(request.totalAmount) <= 0 &&
     (request.currentStep === STEPS.SUPERVISOR || request.currentStep === STEPS.PURCHASING_QUOTE);

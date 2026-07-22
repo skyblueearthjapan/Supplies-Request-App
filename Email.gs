@@ -226,18 +226,22 @@ function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
   MailApp.sendEmail(options);
 }
 
-// 申請者が承認前に明細を修正したとき、現在の承認者へ「内容が更新された」旨を通知する。
-// 経路・ステップは変わらない（承認のやり直しではない）ため、宛先は現承認者のみとする。
-function sendRequestUpdatedEmail_(request, changeSummary) {
+// 承認前に明細が修正されたとき、現在の承認者へ「内容が更新された」旨を通知する。
+// 編集は申請者本人に限らない（購買担当や他の人も可）ため、本文には実際の編集者名を記す。
+// 経路・ステップは変わらない（承認のやり直しではない）ので宛先は現承認者のみ。
+// 編集者自身が承認者だった場合は自分への通知を避けるため宛先から除外する。
+function sendRequestUpdatedEmail_(request, changeSummary, editorName, editorEmail) {
   if (!request || !request.currentApproverEmail) {
     return;
   }
+  var editor = editorName || '担当者';
+  var excluded = normalizeEmail_(editorEmail);
   var clientRequest = toClientRequest_(request);
   var subject = '[貯蔵品購入申請] 内容更新 ' + request.requestId;
   var lines = [
     salutationForStep_(request, request.currentStep, null),
     '',
-    '申請者が承認前の申請内容（明細）を修正しました。お手数ですが、最新の内容をご確認のうえ承認をお願いします。',
+    editor + ' さんが承認前の申請内容（明細）を修正しました。お手数ですが、最新の内容をご確認のうえ承認をお願いします。',
     '',
     '申請番号: ' + request.requestId,
     '申請者: ' + request.applicantName + '（' + request.applicantEmail + '）',
@@ -252,17 +256,22 @@ function sendRequestUpdatedEmail_(request, changeSummary) {
   var body = lines.join('\n');
 
   // 上席ステップは部署に複数の上席が登録されうる（createRequest と同様に全員へ通知）。
-  // それ以外の役職ステップは currentApproverEmail（複数はカンマ連結）へ1通。
+  // それ以外の役職ステップは currentApproverEmail（複数はカンマ連結）へ。いずれも編集者本人は除外。
+  var recipients;
   if (request.currentStep === STEPS.SUPERVISOR) {
     var supervisors = resolveSupervisors_(request.applicantEmail, request.department);
-    if (supervisors.length > 0) {
-      supervisors.forEach(function(s) {
-        sendEmail_(s.email, subject, body);
-      });
-      return;
-    }
+    recipients = supervisors.length > 0
+      ? supervisors.map(function(s) { return s.email; })
+      : splitEmails_(request.currentApproverEmail);
+  } else {
+    recipients = splitEmails_(request.currentApproverEmail);
   }
-  sendEmail_(request.currentApproverEmail, subject, body);
+  recipients = recipients.filter(function(email) {
+    return email && normalizeEmail_(email) !== excluded;
+  });
+  recipients.forEach(function(email) {
+    sendEmail_(email, subject, body);
+  });
 }
 
 function sendCompletedEmail_(request) {
