@@ -404,6 +404,69 @@
     }
   }
 
+  /* ---------- 承認前の明細修正（軽微な記入ミス修正） ---------- */
+  // 差戻し再申請（renderForm）と違い、明細（型式・品名など非金額項目）だけを編集する軽量画面。
+  // 部署・理由・区分などは編集しない。保存しても経路・承認状態は維持される。
+  function renderItemEditForm(detail) {
+    const r = detail.request;
+    formState.items = (detail.items || []).map(it => ({
+      name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
+      desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
+    }));
+    if (formState.items.length === 0) { formState.items = [emptyItem()]; }
+
+    document.getElementById('main').innerHTML =
+      '<div class="fade-in">' +
+        '<div class="page-head"><div class="title-wrap">' +
+          '<span class="eyebrow">Edit Items</span>' +
+          '<h2>申請明細の修正</h2>' +
+          '<span class="sub">型式・品名などの記入ミスを修正できます。承認の流れはそのまま維持されます（購買の金額入力前のみ）。</span>' +
+        '</div><div class="head-actions"><button class="btn ghost" id="cancelEditBtn">‹ 詳細へ戻る</button></div></div>' +
+
+        '<div class="card"><div class="card-pad"><div class="detail-grid">' +
+          dcell('申請ID', '<span class="num">' + escapeHtml(r.requestId) + '</span>') +
+          dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
+          dcell('部署', escapeHtml(r.department)) +
+          dcell('申請者', escapeHtml(r.applicantName)) +
+        '</div></div></div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・型式・数量・希望納期などを修正してください</span></div>' +
+          '<div class="card-pad items-section">' +
+            '<div class="icards" id="icards"></div>' +
+            '<div style="margin-top:14px"><button class="btn sm" id="addItemBtn">＋ 明細行を追加</button></div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">' +
+          '<button class="btn ghost" id="cancelEditBtn2">キャンセル</button>' +
+          '<button class="btn lg primary" id="saveItemsBtn">✓ 修正を保存</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('addItemBtn').addEventListener('click', () => { formState.items.push(emptyItem()); renderItemCards(); });
+    document.getElementById('saveItemsBtn').addEventListener('click', () => saveItemEdits(r.requestId));
+    document.getElementById('cancelEditBtn').addEventListener('click', () => openDetail(r.requestId));
+    document.getElementById('cancelEditBtn2').addEventListener('click', () => openDetail(r.requestId));
+    renderItemCards();
+  }
+
+  async function saveItemEdits(requestId) {
+    if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
+    setBusy(true);
+    try {
+      const detail = await gas('updateRequestInReview', requestId, { items: formState.items });
+      state.currentDetail = detail;
+      toast('明細を修正しました', 'ok');
+      await refreshCounts();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /* ---------- 一覧 ---------- */
   async function renderList() {
     const mode = state.listMode;
@@ -569,6 +632,7 @@
         (p.canRecall ? '<button class="btn ghost" id="recallBtn">↩ 1つ前のステージへ戻す</button>' : '') +
         (p.canDelete ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
         (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
+        (p.canEditInReview ? '<button class="btn primary" id="editItemsBtn">✎ 明細を修正</button>' : '') +
       '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
@@ -661,6 +725,7 @@
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
     bind('backBtn', () => showView('listView'));
     bind('editBtn', () => renderForm(detail));
+    bind('editItemsBtn', () => renderItemEditForm(detail));
     bind('recallBtn', () => recallAction(r.requestId));
     bind('delBtnHead', () => deleteRequestAction(r.requestId));
     bind('delBtn', () => deleteRequestAction(r.requestId));

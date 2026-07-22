@@ -144,6 +144,65 @@ function updateRequestDraft(requestId, payload) {
   }
 }
 
+// 承認前（購買の金額入力より前）に、申請者本人が申請明細（型式・品名など非金額項目）だけを
+// 修正する。差戻し→再申請（updateRequestDraft + resubmitRequest）と異なり、経路・ステップ・
+// 承認済みの状態は一切変えない（＝軽微な記入ミス修正）。変更内容は履歴に旧→新で残し、
+// 現在の承認者へ通知する。編集可否は canEditInReview_ が判定する（ロック内で最新行を再読込して確認）。
+function updateRequestInReview(requestId, payload) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var user = getCurrentUser_();
+    var request = requireRequest_(requestId);
+    if (normalizeEmail_(request.applicantEmail) !== user.email) {
+      throw new Error('申請者のみ修正できます。');
+    }
+    if (!canEditInReview_(request, user)) {
+      throw new Error('この申請は現在修正できません。購買が金額を入力する前（承認中）の申請のみ、申請者本人が明細を修正できます。');
+    }
+
+    var oldItems = readObjects_(SHEETS.ITEMS, ITEM_COLUMNS)
+      .filter(function(item) {
+        return item.requestId === requestId;
+      })
+      .sort(function(a, b) {
+        return parseNumber_(a.lineNo) - parseNumber_(b.lineNo);
+      });
+
+    var newItems = normalizeEditableItems_(payload);
+    var summary = describeItemChanges_(oldItems, newItems);
+    // 実質的な変更が無ければ何も書き込まない（明細の再挿入・updatedAt更新・履歴・通知を行わない）。
+    if (!summary) {
+      return getRequestDetail(requestId);
+    }
+
+    var now = nowString_();
+    replaceItems_(requestId, newItems);
+    updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+      updatedAt: now
+    });
+
+    addHistory_({
+      requestId: requestId,
+      actorEmail: user.email,
+      actorName: request.applicantName,
+      action: ACTION.UPDATE,
+      fromStatus: request.status,
+      toStatus: request.status,
+      fromStep: request.currentStep,
+      toStep: request.currentStep,
+      comment: summary
+    });
+
+    // 変更後の最新行で現承認者（上席ステップは全上席）へ通知する。
+    sendRequestUpdatedEmail_(getRequestById_(requestId), summary);
+
+    return getRequestDetail(requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function resubmitRequest(requestId) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -321,6 +380,7 @@ function getRequestDetail(requestId) {
       canReturn: canApprove_(request, user),
       canDelete: canDelete_(request, user),
       canEdit: canEdit_(request, user),
+      canEditInReview: canEditInReview_(request, user),
       canGeneratePdf: canGeneratePdf_(request, user),
       canPresident: canPresident_(request, user),
       canTabletApprove: canApprove_(request, user),
@@ -1236,6 +1296,86 @@ function normalizeRequestPayload_(payload, user) {
   };
 }
 
+// 承認前の明細修正（updateRequestInReview）用に、明細だけを検証・正規化する。
+// 申請者は単価・金額を扱わないため normalizeRequestPayload_ と同じく amount は常に0で保存する
+// （編集窓は金額入力前なので unitPrice も0のまま）。品名必須・数量1以上・1行以上を強制する。
+function normalizeEditableItems_(payload) {
+  var input = payload || {};
+  var items = (input.items || []).map(function(item) {
+    return {
+      name: sanitizeText_(item.name, 200),
+      model: sanitizeText_(item.model, 200),
+      maker: sanitizeText_(item.maker, 200),
+      quantity: parseNumber_(item.quantity),
+      // 申請者は単価・金額を扱わない。細工されたリクエストで unitPrice が送られても
+      // 無条件で0に落とす（confirmQuote の単価フォールバックへ混入させない防御）。
+      unitPrice: 0,
+      amount: 0,
+      desiredDeliveryDate: sanitizeText_(item.desiredDeliveryDate, 20),
+      note: sanitizeText_(item.note, 500)
+    };
+  }).filter(function(item) {
+    return item.name || item.model || item.maker || item.quantity || item.note;
+  });
+
+  if (items.length === 0) {
+    throw new Error('明細を1行以上入力してください。');
+  }
+  items.forEach(function(item, index) {
+    if (!item.name) {
+      throw new Error('明細' + (index + 1) + '行目の品名を入力してください。');
+    }
+    if (item.quantity <= 0) {
+      throw new Error('明細' + (index + 1) + '行目の数量を1以上にしてください。');
+    }
+  });
+  return items;
+}
+
+// 明細の旧→新差分を人間可読な履歴コメントに整形する（例「明細1 型式: A→B、品名: ○→△」）。
+// 行は位置（行番号順）で対応づける。行の増減は追加／削除として記す。実質変更が無ければ空文字。
+function describeItemChanges_(oldItems, newItems) {
+  var fields = [
+    { key: 'name', label: '品名' },
+    { key: 'model', label: '型式' },
+    { key: 'maker', label: 'メーカー' },
+    { key: 'quantity', label: '数量' },
+    { key: 'desiredDeliveryDate', label: '希望納期' },
+    { key: 'note', label: '備考' }
+  ];
+  var lines = [];
+  var max = Math.max(oldItems.length, newItems.length);
+  for (var i = 0; i < max; i++) {
+    var oldItem = oldItems[i];
+    var newItem = newItems[i];
+    if (!oldItem && newItem) {
+      lines.push('明細' + (i + 1) + ': 追加（' + (newItem.name || '—') + '）');
+      continue;
+    }
+    if (oldItem && !newItem) {
+      lines.push('明細' + (i + 1) + ': 削除（' + (oldItem.name || '—') + '）');
+      continue;
+    }
+    var changes = [];
+    fields.forEach(function(field) {
+      var before = compareValue_(oldItem[field.key]);
+      var after = compareValue_(newItem[field.key]);
+      if (before !== after) {
+        changes.push(field.label + ': ' + (before || '—') + '→' + (after || '—'));
+      }
+    });
+    if (changes.length > 0) {
+      lines.push('明細' + (i + 1) + ' ' + changes.join('、'));
+    }
+  }
+  return lines.join(' ／ ');
+}
+
+// 差分比較用の値正規化。数値・文字列の表記ゆれ（例 2 と "2"）を吸収し、前後空白を除く。
+function compareValue_(value) {
+  return String(value == null ? '' : value).trim();
+}
+
 function buildRoute_(totalAmount, approverRule) {
   // 申請時は金額未確定。経路は 上席→購買(見積)→総務部長→購買(手配)。
   // 社長決裁は購買が見積金額を入力した時点で 10万円以上の場合に confirmQuote が
@@ -1337,6 +1477,18 @@ function canApprove_(request, user) {
 function canEdit_(request, user) {
   return request.status === STATUS.RETURNED &&
     normalizeEmail_(request.applicantEmail) === user.email;
+}
+
+// 承認前の明細修正（updateRequestInReview）の可否。申請者本人・承認中で、かつ購買が
+// 金額を確定する前（currentStep が 上席／購買見積、totalAmount 未確定、金額免除でない）に限る。
+// confirmQuote/confirmExpedited が実行されるとステップが総務部長へ進む or amountWaived が立つため、
+// この窓は金額入力の瞬間に自動的に閉じる（承認済み金額・経路との矛盾を防ぐ）。
+function canEditInReview_(request, user) {
+  return request.status === STATUS.IN_REVIEW &&
+    normalizeEmail_(request.applicantEmail) === user.email &&
+    !parseBoolean_(request.amountWaived) &&
+    parseNumber_(request.totalAmount) <= 0 &&
+    (request.currentStep === STEPS.SUPERVISOR || request.currentStep === STEPS.PURCHASING_QUOTE);
 }
 
 function canGeneratePdf_(request, user) {
