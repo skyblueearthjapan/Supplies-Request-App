@@ -632,7 +632,6 @@
         (p.canRecall ? '<button class="btn ghost" id="recallBtn">↩ 1つ前のステージへ戻す</button>' : '') +
         (p.canDelete ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
         (p.canEdit ? '<button class="btn primary" id="editBtn">✎ 修正して再申請</button>' : '') +
-        (p.canEditInReview ? '<button class="btn primary" id="editItemsBtn">✎ 明細を修正</button>' : '') +
       '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
@@ -702,7 +701,11 @@
       '<div class="head-actions">' + (p.canPresident ? '<button class="btn" id="presBtn2">➤ 社長に提示</button>' : '') + '</div></div>' +
       '<div class="pdf-preview-body"><div id="pdfPreviewWrap" style="width:100%;display:flex;justify-content:center"></div></div></div>';
 
-    html += '<div class="card"><div class="card-head"><h3>申請明細</h3><span class="hint">' + detail.items.length + ' 件</span></div>' +
+    html += '<div class="card"><div class="card-head"><h3>申請明細</h3>' +
+      '<div class="head-actions" style="display:flex;align-items:center;gap:12px">' +
+        '<span class="hint">' + detail.items.length + ' 件</span>' +
+        (p.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn">✎ 明細を修正</button>' : '') +
+      '</div></div>' +
       '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価(税抜)</th><th class="r">金額(税抜)</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map(it =>
         '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
