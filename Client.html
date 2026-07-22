@@ -729,6 +729,7 @@
     bind('backBtn', () => showView('listView'));
     bind('editBtn', () => renderForm(detail));
     bind('editItemsBtn', () => renderItemEditForm(detail));
+    bind('editItemsBtn2', () => renderItemEditForm(detail));
     bind('recallBtn', () => recallAction(r.requestId));
     bind('delBtnHead', () => deleteRequestAction(r.requestId));
     bind('delBtn', () => deleteRequestAction(r.requestId));
@@ -820,7 +821,11 @@
     return '<div class="approve-panel"><div class="ap-head">' +
       '<span class="badge RETURNED"><span class="dot"></span>見積・金額入力待ち</span>' +
       '<span class="pill">各明細の単価を入力して金額を確定、または見積不可・要修正としてコメント付きで差戻しできます</span></div>' +
-      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3><span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span></div>' +
+      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3>' +
+      '<div class="head-actions" style="display:flex;align-items:center;gap:12px">' +
+        '<span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span>' +
+        (detail.permissions.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn2">✎ 明細を修正</button>' : '') +
+      '</div></div>' +
       '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:160px">単価(税抜)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '<tfoot>' +
