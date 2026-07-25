@@ -26,70 +26,135 @@ function showCurrentDatabaseId() {
   return msg;
 }
 
-// 現在のDB → 本来のDB(A) へ移行して参照先を切り替える。
+// 移行対象のデータシート（申請系＋マスタ系）。移行と行数レポートで共用する。
+function migrationSheetNames_() {
+  return [
+    SHEETS.REQUESTS, SHEETS.ITEMS, SHEETS.APPROVERS, SHEETS.HISTORY,
+    SHEETS.SETTINGS, SHEETS.WORKERS_CACHE, SHEETS.RECIPIENTS, SHEETS.DEPT_SUPERVISORS
+  ];
+}
+
+// 移行の前後で突き合わせるための読み取り専用レポート。何も変更しない。
+// 実行前と実行後に流し、各シートの行数が一致することを目視で確認するために使う。
+function reportDatabaseRowCounts() {
+  var currentId = PropertiesService.getScriptProperties().getProperty(APP.PROP_SPREADSHEET_ID);
+  if (!currentId) {
+    throw new Error('現在のDATA_SPREADSHEET_IDが未設定です。');
+  }
+  var current = SpreadsheetApp.openById(currentId);
+  var intended = SpreadsheetApp.openById(INTENDED_DATA_SPREADSHEET_ID);
+  var rowsOf = function(spreadsheet, name) {
+    var sheet = spreadsheet.getSheetByName(name);
+    return sheet ? Math.max(0, sheet.getLastRow() - 1) + ' 行' : '（シートなし）';
+  };
+
+  var lines = [
+    '現在の保存先: ' + currentId,
+    '移行先(コンテナ): ' + INTENDED_DATA_SPREADSHEET_ID,
+    currentId === INTENDED_DATA_SPREADSHEET_ID ? '※ 既に統一済みです。' : '※ まだ分かれています。',
+    '',
+    'シート名 : 現在の保存先 / 移行先'
+  ];
+  migrationSheetNames_().forEach(function(name) {
+    lines.push('・' + name + ' : ' + rowsOf(current, name) + ' / ' + rowsOf(intended, name));
+  });
+
+  var text = lines.join('\n');
+  Logger.log(text);
+  return text;
+}
+
+// 現在のDB → 本来のDB(A・コンテナ) へ移行して参照先を切り替える。
+//
+// 【安全装置】INTENDED_DATA_SPREADSHEET_ID は本番コンテナのIDを直書きしている。
+// サンドボックス（コピーしたスクリプト）でうっかり実行すると、テストデータで本番の
+// コンテナを上書きしてしまう。バインド先が移行先と一致するとき（＝本番）だけ実行を許す。
 function migrateDatabaseToIntendedSheet() {
+  var container = null;
+  try {
+    container = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (error) {
+    container = null;
+  }
+  if (container && container.getId() !== INTENDED_DATA_SPREADSHEET_ID) {
+    throw new Error(
+      'このスクリプトのバインド先（' + container.getId() + '）が移行先（' +
+      INTENDED_DATA_SPREADSHEET_ID + '）と一致しません。' +
+      'サンドボックスから本番コンテナを上書きしようとしている可能性があります。中止しました。'
+    );
+  }
+  if (!container) {
+    Logger.log('migrateDatabaseToIntendedSheet: バインド先を判定できませんでした。実行環境を確認してください。');
+  }
   return migrateDatabaseToSpreadsheet_(INTENDED_DATA_SPREADSHEET_ID);
 }
 
 // 現在のDBの全データシートを target へコピーし、DATA_SPREADSHEET_ID を target に切り替える。
+//
+// 【ロックの理由】アプリの書き込み（申請・承認・金額確定など）はすべて同じスクリプトロックを
+// 取ってから行う。ロックを取らずにコピーすると、コピー済みのシートへ利用者の書き込みが入った直後に
+// 参照先を切り替えてしまい、その申請だけが移行先に存在しない＝消えたように見える。
+// ロックを取れば、利用者の操作は「コピー前に完了して移行に含まれる」か「切替後に新DBへ書かれる」
+// のどちらかになり、取りこぼしが起きない。
 function migrateDatabaseToSpreadsheet_(targetId) {
   if (!targetId) {
     throw new Error('移行先スプレッドシートIDが空です。');
   }
-  var props = PropertiesService.getScriptProperties();
-  var currentId = props.getProperty(APP.PROP_SPREADSHEET_ID);
-  if (!currentId) {
-    throw new Error('現在のDATA_SPREADSHEET_IDが未設定です。先にアプリを一度開いてから実行してください。');
-  }
-  if (currentId === targetId) {
-    var sameMsg = '既に対象スプレッドシート（' + targetId + '）を使用しています。移行は不要です。';
-    Logger.log(sameMsg);
-    return sameMsg;
-  }
-
-  var source = SpreadsheetApp.openById(currentId);
-  var target = SpreadsheetApp.openById(targetId);
-
-  var sheetNames = [
-    SHEETS.REQUESTS, SHEETS.ITEMS, SHEETS.APPROVERS, SHEETS.HISTORY,
-    SHEETS.SETTINGS, SHEETS.WORKERS_CACHE, SHEETS.RECIPIENTS, SHEETS.DEPT_SUPERVISORS
-  ];
-
-  var report = [];
-  sheetNames.forEach(function(name) {
-    var src = source.getSheetByName(name);
-    if (!src) {
-      report.push('・' + name + ': 元になし→スキップ');
-      return;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var currentId = props.getProperty(APP.PROP_SPREADSHEET_ID);
+    if (!currentId) {
+      throw new Error('現在のDATA_SPREADSHEET_IDが未設定です。先にアプリを一度開いてから実行してください。');
     }
-    var lastRow = src.getLastRow();
-    var lastCol = src.getLastColumn();
-    var dst = target.getSheetByName(name) || target.insertSheet(name);
-    dst.clear();
-    if (lastRow > 0 && lastCol > 0) {
-      var values = src.getRange(1, 1, lastRow, lastCol).getValues();
-      dst.getRange(1, 1, lastRow, lastCol).setValues(values);
-      dst.setFrozenRows(1);
+    if (currentId === targetId) {
+      var sameMsg = '既に対象スプレッドシート（' + targetId + '）を使用しています。移行は不要です。';
+      Logger.log(sameMsg);
+      return sameMsg;
     }
-    report.push('・' + name + ': ' + Math.max(0, lastRow - 1) + '行 コピー');
-  });
 
-  // 参照先を新スプレッドシート(A)へ切り替え。
-  props.setProperty(APP.PROP_SPREADSHEET_ID, targetId);
+    var source = SpreadsheetApp.openById(currentId);
+    var target = SpreadsheetApp.openById(targetId);
 
-  var done = [
-    '✅ データベース移行が完了しました。',
-    '旧（コピー元・そのまま残置）: ' + currentId,
-    '新（これからの保存先）      : ' + targetId,
-    '',
-    report.join('\n'),
-    '',
-    'アプリの参照先を新スプレッドシートに切り替えました。',
-    '画面を再読込して、申請一覧・承認者マスタが表示されることを確認してください。',
-    '問題があれば、DATA_SPREADSHEET_ID を旧IDに戻せば元に戻せます。'
-  ].join('\n');
-  Logger.log(done);
-  return done;
+    var report = [];
+    migrationSheetNames_().forEach(function(name) {
+      var src = source.getSheetByName(name);
+      if (!src) {
+        report.push('・' + name + ': 元になし→スキップ');
+        return;
+      }
+      var lastRow = src.getLastRow();
+      var lastCol = src.getLastColumn();
+      var dst = target.getSheetByName(name) || target.insertSheet(name);
+      dst.clear();
+      if (lastRow > 0 && lastCol > 0) {
+        var values = src.getRange(1, 1, lastRow, lastCol).getValues();
+        dst.getRange(1, 1, lastRow, lastCol).setValues(values);
+        dst.setFrozenRows(1);
+      }
+      report.push('・' + name + ': ' + Math.max(0, lastRow - 1) + '行 コピー');
+    });
+
+    // 参照先を新スプレッドシート(A)へ切り替え。
+    props.setProperty(APP.PROP_SPREADSHEET_ID, targetId);
+
+    var done = [
+      '✅ データベース移行が完了しました。',
+      '旧（コピー元・そのまま残置）: ' + currentId,
+      '新（これからの保存先）      : ' + targetId,
+      '',
+      report.join('\n'),
+      '',
+      'アプリの参照先を新スプレッドシートに切り替えました。',
+      '画面を再読込して、申請一覧・承認者マスタが表示されることを確認してください。',
+      '問題があれば、DATA_SPREADSHEET_ID を旧IDに戻せば元に戻せます（旧DBは変更していません）。'
+    ].join('\n');
+    Logger.log(done);
+    return done;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ============================================================
