@@ -73,6 +73,8 @@
       table.items td.no { text-align: center; font-family: var(--mono); color: var(--gray); font-size: 8pt; }
       table.items td .nm { font-weight: 600; }
       table.items td .sub { color: var(--gray); font-size: 7.6pt; }
+      /* 数量セルの単位（列は増やさず2段表示。長い自由入力の単位も折り返して収める） */
+      table.items td .unit { color: var(--gray); font-size: 7.4pt; font-family: var(--sans); line-height: 1.25; word-break: break-all; }
       table.items tfoot td { padding: 7px; border-top: 1.6pt solid var(--ink); font-weight: 700; }
       table.items tfoot .tl { text-align: right; letter-spacing: .1em; font-size: 9pt; }
       table.items tfoot .tv { text-align: right; font-family: var(--mono); font-size: 13pt; }
@@ -158,7 +160,7 @@
         <thead>
           <tr>
             <th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th>
-            <th class="r" style="width:8%">数量</th><th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>
+            <th class="r" style="width:10%">数量</th><th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>
             <th style="width:14%">希望納期</th><th>備考</th>
           </tr>
         </thead>
@@ -167,7 +169,7 @@
             <tr>
               <td class="no"><?!= (i + 1) ?></td>
               <td><div class="nm"><?!= helpers.escapeHtml(item.name) ?></div><div class="sub"><?!= helpers.escapeHtml(sub) ?></div></td>
-              <td class="r"><?!= helpers.escapeHtml(item.quantity) ?></td>
+              <td class="r"><?!= helpers.escapeHtml(item.quantity) ?><? if (item.unit) { ?><div class="unit"><?!= helpers.escapeHtml(item.unit) ?></div><? } ?></td>
               <td class="r"><? if (unitPrice > 0) { ?><?= helpers.currency(unitPrice) ?><? } else { ?>未定<? } ?></td>
               <td class="r"><? if (amount > 0) { ?><?= helpers.currency(amount) ?><? } else { ?>未定<? } ?></td>
               <td class="mono" style="font-size:8pt"><?!= helpers.escapeHtml(helpers.dateOnly(item.desiredDeliveryDate) || '—') ?></td>

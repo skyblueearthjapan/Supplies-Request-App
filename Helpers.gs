@@ -197,6 +197,20 @@ function normalizeCategory_(category) {
   return Object.prototype.hasOwnProperty.call(legacy, upper) ? legacy[upper] : CATEGORIES.GENERAL;
 }
 
+// 明細の単位を正規化する。セレクトの番兵値（その他）が届いた場合は空に落とす。
+// 空欄は許容する（単位列より前に作られた既存明細は空のまま）。
+function normalizeUnit_(value) {
+  var unit = sanitizeText_(value, 20);
+  return unit === UNIT_OTHER ? '' : unit;
+}
+
+// 数量と単位の連結表示（例「3 ケース」）。単位が空の旧明細は数量のみを返す。
+function qtyText_(quantity, unit) {
+  var text = String(quantity === null || quantity === undefined ? '' : quantity);
+  var suffix = sanitizeText_(unit, 20);
+  return suffix ? text + ' ' + suffix : text;
+}
+
 function formatCurrency_(value) {
   return '¥' + Math.round(parseNumber_(value)).toLocaleString('ja-JP');
 }

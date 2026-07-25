@@ -109,6 +109,42 @@
     return '<span class="cat-chip ' + (CAT_CLASS[key] || 'GENERAL') + '">' + escapeHtml(label) + '</span>';
   }
 
+  /* ---------- 明細の単位 ---------- */
+  // 候補は bootstrap 経由でサーバ（Constants.gs の UNIT_OPTIONS）から受け取る。
+  // 候補に無い単位（自由入力）と空（単位列より前に作られた旧明細）は「その他」扱いにする。
+  function unitOptions() { return (state.bootstrap && state.bootstrap.unitOptions) || ['個']; }
+  function unitOtherValue() { return (state.bootstrap && state.bootstrap.unitOther) || '__other__'; }
+  function defaultUnit() { return (state.bootstrap && state.bootstrap.defaultUnit) || '個'; }
+  function isFreeUnit(unit) { return unitOptions().indexOf(String(unit || '')) === -1; }
+
+  function unitSelectOptions(unit) {
+    const free = isFreeUnit(unit);
+    return unitOptions().map(u =>
+      '<option value="' + escapeAttr(u) + '"' + (!free && u === unit ? ' selected' : '') + '>' + escapeHtml(u) + '</option>'
+    ).join('') +
+      '<option value="' + escapeAttr(unitOtherValue()) + '"' + (free ? ' selected' : '') + '>その他（自由入力）</option>';
+  }
+
+  // 数量と単位の連結表示（例「3 ケース」）。単位が空の旧明細は数量のみ。
+  function qtyText(quantity, unit) {
+    const q = escapeHtml(quantity);
+    const u = String(unit || '').trim();
+    return u ? q + ' ' + escapeHtml(u) : q;
+  }
+
+  // 入力済みの明細行に単位が無ければエラーメッセージを返す（無ければ空文字）。
+  // 「その他」を選んで自由入力が空のまま、および旧明細（単位なし）の保存を防ぐ。
+  function findUnitError(items) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const filled = it.name || it.model || it.maker || it.quantity || it.note;
+      if (filled && !String(it.unit || '').trim()) {
+        return '明細' + (i + 1) + '行目の単位を入力してください';
+      }
+    }
+    return '';
+  }
+
   document.addEventListener('DOMContentLoaded', initialize);
 
   async function initialize() {
@@ -185,7 +221,7 @@
   }
 
   /* ---------- 新規申請フォーム ---------- */
-  function emptyItem() { return { name: '', model: '', maker: '', quantity: '', desiredDeliveryDate: '', note: '' }; }
+  function emptyItem() { return { name: '', model: '', maker: '', quantity: '', unit: defaultUnit(), desiredDeliveryDate: '', note: '' }; }
 
   function uniqueSorted(values) {
     return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
@@ -227,6 +263,7 @@
     formState.reasonDetail = draft ? draft.request.reasonDetail : '';
     formState.items = draft ? draft.items.map(it => ({
       name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
+      unit: it.unit || '',
       desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
     })) : [emptyItem()];
 
@@ -348,6 +385,9 @@
           '<div><span class="mini-lbl">メーカー</span><input class="control" data-f="maker" value="' + escapeAttr(it.maker) + '" maxlength="200"></div>' +
           '<div class="sub">' +
             '<div><span class="mini-lbl">数量</span><input class="control num" data-f="quantity" type="number" min="0" value="' + escapeAttr(it.quantity) + '"></div>' +
+            '<div><span class="mini-lbl">単位</span>' +
+              '<select class="control" data-unit-sel>' + unitSelectOptions(it.unit) + '</select>' +
+              '<input class="control unit-free" data-f="unit" value="' + escapeAttr(isFreeUnit(it.unit) ? (it.unit || '') : '') + '" placeholder="例）束(50本入)" maxlength="20"' + (isFreeUnit(it.unit) ? '' : ' hidden') + '></div>' +
             '<div><span class="mini-lbl">希望納期</span><input class="control" data-f="desiredDeliveryDate" type="date" value="' + escapeAttr(it.desiredDeliveryDate) + '"></div>' +
             '<div style="grid-column:1 / -1"><span class="mini-lbl">備考</span><input class="control" data-f="note" value="' + escapeAttr(it.note) + '" maxlength="500"></div>' +
           '</div>' +
@@ -362,6 +402,22 @@
           formState.items[idx][input.dataset.f] = input.value;
         });
       });
+      // 単位セレクト。「その他」を選んだときだけ自由入力欄を出す（入力値は上の input[data-f] 経由で反映）。
+      const unitSel = card.querySelector('[data-unit-sel]');
+      const unitFree = card.querySelector('.unit-free');
+      if (unitSel && unitFree) {
+        unitSel.addEventListener('change', () => {
+          if (unitSel.value === unitOtherValue()) {
+            unitFree.hidden = false;
+            formState.items[idx].unit = unitFree.value;
+            unitFree.focus();
+          } else {
+            unitFree.hidden = true;
+            unitFree.value = '';
+            formState.items[idx].unit = unitSel.value;
+          }
+        });
+      }
       card.querySelector('[data-del]').addEventListener('click', () => {
         formState.items.splice(idx, 1);
         if (formState.items.length === 0) { formState.items.push(emptyItem()); }
@@ -376,6 +432,8 @@
     if (!formState.category) { toast('品目区分を選択してください', 'err'); return; }
     if (!formState.reasonCode) { toast('購入理由を選択してください', 'err'); return; }
     if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
+    const unitError = findUnitError(formState.items);
+    if (unitError) { toast(unitError, 'err'); return; }
     setBusy(true);
     try {
       const payload = {
@@ -412,6 +470,7 @@
     const r = detail.request;
     formState.items = (detail.items || []).map(it => ({
       name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
+      unit: it.unit || '',
       desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
     }));
     if (formState.items.length === 0) { formState.items = [emptyItem()]; }
@@ -454,6 +513,8 @@
 
   async function saveItemEdits(requestId) {
     if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
+    const unitError = findUnitError(formState.items);
+    if (unitError) { toast(unitError, 'err'); return; }
     setBusy(true);
     try {
       const detail = await gas('updateRequestInReview', requestId, { items: formState.items });
@@ -729,7 +790,7 @@
         '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.maker || '—') + '</td>' +
-        '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
+        '<td class="cell-amt">' + qtyText(it.quantity, it.unit) + '</td>' +
         '<td class="cell-amt">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
         '<td class="cell-amt">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
         '<td class="num" style="color:var(--muted)">' + escapeHtml(it.desiredDeliveryDate || '—') + '</td>' +
@@ -874,8 +935,9 @@
       '<tr data-qrow="' + i + '">' +
         '<td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
-        '<td class="cell-amt">' + escapeHtml(it.quantity) + '</td>' +
-        '<td><input class="control num q-unit" data-qidx="' + i + '" type="number" min="0" step="1" value="' + escapeAttr(it.unitPrice > 0 ? it.unitPrice : '') + '" placeholder="0"></td>' +
+        '<td class="cell-amt">' + qtyText(it.quantity, it.unit) + '</td>' +
+        '<td><div class="q-unit-wrap"><input class="control num q-unit" data-qidx="' + i + '" type="number" min="0" step="1" value="' + escapeAttr(it.unitPrice > 0 ? it.unitPrice : '') + '" placeholder="0">' +
+          (it.unit ? '<span class="q-unit-suffix">/' + escapeHtml(it.unit) + '</span>' : '') + '</div></td>' +
         '<td class="cell-amt q-amt" data-qamt="' + i + '">' + escapeHtml(yen(it.amount > 0 ? it.amount : 0)) + '</td>' +
       '</tr>'
     ).join('');
@@ -887,7 +949,7 @@
         '<span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span>' +
         (detail.permissions.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn2">✎ 明細を修正</button>' : '') +
       '</div></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:160px">単価(税抜)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:200px">単価(税抜・単位あたり)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '<tfoot>' +
       '<tr><td colspan="4" class="r">小計（税抜）</td><td class="cell-amt" id="q-subtotal">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr>' +
@@ -1102,13 +1164,13 @@
 
     html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
       '<table class="items"><thead><tr>' +
-      '<th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th><th class="r" style="width:8%">数量</th>' +
+      '<th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th><th class="r" style="width:10%">数量</th>' +
       '<th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>' +
       '<th style="width:14%">希望納期</th><th>備考</th></tr></thead><tbody>' +
       detail.items.map((it, i) =>
         '<tr><td class="no">' + (i + 1) + '</td>' +
         '<td><div class="nm">' + escapeHtml(it.name) + '</div><div class="sub">' + escapeHtml([it.model, it.maker].filter(Boolean).join('・') || '—') + '</div></td>' +
-        '<td class="r">' + escapeHtml(it.quantity) + '</td>' +
+        '<td class="r">' + escapeHtml(it.quantity) + (it.unit ? '<div class="unit">' + escapeHtml(it.unit) + '</div>' : '') + '</td>' +
         '<td class="r">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
         '<td class="r">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
         '<td class="mono" style="font-size:8pt">' + escapeHtml(dateOnly(it.desiredDeliveryDate) || '—') + '</td>' +

@@ -181,6 +181,7 @@ function insertSampleRequest_(sample) {
       model: item.model || '',
       maker: item.maker || '',
       quantity: quantity,
+      unit: item.unit || DEFAULT_UNIT,
       unitPrice: unitPrice,
       amount: Math.round(quantity * unitPrice),
       desiredDeliveryDate: item.desiredDeliveryDate || '',
@@ -320,6 +321,7 @@ function insertTestRequest_(def) {
       model: item.model || '',
       maker: item.maker || '',
       quantity: parseNumber_(item.quantity),
+      unit: item.unit || DEFAULT_UNIT,
       unitPrice: 0,
       amount: 0,
       desiredDeliveryDate: item.desiredDeliveryDate || '',
@@ -361,8 +363,8 @@ function buildExpediteTestRequests_(dept) {
       reasonDetail: '【テスト】標準品の至急手配確認用。CO2・溶接ワイヤーの補充。',
       supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
       items: [
-        { name: '炭酸ガス（CO2）', model: '30kg', maker: '—', quantity: 4, note: '溶接用' },
-        { name: '溶接ワイヤー', model: 'YM-28 1.2mm', maker: '日鉄溶接', quantity: 10, note: '20kg巻' }
+        { name: '炭酸ガス（CO2）', model: '30kg', maker: '—', quantity: 4, unit: '本', note: '溶接用' },
+        { name: '溶接ワイヤー', model: 'YM-28 1.2mm', maker: '日鉄溶接', quantity: 10, unit: '巻', note: '20kg巻' }
       ]
     },
     {
@@ -372,8 +374,8 @@ function buildExpediteTestRequests_(dept) {
       reasonDetail: '【テスト】標準品の至急手配確認用。酸素・アセチレンの補充。',
       supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
       items: [
-        { name: '酸素ガス', model: '7000L', maker: '—', quantity: 3, note: '' },
-        { name: 'アセチレンガス', model: '7kg', maker: '—', quantity: 2, note: '' }
+        { name: '酸素ガス', model: '7000L', maker: '—', quantity: 3, unit: '本', note: '' },
+        { name: 'アセチレンガス', model: '7kg', maker: '—', quantity: 2, unit: '本', note: '' }
       ]
     },
     {
@@ -383,8 +385,8 @@ function buildExpediteTestRequests_(dept) {
       reasonDetail: '【テスト】標準品の至急手配確認用。標準塗装色・標準作動油の補充。',
       supervisorEmail: 'test-sup@example.com', supervisorName: 'テスト上席',
       items: [
-        { name: '標準塗装色（グレー）', model: '16kg', maker: '—', quantity: 2, note: '標準色' },
-        { name: '標準作動油', model: 'ISO VG32 20L', maker: '—', quantity: 4, note: '' }
+        { name: '標準塗装色（グレー）', model: '16kg', maker: '—', quantity: 2, unit: '缶', note: '標準色' },
+        { name: '標準作動油', model: 'ISO VG32 20L', maker: '—', quantity: 4, unit: '缶', note: '' }
       ]
     }
   ];

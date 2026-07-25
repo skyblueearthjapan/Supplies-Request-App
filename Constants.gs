@@ -96,6 +96,8 @@ var REQUEST_COLUMNS = [
   'category'
 ];
 
+// unit（単位）は末尾に追加すること。読み書きは列インデックス（位置）ベースのため、
+// 途中挿入すると既存データの列位置がずれる。既存行の unit は空欄のまま許容する。
 var ITEM_COLUMNS = [
   'itemId',
   'requestId',
@@ -107,8 +109,16 @@ var ITEM_COLUMNS = [
   'unitPrice',
   'amount',
   'desiredDeliveryDate',
-  'note'
+  'note',
+  'unit'
 ];
+
+// 明細の単位候補。網羅は狙わない（該当が無ければ「その他」で自由入力できる）。
+// bootstrap でクライアントへ配布する。
+var UNIT_OPTIONS = ['個', '本', '枚', '台', '箱', 'ケース', 'セット', '袋', '缶', '巻', '束', '組', '双', 'kg', 'L', 'm'];
+var DEFAULT_UNIT = '個';
+// セレクトの「その他（自由入力）」を表す番兵値。実データとしては保存しない。
+var UNIT_OTHER = '__other__';
 
 var APPROVER_COLUMNS = [
   'department',
@@ -161,7 +171,7 @@ var REQUEST_HEADERS = [
 
 var ITEM_HEADERS = [
   '明細ID', '申請ID', '行番号', '品名', '型番', 'メーカー',
-  '数量', '単価', '金額', '希望納期', '備考'
+  '数量', '単価', '金額', '希望納期', '備考', '単位'
 ];
 
 var APPROVER_HEADERS = [

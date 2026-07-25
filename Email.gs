@@ -219,7 +219,7 @@ function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
       lines.push(
         (index + 1) + '. ' + it.name +
         '／型式: ' + (it.model || '—') +
-        '／数量: ' + (parseNumber_(it.quantity) || 0) +
+        '／数量: ' + qtyText_(parseNumber_(it.quantity) || 0, it.unit) +
         '／単価: ' + itemMoneyText_(it.unitPrice) +
         '／金額: ' + itemMoneyText_(it.amount)
       );

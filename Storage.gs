@@ -283,7 +283,8 @@ function replaceItems_(requestId, items) {
       unitPrice: item.unitPrice,
       amount: item.amount,
       desiredDeliveryDate: item.desiredDeliveryDate,
-      note: item.note
+      note: item.note,
+      unit: item.unit || ''
     };
   });
   appendRows_(SHEETS.ITEMS, objects, ITEM_COLUMNS);

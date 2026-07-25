@@ -16,6 +16,9 @@ function getBootstrap() {
       enableEmailNotifications: String(settings.enableEmailNotifications || 'true') !== 'false'
     },
     reasons: REASONS,
+    unitOptions: UNIT_OPTIONS,
+    defaultUnit: DEFAULT_UNIT,
+    unitOther: UNIT_OTHER,
     statusLabels: STATUS_LABELS,
     stepLabels: STEP_LABELS,
     actionLabels: ACTION_LABELS,
@@ -175,8 +178,12 @@ function updateRequestInReview(requestId, payload) {
 
     var now = nowString_();
     replaceItems_(requestId, newItems);
+    // normalizeEditableItems_ が明細の単価・金額を0に落とすため、申請ヘッダの合計も0へ揃える。
+    // （recallStep で購買見積へ戻した案件は totalAmount が残っており、揃えないと
+    //   「明細合計0なのに合計金額に残骸が出る」不整合になる。合計＝明細金額の総和を保つ）
     updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
-      updatedAt: now
+      updatedAt: now,
+      totalAmount: 0
     });
 
     addHistory_({
@@ -559,11 +566,14 @@ function confirmQuote(requestId, items, comment) {
         : parseNumber_(item.unitPrice);
       var amount = Math.round(quantity * unitPrice);
       total += amount;
+      // 明細は毎回まるごと作り直して書き戻すため、金額以外の項目も必ず引き継ぐこと。
+      // unit を落とすと「金額を確定した瞬間に全明細の単位が消える」。
       return {
         name: item.name,
         model: item.model,
         maker: item.maker,
         quantity: quantity,
+        unit: item.unit,
         unitPrice: unitPrice,
         amount: amount,
         desiredDeliveryDate: item.desiredDeliveryDate,
@@ -1313,6 +1323,7 @@ function normalizeRequestPayload_(payload, user) {
       model: sanitizeText_(item.model, 200),
       maker: sanitizeText_(item.maker, 200),
       quantity: quantity,
+      unit: normalizeUnit_(item.unit),
       unitPrice: unitPrice,
       amount: 0,
       desiredDeliveryDate: sanitizeText_(item.desiredDeliveryDate, 20),
@@ -1358,6 +1369,7 @@ function normalizeEditableItems_(payload) {
       model: sanitizeText_(item.model, 200),
       maker: sanitizeText_(item.maker, 200),
       quantity: parseNumber_(item.quantity),
+      unit: normalizeUnit_(item.unit),
       // 申請者は単価・金額を扱わない。細工されたリクエストで unitPrice が送られても
       // 無条件で0に落とす（confirmQuote の単価フォールバックへ混入させない防御）。
       unitPrice: 0,
@@ -1391,6 +1403,7 @@ function describeItemChanges_(oldItems, newItems) {
     { key: 'model', label: '型式' },
     { key: 'maker', label: 'メーカー' },
     { key: 'quantity', label: '数量' },
+    { key: 'unit', label: '単位' },
     { key: 'desiredDeliveryDate', label: '希望納期' },
     { key: 'note', label: '備考' }
   ];
@@ -1544,14 +1557,19 @@ function canDeletePool_(request, user) {
 
 // 承認前の明細修正（updateRequestInReview）の可否。閲覧と同じく認証済みユーザーなら誰でも可
 // （申請者本人に限らない。購買担当や他部署の人が記入ミスを直せるようにする運用）。ただし承認中で、
-// かつ購買が金額を確定する前（currentStep が 上席／購買見積、totalAmount 未確定、金額免除でない）に限る。
+// かつ購買が金額を確定する前（currentStep が 上席／購買見積、金額免除でない）に限る。
 // confirmQuote/confirmExpedited が実行されるとステップが総務部長へ進む or amountWaived が立つため、
 // この窓は金額入力の瞬間に自動的に閉じる（承認済み金額・経路との矛盾を防ぐ）。編集者は履歴に記録される。
+//
+// 判定はステップ基準に一本化する（totalAmount では判定しない）。経路は
+// 上席→購買見積→総務部長→(社長)→購買手配 で固定され、金額が確定すると必ず総務部長へ進むため、
+// 「ステップが上席／購買見積である」ことが「金額未確定である」ことと同値になる。
+// 唯一の例外が recallStep で購買見積へ戻したケース（totalAmount を意図的に保持する）で、
+// 金額を入れ直すために戻したのに明細を直せない、という状態を避けるためステップで判定する。
 function canEditInReview_(request, user) {
   return !!(user && user.email) &&
     request.status === STATUS.IN_REVIEW &&
     !parseBoolean_(request.amountWaived) &&
-    parseNumber_(request.totalAmount) <= 0 &&
     (request.currentStep === STEPS.SUPERVISOR || request.currentStep === STEPS.PURCHASING_QUOTE);
 }
 
