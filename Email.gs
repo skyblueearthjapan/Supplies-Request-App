@@ -1,3 +1,103 @@
+﻿// ===== テスト用メールリダイレクト =====
+// 運用中のアプリでメールを伴う機能を試すための安全装置。有効な間は、すべてのメールを
+// 転送先1件だけに送り（Cc は落とす）、本来の宛先は本文の冒頭に残す。
+// 通知を「止める」のではなく「自分に寄せる」ため、テスト中に発生した本物の通知も
+// 失われず手元に届く（必要なら手動で転送できる）。
+//
+// 解除し忘れて本番の通知が全員に届かなくなる事故を防ぐため、失効時刻を必ず持たせ、
+// 期限を過ぎたら自動的に無効化する。期限の無い値・壊れた値も無効（安全側）に倒す。
+var MAIL_REDIRECT_DEFAULT_MINUTES = 120;
+var _mailRedirectCache = null; // 1回のGAS実行の間だけ有効
+
+function getMailRedirect_() {
+  if (_mailRedirectCache) {
+    return _mailRedirectCache;
+  }
+  var raw = '';
+  try {
+    raw = PropertiesService.getScriptProperties().getProperty(APP.PROP_MAIL_REDIRECT) || '';
+  } catch (error) {
+    raw = '';
+  }
+  var parts = String(raw).split('|');
+  var email = normalizeEmail_(parts[0]);
+  var until = parseNumber_(parts[1]);
+  var active = !!email && until > 0 && until > new Date().getTime();
+  _mailRedirectCache = active ? { email: email, until: until } : { email: '', until: 0 };
+  return _mailRedirectCache;
+}
+
+// MailApp への送信は必ずこの関数を通すこと（1箇所でも直接呼ぶとリダイレクトを素通りする）。
+function sendMail_(options) {
+  var redirect = getMailRedirect_();
+  if (!redirect.email) {
+    MailApp.sendEmail(options);
+    return;
+  }
+
+  var header = [
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '【テスト転送】このメールは本来の宛先には送信されていません。',
+    '本来の To : ' + (options.to || '（なし）'),
+    '本来の Cc : ' + (options.cc || '（なし）'),
+    '転送の失効: ' + Utilities.formatDate(new Date(redirect.until), APP.TIME_ZONE, 'yyyy-MM-dd HH:mm'),
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    ''
+  ].join('\n');
+
+  var redirected = {
+    to: redirect.email,
+    subject: '【テスト転送】' + options.subject,
+    body: header + options.body,
+    name: options.name
+  };
+  // 添付（押印済PDF）も転送する。分割後のPDFが正しい明細になっているか確認するため。
+  if (options.attachments) {
+    redirected.attachments = options.attachments;
+  }
+  Logger.log('sendMail_: redirected to ' + redirect.email +
+    ' (original to=' + (options.to || '') + ', cc=' + (options.cc || '') + ')');
+  MailApp.sendEmail(redirected);
+}
+
+// GASエディタから実行する運用関数。email 省略時は実行者自身、minutes 省略時は120分。
+function enableMailRedirect(email, minutes) {
+  var user = getCurrentUser_();
+  assertAdmin_(user);
+  var target = normalizeEmail_(email) || user.email;
+  var mins = parseNumber_(minutes) > 0 ? parseNumber_(minutes) : MAIL_REDIRECT_DEFAULT_MINUTES;
+  var until = new Date().getTime() + mins * 60 * 1000;
+  PropertiesService.getScriptProperties().setProperty(APP.PROP_MAIL_REDIRECT, target + '|' + until);
+  _mailRedirectCache = null;
+  var message = '✅ メールリダイレクトを有効にしました。\n' +
+    '転送先: ' + target + '\n' +
+    '失効　: ' + Utilities.formatDate(new Date(until), APP.TIME_ZONE, 'yyyy-MM-dd HH:mm') + '（' + mins + '分後に自動解除）\n' +
+    'この間、アプリが送るすべてのメールは上記1件だけに届きます（本来の宛先には届きません）。\n' +
+    '本物の申請の通知も転送先に届くため、必要なら手動で転送してください。';
+  Logger.log(message);
+  return message;
+}
+
+function disableMailRedirect() {
+  assertAdmin_(getCurrentUser_());
+  PropertiesService.getScriptProperties().deleteProperty(APP.PROP_MAIL_REDIRECT);
+  _mailRedirectCache = null;
+  var message = '✅ メールリダイレクトを解除しました。以降は通常どおり本来の宛先へ送信されます。';
+  Logger.log(message);
+  return message;
+}
+
+function getMailRedirectStatus() {
+  assertAdmin_(getCurrentUser_());
+  var redirect = getMailRedirect_();
+  var message = redirect.email
+    ? '🔸 リダイレクト有効。転送先: ' + redirect.email +
+      '／失効: ' + Utilities.formatDate(new Date(redirect.until), APP.TIME_ZONE, 'yyyy-MM-dd HH:mm')
+    : '⬜ リダイレクトは無効です（通常どおり本来の宛先へ送信されます）。';
+  Logger.log(message);
+  return message;
+}
+
 // 宛名のロール表記。
 function stepRoleSalutationLabel_(step) {
   if (step === STEPS.SUPERVISOR) { return '上席'; }
@@ -242,7 +342,7 @@ function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
   if (cc.length > 0) {
     options.cc = cc.join(',');
   }
-  MailApp.sendEmail(options);
+  sendMail_(options);
 }
 
 // 承認前に明細が修正されたとき、現在の承認者へ「内容が更新された」旨を通知する。
@@ -364,7 +464,7 @@ function sendTypedNotification_(type, fallbackEmail, subject, body, pdfFile) {
   if (pdfFile) {
     options.attachments = [pdfFile.getBlob()];
   }
-  MailApp.sendEmail(options);
+  sendMail_(options);
 }
 
 function notifyGeneralAffairs_(request, subject, body, pdfFile) {
@@ -503,7 +603,7 @@ function sendPurchasingByCategory_(request, subject, body, pdfFile) {
   if (pdfFile) {
     options.attachments = [pdfFile.getBlob()];
   }
-  MailApp.sendEmail(options);
+  sendMail_(options);
 }
 
 function resolveGeneralManagerEmail_(request) {
@@ -585,7 +685,7 @@ function sendEmail_(to, subject, body, cc) {
   if (cc) {
     options.cc = cc;
   }
-  MailApp.sendEmail(options);
+  sendMail_(options);
 }
 
 function getRequestUrl_(requestId) {

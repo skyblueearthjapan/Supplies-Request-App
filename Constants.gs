@@ -8,7 +8,11 @@ var APP = Object.freeze({
   // 税率改定時はこの1箇所を変更する（クライアントは bootstrap 経由で受け取る）。
   TAX_RATE: 0.10,
   PROP_SPREADSHEET_ID: 'DATA_SPREADSHEET_ID',
-  PROP_PDF_FOLDER_ID: 'PDF_FOLDER_ID'
+  PROP_PDF_FOLDER_ID: 'PDF_FOLDER_ID',
+  // テスト用メールリダイレクトの設定（値は「転送先メール|失効エポックミリ秒」）。
+  // 運用中のアプリを触るため、設定シートではなくスクリプトプロパティに置く
+  // （管理画面から誤って触れない／一般利用者の目に触れない）。
+  PROP_MAIL_REDIRECT: 'MAIL_REDIRECT_TO'
 });
 
 var SHEETS = Object.freeze({
