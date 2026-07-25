@@ -93,7 +93,10 @@ var REQUEST_COLUMNS = [
   'pdfUrl',
   'version',
   'amountWaived',
-  'category'
+  'category',
+  // splitFromRequestId（分離元申請ID）は末尾に追加すること。読み書きは列インデックス（位置）
+  // ベースのため、途中挿入すると既存データの列位置がずれる。既存行は空欄のまま許容する。
+  'splitFromRequestId'
 ];
 
 // unit（単位）は末尾に追加すること。読み書きは列インデックス（位置）ベースのため、
@@ -166,7 +169,7 @@ var REQUEST_HEADERS = [
   '申請者メール', '申請者氏名', '部署', '申請日', '理由コード',
   '理由詳細', '合計金額', 'ステータス', '現在ステップ', '現在承認者メール',
   '現在承認者氏名', '承認経路(JSON)', 'PDFファイルID', 'PDF URL', 'バージョン',
-  '金額免除', '品目区分'
+  '金額免除', '品目区分', '分離元申請ID'
 ];
 
 var ITEM_HEADERS = [
@@ -229,6 +232,10 @@ var STEP_LABELS = Object.freeze({
   '完了済': '完了'
 });
 
+// 明細の部分差戻し（申請の分割）を許可するステップ。
+// 購買手配は既に発注段階で、明細を抜くと発注済みの内容と申請書が食い違うため含めない。
+var SPLITTABLE_STEPS = [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT];
+
 var ACTION = Object.freeze({
   SUBMIT: '申請',
   APPROVE: '承認',
@@ -242,7 +249,8 @@ var ACTION = Object.freeze({
   PDF_GENERATE: 'PDF作成',
   CANCEL: '取消処理',
   RECALL: '前段戻し',
-  REJECT: '却下'
+  REJECT: '却下',
+  SPLIT_OUT: '明細分離'
 });
 
 var ACTION_LABELS = Object.freeze({
@@ -258,7 +266,8 @@ var ACTION_LABELS = Object.freeze({
   'PDF作成': 'PDF作成',
   '取消処理': '取消',
   '前段戻し': '前段へ戻す',
-  '却下': '却下'
+  '却下': '却下',
+  '明細分離': '明細を分離'
 });
 
 var REASONS = [

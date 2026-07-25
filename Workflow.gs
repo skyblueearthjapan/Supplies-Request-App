@@ -394,14 +394,282 @@ function getRequestDetail(requestId) {
       canTabletApprove: canApprove_(request, user),
       canQuote: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING_QUOTE,
       canArrange: canApprove_(request, user) && request.currentStep === STEPS.PURCHASING,
-      canRecall: canRecall_(request, user)
+      canRecall: canRecall_(request, user),
+      canSplitItems: canSplitItems_(request, user, items.length)
     },
     stepTitles: resolveStepTitles_(request, history),
     purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name)
   };
 }
 
-function approveRequest(requestId, comment, kiosk) {
+// ===== 明細の部分差戻し（申請の分割） =====
+// 選択された明細を「1枚の差戻し済み申請」として切り出し、元申請からは取り除く。
+// 差戻しプールは status === 差戻し の申請を並べるだけなので、分離先は通常の差戻し申請として
+// そのまま編集・再提出・削除できる（新しい状態もタブも増やさない）。
+
+// 分割可否。分割は承認と同じ操作の中で行うため、承認できる人にだけ開く。
+// 明細1件の申請を分割すると残明細が0件になり「明細1行以上」という不変条件を壊すので除外する。
+function canSplitItems_(request, user, itemCount) {
+  if (request.status !== STATUS.IN_REVIEW) {
+    return false;
+  }
+  if (SPLITTABLE_STEPS.indexOf(request.currentStep) === -1) {
+    return false;
+  }
+  if (!(parseNumber_(itemCount) > 1)) {
+    return false;
+  }
+  return canApprove_(request, user) || canPresident_(request, user);
+}
+
+// 選択された明細参照を検証し、移動対象と残留対象に振り分ける（書き込みは一切しない）。
+// refs: [{ itemId, lineNo, name }] / 戻り値: { moved: [...], remaining: [...] }（どちらも lineNo 昇順）
+//
+// itemId・lineNo・品名の3点セットで照合するのは、itemId が永続IDではないため。
+// replaceItems_ は明細を全削除して再挿入し itemId を毎回発番し直すので、画面表示から操作までの間に
+// 他者が明細を編集すると、同じ itemId が別の明細を指す（あるいは消える）。3点が揃わない限り
+// 「画面に映っていた明細」と断定できないため、1件でも外れたら部分実行せず処理全体を中断する。
+function resolveSplitSelection_(request, refs) {
+  var items = getRequestItems_(request.requestId);
+
+  var claimed = {};
+  var moved = [];
+  (refs || []).forEach(function(ref) {
+    var matched = null;
+    for (var i = 0; i < items.length; i++) {
+      if (claimed[i]) {
+        continue;
+      }
+      if (String(items[i].itemId) === String(ref && ref.itemId) &&
+        String(items[i].lineNo) === String(ref && ref.lineNo) &&
+        String(items[i].name) === String(ref && ref.name)) {
+        claimed[i] = true;
+        matched = items[i];
+        break;
+      }
+    }
+    if (!matched) {
+      throw new Error('明細の情報が画面と一致しません。他の人が明細を更新した可能性があります。画面を再読込してからやり直してください。');
+    }
+    moved.push(matched);
+  });
+
+  if (moved.length === 0) {
+    throw new Error('差し戻す明細を選択してください。');
+  }
+
+  var remaining = items.filter(function(item, index) {
+    return !claimed[index];
+  });
+  // 明細0件の申請は normalizeRequestPayload_ 等が禁じている。全件差戻しは申請全体の差戻しで行う。
+  if (remaining.length === 0) {
+    throw new Error('すべての明細を差し戻す場合は、申請全体の差戻しをご利用ください。');
+  }
+
+  moved.sort(function(a, b) {
+    return parseNumber_(a.lineNo) - parseNumber_(b.lineNo);
+  });
+  return { moved: moved, remaining: remaining };
+}
+
+// replaceItems_ は明細を全削除して再挿入するため、書き戻す明細は金額以外の項目も必ず渡す。
+// unit を落とすと「分割した瞬間に残明細の単位が消える」。lineNo は replaceItems_ が振り直す。
+function cloneItemForRewrite_(item) {
+  return {
+    name: item.name,
+    model: item.model,
+    maker: item.maker,
+    quantity: parseNumber_(item.quantity),
+    unit: item.unit,
+    unitPrice: parseNumber_(item.unitPrice),
+    amount: parseNumber_(item.amount),
+    desiredDeliveryDate: item.desiredDeliveryDate,
+    note: item.note
+  };
+}
+
+// 分離先の申請・明細・履歴を作る。戻り値: 新しい requestId。
+function createReturnedSplitRequest_(request, movedItems, comment, user) {
+  var now = nowString_();
+  var newId = createId_(APP.REQUEST_ID_PREFIX);
+  // 経路は標準に戻す。再提出時に resubmitRequest が上席から組み直すため、
+  // 元申請に社長決裁が挿入されていてもここでは引き継がない。
+  var route = [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
+
+  appendObject_(SHEETS.REQUESTS, {
+    requestId: newId,
+    createdAt: now,
+    updatedAt: now,
+    // 申請者・部署・理由・申請日は元申請から複製する（分離先も「申請者本人の申請」であり、
+    // いつ申請されたものかを失うと差戻しプールでの優先順位付けができなくなる）。
+    submittedAt: request.submittedAt,
+    completedAt: '',
+    applicantEmail: request.applicantEmail,
+    applicantName: request.applicantName,
+    department: request.department,
+    requestDate: request.requestDate,
+    reasonCode: request.reasonCode,
+    reasonDetail: request.reasonDetail,
+    // 差戻し＝やり直しのため金額はリセットする（resubmitRequest が合計を0にする既存挙動と揃える）。
+    totalAmount: 0,
+    status: STATUS.RETURNED,
+    currentStep: STEPS.APPLICANT,
+    currentApproverEmail: '',
+    currentApproverName: '',
+    routeJson: JSON.stringify(route),
+    // 差戻し中はPDFを持たない（再提出後に改めて生成される）。
+    pdfFileId: '',
+    pdfUrl: '',
+    version: APP.VERSION,
+    amountWaived: 'false',
+    category: request.category,
+    splitFromRequestId: request.requestId
+  }, REQUEST_COLUMNS);
+
+  replaceItems_(newId, movedItems.map(function(item) {
+    var clone = cloneItemForRewrite_(item);
+    clone.unitPrice = 0;
+    clone.amount = 0;
+    return clone;
+  }));
+
+  // 「申請」履歴を先に1件入れる。PDFの申請者印は 申請／再申請 の履歴から押されるため、
+  // これが無いと分離先の申請書だけ申請者印が空欄になる。操作者ではなく元申請の申請者名義で残す
+  // （この明細を申請したのは分割を実行した承認者ではない）。
+  addHistory_({
+    requestId: newId,
+    actorEmail: request.applicantEmail,
+    actorName: request.applicantName,
+    action: ACTION.SUBMIT,
+    toStatus: STATUS.IN_REVIEW,
+    fromStep: STEPS.APPLICANT,
+    toStep: STEPS.SUPERVISOR,
+    comment: request.requestId + ' から分離（元の申請日 ' + request.requestDate + '）'
+  });
+
+  // action は「差戻」にする。詳細画面のプールパネルは action === 差戻 の履歴から差戻し理由を
+  // 拾うため、ここを「明細分離」にすると分離先で理由が表示されなくなる。
+  addHistory_({
+    requestId: newId,
+    actorEmail: user.email,
+    actorName: user.name,
+    action: ACTION.RETURN,
+    fromStatus: request.status,
+    toStatus: STATUS.RETURNED,
+    fromStep: request.currentStep,
+    toStep: STEPS.APPLICANT,
+    comment: comment + '（' + request.requestId + ' の明細から分離）'
+  });
+
+  return newId;
+}
+
+// 分離先の差戻し通知。書き込みがすべて終わってから呼ぶこと。
+// 途中で失敗して元申請と分離先が食い違っている状態でメールだけ飛ぶのを避けるため、
+// 作成処理（createReturnedSplitRequest_）からは切り離してある。
+// メール送信の失敗が分割自体（DB更新済み）を巻き戻さないよう握りつぶす（returnRequest と同じ流儀）。
+function notifySplitReturned_(newRequestId, stepAtSplit, comment, actorName) {
+  var newRequest = getRequestById_(newRequestId);
+  if (!newRequest) {
+    return;
+  }
+  try {
+    sendReturnedEmail_(newRequest, comment);
+  } catch (mailError) {
+    Logger.log('notifySplitReturned_: sendReturnedEmail_ failed: ' + mailError.message);
+  }
+  try {
+    sendReturnedBroadcast_(newRequest, stepAtSplit, comment, actorName);
+  } catch (broadcastError) {
+    Logger.log('notifySplitReturned_: sendReturnedBroadcast_ failed: ' + broadcastError.message);
+  }
+}
+
+// 元申請側の履歴。ステップは動かさないので from/to とも現在のステップ。
+// 「何を」「どこへ」出したかを1行で残し、分離後にPDFや金額が変わった理由を追えるようにする。
+function addSplitOutHistory_(request, movedItems, newRequestId, cleanComment, user) {
+  var headName = movedItems[0] ? movedItems[0].name : '';
+  var label = movedItems.length > 1
+    ? '明細「' + headName + '」ほか計' + movedItems.length + '件'
+    : '明細「' + headName + '」';
+  addHistory_({
+    requestId: request.requestId,
+    actorEmail: user.email,
+    actorName: user.name,
+    action: ACTION.SPLIT_OUT,
+    fromStatus: request.status,
+    toStatus: request.status,
+    fromStep: request.currentStep,
+    toStep: request.currentStep,
+    comment: label + 'を ' + newRequestId + ' として差し戻し: ' + cleanComment
+  });
+}
+
+// 分割の前提チェック（承認系3エントリで共通）。ここでは書き込みを一切行わない。
+// 全画面（社長決裁）モードは明細ごとのチェックボックスを置けない画面であり、他人の端末を
+// 渡した状態での複雑な選択は誤操作リスクが高いため、returnItems が来ても受け付けない。
+function assertSplitAllowed_(request, user, kiosk, cleanComment) {
+  // truthy 判定にする。approveRequest / recordPresidentDecision は `!kiosk` で承認者チェックを
+  // 飛ばすため、ここだけ `=== true` にすると「承認者チェックは飛ぶのに分割ガードは効かない」
+  // という食い違いが生じる。両者の kiosk の解釈を必ず揃えること。
+  if (kiosk) {
+    throw new Error('全画面モードでは明細ごとの差戻しはできません。詳細画面から操作してください。');
+  }
+  if (!canSplitItems_(request, user, getRequestItems_(request.requestId).length)) {
+    throw new Error('この申請では明細ごとの差戻しはできません。');
+  }
+  if (!cleanComment) {
+    throw new Error('差し戻す明細がある場合は、理由（コメント）を入力してください。');
+  }
+}
+
+// 承認と同時に行う明細分割（approveRequest / recordPresidentDecision で共用）。
+// 分離先の作成 → 残明細の書き戻し → 合計の再計算 → 元申請への履歴 → 通知、までを済ませる。
+// 呼び出し側は本関数の後に申請行を読み直してから承認遷移を続けること。戻り値: 新しい requestId。
+// （購買見積は単価の適用と1回の replaceItems_ にまとめる必要があるため confirmQuote 側で個別に組む）
+//
+// 【順序の理由】GAS にトランザクションは無く、スプレッドシート書き込みは一時エラーで落ちうる。
+// 元申請から明細を削ってから分離先の作成に失敗すると、差し戻す明細はどこにも存在しなくなり復元できない。
+// 逆順（分離先を先に作る）なら、途中で落ちても最悪「両方に同じ明細がある」だけで済み、人手で戻せる。
+// 消失より重複を選ぶ。
+// ただしこの保証が及ぶのは「分離する明細」だけである点に注意。残明細は replaceItems_ が
+// 全削除→再挿入するため、その間に落ちれば失われる（これは分割に限らず、明細を書き戻す
+// 既存のすべての操作＝明細修正・金額確定などが元々持っている性質）。
+function splitItemsOnApproval_(request, returnItems, cleanComment, user, kiosk) {
+  assertSplitAllowed_(request, user, kiosk, cleanComment);
+  var selection = resolveSplitSelection_(request, returnItems);
+
+  var newId = createReturnedSplitRequest_(request, selection.moved, cleanComment, user);
+
+  replaceItems_(request.requestId, selection.remaining.map(cloneItemForRewrite_));
+  // 合計は常に「残明細の金額の総和」。金額未確定の段階なら自然に0になる。
+  var total = 0;
+  selection.remaining.forEach(function(item) {
+    total += parseNumber_(item.amount);
+  });
+  updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', request.requestId, {
+    updatedAt: nowString_(),
+    totalAmount: total
+  });
+
+  addSplitOutHistory_(request, selection.moved, newId, cleanComment, user);
+  notifySplitReturned_(newId, request.currentStep, cleanComment, user.name);
+  return newId;
+}
+
+// 分割で明細が変わった元申請のPDFを、遷移先の都合で再生成されない場合に限って作り直す。
+// dispatchApprovalNotifications_ がPDFを生成するのは次が 購買見積／購買手配／完了 のときだけで、
+// 総務部長→社長 では生成されない。二重生成を避けるため、生成される遷移では何もしない。
+// 既にPDFを持つ申請だけが対象（上席ステップではまだPDFが無い）。
+function regeneratePdfAfterSplit_(updated, nextStep, user) {
+  var pdfWillBeGenerated = (nextStep === STEPS.PURCHASING_QUOTE || nextStep === STEPS.PURCHASING || nextStep === STEPS.DONE);
+  if (!pdfWillBeGenerated && updated.pdfFileId) {
+    createRequestPdfInternal_(updated.requestId, user);
+  }
+}
+
+// returnItems（第4引数）を渡すと、選択された明細だけを新しい差戻し申請へ切り出したうえで承認する。
+function approveRequest(requestId, comment, kiosk, returnItems) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -420,6 +688,10 @@ function approveRequest(requestId, comment, kiosk) {
       throw new Error('購買ステップでは手配完了を実行してください。');
     }
 
+    // 遷移先（経路・次の承認者）の解決は、分割より前に必ず済ませること。
+    // GAS にトランザクションは無いため、分割（明細の移動・分離先の作成・メール送信）を確定させた後に
+    // 「承認者マスタ未設定」などで throw すると、明細だけ分離されて承認は失敗という中途半端な状態が残る。
+    // 経路も承認者も明細には依存しないので、先に解決しておけば分割後に落ちる要因が無くなる。
     var route = jsonParse_(request.routeJson, []);
     var currentIndex = route.indexOf(request.currentStep);
     if (currentIndex === -1) {
@@ -427,13 +699,26 @@ function approveRequest(requestId, comment, kiosk) {
     }
 
     var curKey = request.currentStep;
-    var now = nowString_();
     var nextStep = route[currentIndex + 1] || STEPS.DONE;
+    var nextApprover = { email: '', name: '' };
+    if (nextStep !== STEPS.DONE) {
+      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
+    }
+
+    // 残明細で totalAmount が再計算されるため、以降の承認処理は必ず分割後の申請行を見る。
+    var splitHappened = false;
+    if (Array.isArray(returnItems) && returnItems.length > 0) {
+      splitItemsOnApproval_(request, returnItems, sanitizeText_(comment, 1000), user, kiosk);
+      splitHappened = true;
+      request = getRequestById_(requestId);
+    }
+
+    var now = nowString_();
     var patch = {
       updatedAt: now
     };
 
-    var nextApprover = { email: '', name: '' };
     if (nextStep === STEPS.DONE) {
       patch.status = STATUS.COMPLETED;
       patch.currentStep = STEPS.DONE;
@@ -441,8 +726,6 @@ function approveRequest(requestId, comment, kiosk) {
       patch.currentApproverName = '';
       patch.completedAt = now;
     } else {
-      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
       patch.status = STATUS.IN_REVIEW;
       patch.currentStep = nextStep;
       patch.currentApproverEmail = nextApprover.email;
@@ -470,6 +753,9 @@ function approveRequest(requestId, comment, kiosk) {
 
     var updated = getRequestById_(requestId);
     dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover, user);
+    if (splitHappened) {
+      regeneratePdfAfterSplit_(updated, nextStep, user);
+    }
 
     return getRequestDetail(requestId);
   } finally {
@@ -532,8 +818,8 @@ function completeAndNotify_(updated, user) {
 // 購買(見積)ステップの操作。各明細の税抜単価を入力し金額を確定する。
 // 単価・金額・totalAmount はすべて税抜。消費税・税込は表示時に算出する。
 // 税抜小計が10万円（社長決裁しきい値・税抜基準）以上なら社長決裁を経路へ追加する。
-// items = [{ itemId, unitPrice }]
-function confirmQuote(requestId, items, comment) {
+// items = [{ itemId, unitPrice }] / returnItems = [{ itemId, lineNo, name }]（明細の部分差戻し）
+function confirmQuote(requestId, items, comment, returnItems) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -543,6 +829,17 @@ function confirmQuote(requestId, items, comment) {
       throw new Error('購買担当者のみ見積金額を入力できます。');
     }
 
+    var cleanComment = sanitizeText_(comment, 1000);
+    // 分割の検証だけ先に済ませ、書き込みは単価適用と同じ1回の replaceItems_ にまとめる。
+    // replaceItems_ は残明細の itemId も付け替えるため、先に分割してから単価を書くと
+    // 古い itemId を参照することになり単価が付かない。
+    // 見積パネルは詳細画面専用（全画面モードからは呼ばれない）ため kiosk 相当は常に false。
+    var selection = null;
+    if (Array.isArray(returnItems) && returnItems.length > 0) {
+      assertSplitAllowed_(request, user, false, cleanComment);
+      selection = resolveSplitSelection_(request, returnItems);
+    }
+
     var priceMap = {};
     (items || []).forEach(function(input) {
       if (input && input.itemId) {
@@ -550,13 +847,10 @@ function confirmQuote(requestId, items, comment) {
       }
     });
 
-    var existingItems = readObjects_(SHEETS.ITEMS, ITEM_COLUMNS)
-      .filter(function(item) {
-        return item.requestId === requestId;
-      })
-      .sort(function(a, b) {
-        return parseNumber_(a.lineNo) - parseNumber_(b.lineNo);
-      });
+    // 分割時は残明細だけを対象にする。分離される明細の単価が items に混じっていても使わない
+    // （分離先は金額0でやり直すため）。合計も残明細だけの集計になり、社長決裁の要否判定が
+    // 自然に分割後の金額で行われる。
+    var existingItems = selection ? selection.remaining : getRequestItems_(requestId);
 
     var total = 0;
     var rebuilt = existingItems.map(function(item) {
@@ -585,10 +879,30 @@ function confirmQuote(requestId, items, comment) {
       throw new Error('金額を入力してください。');
     }
 
+    // 遷移先（総務部長）の解決は分割・書き込みより前に済ませる。分割を確定させた後に
+    // 「総務部長の承認者メールアドレスが未設定です」で throw すると、明細だけ分離されて
+    // 金額確定は失敗、しかも分離先の通知も飛ばない、という中途半端な状態が残る。
+    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+    var gm = getApproverForStep_(approverRule, STEPS.GENERAL_MANAGER);
+
+    // 分離先を先に作ってから元申請を書き換える（splitItemsOnApproval_ と同じ理由。
+    // 元申請から明細を削った後に分離先の作成が失敗すると、その明細が復元できなくなる）。
+    var splitRequestId = '';
+    if (selection) {
+      splitRequestId = createReturnedSplitRequest_(request, selection.moved, cleanComment, user);
+    }
+
+    // 残明細＋単価を1回で書き切る。
     replaceItems_(requestId, rebuilt);
+
+    if (selection) {
+      addSplitOutHistory_(request, selection.moved, splitRequestId, cleanComment, user);
+    }
 
     var threshold = getThresholdAmount_();
     // total は税抜小計。しきい値も税抜基準のため、そのまま比較する。
+    // 分割した場合の total は残明細の合計なので、社長決裁の要否は分割後の金額で判定される
+    // （見積は金額を初めて確定させる工程であり、経路もここで新しく組み直すのが正しい）。
     var over = total >= threshold;
     var tax = taxAmount_(total);
     var gross = grossAmount_(total);
@@ -597,9 +911,6 @@ function confirmQuote(requestId, items, comment) {
       ? [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT, STEPS.PURCHASING]
       : [STEPS.SUPERVISOR, STEPS.PURCHASING_QUOTE, STEPS.GENERAL_MANAGER, STEPS.PURCHASING];
 
-    var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-    var gm = getApproverForStep_(approverRule, STEPS.GENERAL_MANAGER);
-    var cleanComment = sanitizeText_(comment, 1000);
     var now = nowString_();
 
     updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
@@ -641,6 +952,12 @@ function confirmQuote(requestId, items, comment) {
       : '購買が見積金額 ' + amountSummary + ' を確定しました。総務部長承認をお願いします。';
     notifyGeneralAffairs_(updated, gaSubject, buildGeneralAffairsBody_(updated, gaHeading), null);
     sendApprovalRequestEmail_(updated, gm, over ? overBanner : '');
+    // 見積確定の遷移先は常に総務部長で、この経路ではPDFが生成されない。
+    // 分割で明細が変わった以上、既にPDFがある申請は必ず作り直す。
+    if (selection) {
+      regeneratePdfAfterSplit_(updated, STEPS.GENERAL_MANAGER, user);
+      notifySplitReturned_(splitRequestId, STEPS.PURCHASING_QUOTE, cleanComment, user.name);
+    }
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
@@ -1095,7 +1412,9 @@ function getTabCounts() {
   return { pending: pending, president: president, quote: quote, supervisor: supervisor, gm: gm, arrange: arrange, returned: returned };
 }
 
-function recordPresidentDecision(requestId, decision, comment, kiosk) {
+// returnItems（第5引数）は decision === 'approve' のときだけ受け付ける。
+// 全体差戻し（decision === 'return'）では申請ごと差し戻すため明細選択は無意味であり、無視する。
+function recordPresidentDecision(requestId, decision, comment, kiosk, returnItems) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -1154,6 +1473,8 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
       throw new Error('不正な操作です。');
     }
 
+    // 遷移先の解決は分割より前に済ませる（approveRequest と同じ理由。分割を確定させた後に
+    // 承認者マスタ未設定などで throw すると、明細だけ分離されて承認は失敗という状態が残る）。
     var route = jsonParse_(request.routeJson, []);
     var currentIndex = route.indexOf(STEPS.PRESIDENT);
     if (currentIndex === -1) {
@@ -1161,8 +1482,22 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
     }
 
     var nextStep = route[currentIndex + 1] || STEPS.DONE;
-    var patch = { updatedAt: now };
     var nextApprover = { email: '', name: '' };
+    if (nextStep !== STEPS.DONE) {
+      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
+      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
+    }
+
+    // 以降は分割後の申請行を見る。updatedAt は分割で更新されるため、ここで採り直す。
+    var splitHappened = false;
+    if (Array.isArray(returnItems) && returnItems.length > 0) {
+      splitItemsOnApproval_(request, returnItems, cleanComment, user, kiosk);
+      splitHappened = true;
+      request = getRequestById_(requestId);
+      now = nowString_();
+    }
+
+    var patch = { updatedAt: now };
     if (nextStep === STEPS.DONE) {
       patch.status = STATUS.COMPLETED;
       patch.currentStep = STEPS.DONE;
@@ -1170,8 +1505,6 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
       patch.currentApproverName = '';
       patch.completedAt = now;
     } else {
-      var approverRule = requireApproverRule_(request.applicantEmail, request.department);
-      nextApprover = getApproverForStep_(approverRule, nextStep, request.category);
       patch.status = STATUS.IN_REVIEW;
       patch.currentStep = nextStep;
       patch.currentApproverEmail = nextApprover.email;
@@ -1193,6 +1526,9 @@ function recordPresidentDecision(requestId, decision, comment, kiosk) {
 
     var updated = getRequestById_(requestId);
     dispatchApprovalNotifications_(updated, STEPS.PRESIDENT, nextStep, nextApprover, user);
+    if (splitHappened) {
+      regeneratePdfAfterSplit_(updated, nextStep, user);
+    }
 
     return getRequestDetail(requestId);
   } finally {

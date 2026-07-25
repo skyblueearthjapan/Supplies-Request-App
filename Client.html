@@ -17,12 +17,12 @@
     '社長': '社長決裁',
     '購買手配': '発注手配'
   };
-  const HIST_GLYPH = { '申請': '➤', '再申請': '➤', '承認': '✓', '差戻': '‹', '完了処理': '✓', '更新': '✎', 'PDF作成': '⤓', '社長決裁へ': '⤴', '金額確定': '¥', '金額不要至急': '⚡', '前段戻し': '↩' };
+  const HIST_GLYPH = { '申請': '➤', '再申請': '➤', '承認': '✓', '差戻': '‹', '完了処理': '✓', '更新': '✎', 'PDF作成': '⤓', '社長決裁へ': '⤴', '金額確定': '¥', '金額不要至急': '⚡', '前段戻し': '↩', '明細分離': '⑃' };
 
   // セル格納コード（日本語）→ CSSクラス（英語ASCII・Styles.html はそのまま）への対応表。
   const STATUS_CLASS = { '承認中': 'IN_REVIEW', '差戻し': 'RETURNED', '完了': 'COMPLETED', '取消': 'CANCELLED' };
   const CAT_CLASS = { 'メカ': 'MECH', '電気': 'ELEC', '一般不明': 'GENERAL' };
-  const ACTION_CLASS = { '申請': 'SUBMIT', '再申請': 'RESUBMIT', '承認': 'APPROVE', '差戻': 'RETURN', '完了処理': 'COMPLETE', '更新': 'UPDATE', 'PDF作成': 'PDF_GENERATE', '社長決裁へ': 'ESCALATE', '前段戻し': 'RETURN' };
+  const ACTION_CLASS = { '申請': 'SUBMIT', '再申請': 'RESUBMIT', '承認': 'APPROVE', '差戻': 'RETURN', '完了処理': 'COMPLETE', '更新': 'UPDATE', 'PDF作成': 'PDF_GENERATE', '社長決裁へ': 'ESCALATE', '前段戻し': 'RETURN', '明細分離': 'RETURN' };
 
   // 確定金額（税込）の表示。totalAmount は税抜のため税込に換算して表示する。
   // 金額未入力でも「金額不要／至急承認」案件は明示する。
@@ -78,6 +78,75 @@
   function approverNoticeHtml() {
     return '<div class="approver-notice"><div class="an-head">⚠ 承認は責任を伴います</div>' +
       '<ul class="an-list"><li>' + APPROVER_NOTICE_LINES.map(escapeHtml).join('</li><li>') + '</li></ul></div>';
+  }
+
+  /* ---------- 明細の部分差戻し（申請の分割） ---------- */
+  // チェックを外した明細だけが新しい申請として差戻しプールへ分離される。
+  // 既定を全チェックにすることで、従来どおりの「全体承認」が無操作のまま行える。
+  const SPLIT_ALL_OFF_TEXT = 'すべて差し戻す場合は「‹ 差戻し（プールへ）」（申請全体の差戻し）をお使いください。';
+
+  function splitSelectHtml(items) {
+    return '<div class="split-select">' +
+      '<div class="ss-head">承認する明細を選んでください' +
+        '<span class="ss-note">（既定は全件承認。外した明細は新しい申請として差戻しプールへ移ります）</span></div>' +
+      items.map((it, i) =>
+        '<label class="ss-row" data-srow="' + i + '">' +
+          '<input type="checkbox" class="split-chk" data-sidx="' + i + '" checked>' +
+          '<span class="ss-no num">' + (i + 1) + '.</span>' +
+          '<span class="ss-nm">' + escapeHtml(it.name) +
+            (it.model ? '<span class="ss-model">' + escapeHtml(it.model) + '</span>' : '') + '</span>' +
+          // qtyText はエスケープ済みの文字列を返すため、ここで再エスケープしない。
+          '<span class="ss-qty num">' + qtyText(it.quantity, it.unit) + '</span>' +
+          '<span class="ss-tag">差戻し</span>' +
+        '</label>'
+      ).join('') +
+      '<div class="ss-warn" id="splitAllWarn" hidden>' + escapeHtml(SPLIT_ALL_OFF_TEXT) + '</div>' +
+      '</div>';
+  }
+
+  // 画面上のチェック状態を読み取る。チェックボックスが無い（分割非対応）ときは全件選択とみなす。
+  // returnItems はサーバが itemId+lineNo+name の3点で照合するため、表示中の値をそのまま渡す。
+  function splitSelection(detail) {
+    const items = detail.items || [];
+    const keep = [], drop = [];
+    items.forEach((it, i) => {
+      const box = document.querySelector('.split-chk[data-sidx="' + i + '"]');
+      if (!box || box.checked) { keep.push(i); } else { drop.push(i); }
+    });
+    return {
+      keep: keep,
+      drop: drop,
+      returnItems: drop.map(i => ({ itemId: items[i].itemId, lineNo: items[i].lineNo, name: items[i].name }))
+    };
+  }
+
+  // 選択を外した行のグレーアウト。承認パネルのリストと見積パネルの表を同じ規則で扱う。
+  function markSplitRows(sel) {
+    document.querySelectorAll('.ss-row').forEach(row => {
+      row.classList.toggle('off', sel.drop.indexOf(Number(row.dataset.srow)) >= 0);
+    });
+    document.querySelectorAll('tr[data-qrow]').forEach(row => {
+      row.classList.toggle('off', sel.drop.indexOf(Number(row.dataset.qrow)) >= 0);
+    });
+  }
+
+  // 実行ボタンの文言と活性をチェック状態に追従させる。
+  // 全解除は明細0件の申請になり不正なため、ボタンを止めて申請全体の差戻しへ誘導する。
+  function applySplitButtonState(sel, btn, fullLabel, splitLabel) {
+    const warn = document.getElementById('splitAllWarn');
+    if (warn) { warn.hidden = sel.keep.length > 0; }
+    if (!btn) { return; }
+    btn.disabled = sel.keep.length === 0;
+    btn.textContent = sel.drop.length > 0 && sel.keep.length > 0
+      ? splitLabel(sel.keep.length, sel.drop.length)
+      : fullLabel;
+  }
+
+  // 分離対象を明示した確認文。件数と代表の品名を出して誤操作を防ぐ。
+  function splitConfirmText(detail, sel, tailText) {
+    const names = sel.drop.map(i => detail.items[i].name);
+    return '明細「' + names[0] + '」' + (names.length > 1 ? 'ほか' : '') + '計' + names.length + '件' +
+      'を新しい申請として差戻しプールへ移し、残り' + sel.keep.length + '件を' + tailText + '。よろしいですか？';
   }
 
   const TAB_DEFS = [
@@ -706,6 +775,10 @@
       html += '<div class="approve-panel"><div class="ap-head">' +
         '<span class="badge RETURNED"><span class="dot"></span>差戻し中（プール）</span>' +
         '<span class="pill">内容を編集して再提出できます。不要な場合は削除してください。編集・再提出・削除は誰でも操作できます。</span></div>' +
+        // 明細分離で作られた申請は、元申請を辿れないと経緯が分からなくなるためリンクを出す。
+        (r.splitFromRequestId
+          ? '<div class="split-from">この申請は <button type="button" class="link-req" id="splitFromBtn">' + escapeHtml(r.splitFromRequestId) + '</button> の明細から分離されました。</div>'
+          : '') +
         (reason ? '<div style="margin:4px 0 2px;padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:13px;line-height:1.6;white-space:pre-wrap"><b>差戻し理由:</b> ' + escapeHtml(reason) + '</div>' : '') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           (p.canDeletePool ? '<button class="btn danger ghost" id="deletePoolBtn" style="margin-right:auto">🗑 削除</button>' : '') +
@@ -751,8 +824,12 @@
         '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
         '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として承認またはコメント付きで差戻しできます</span></div>' +
         (isApproverNoticeStep(r.currentStep) ? approverNoticeHtml() : '') +
+        (p.canSplitItems ? splitSelectHtml(detail.items) : '') +
         returnNoticeHtml() +
-        field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
+        field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>',
+          p.canSplitItems
+            ? '差戻しの場合、および明細の選択を外した場合は理由を明確に記入してください（必須）'
+            : '差戻しの場合は理由を明確に記入してください（必須）') +
         '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
           (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
           '<button class="btn danger ghost" id="rejectBtn">✕ 却下（削除）</button>' +
@@ -773,6 +850,9 @@
       '</div>' +
       (r.reasonDetail ? '<div style="margin-top:16px"><div class="dl" style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px">理由詳細</div>' +
         '<div style="padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:13px;line-height:1.6;white-space:pre-wrap">' + escapeHtml(r.reasonDetail) + '</div></div>' : '') +
+      // 差戻しプールを抜けて再提出された後も分離元を辿れるよう、メタ欄にも常設で出す
+      // （プールパネル側のリンクは差戻し中しか表示されないため）。
+      (r.splitFromRequestId ? '<div class="split-from" style="margin-top:16px">この申請は <button type="button" class="link-req" id="splitFromBtn2">' + escapeHtml(r.splitFromRequestId) + '</button> の明細から分離されました。</div>' : '') +
       '</div></div>';
 
     html += '<div class="card pdf-preview-card"><div class="pdf-preview-head"><div class="lhs"><div class="doc-ic"></div>' +
@@ -818,12 +898,15 @@
     bind('genPdfBtn', () => regeneratePdf(r.requestId));
     bind('presBtn', () => openTabletMode(r.requestId));
     bind('presBtn2', () => openTabletMode(r.requestId));
-    bind('approveBtn', () => detailAction('approveRequest', isArrange ? '手配完了を記録しました' : '承認しました'));
+    bind('approveBtn', () => approveAction(detail));
     bind('arrangeBtn', () => detailAction('arrangeComplete', '手配完了を記録しました'));
     bind('returnBtn', () => returnAction(false));
     bind('rejectBtn', () => returnAction(true));
+    bind('splitFromBtn', () => openDetail(r.splitFromRequestId));
+    bind('splitFromBtn2', () => openDetail(r.splitFromRequestId));
 
     if (p.canQuote) { bindQuotePanel(detail); }
+    else if (p.canSplitItems && document.getElementById('approveBtn')) { bindApprovePanelSplit(detail); }
 
     renderScaledPreview('pdfPreviewWrap', detail, {});
   }
@@ -842,6 +925,46 @@
       renderDetail(detail);
       renderTabs();
       toast(message, 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 承認パネルの明細選択。チェック変更のたびに行の見た目と承認ボタンの文言を追従させる。
+  function bindApprovePanelSplit(detail) {
+    const btn = document.getElementById('approveBtn');
+    const apply = () => {
+      const sel = splitSelection(detail);
+      markSplitRows(sel);
+      applySplitButtonState(sel, btn, '✓ 承認する', (k, d) => '✓ ' + k + '件を承認し、' + d + '件を差戻し');
+    };
+    document.querySelectorAll('.split-chk').forEach(box => box.addEventListener('change', apply));
+  }
+
+  // 承認の実行。明細の選択を外している場合は、その明細を分離して差し戻したうえで残りを承認する。
+  async function approveAction(detail) {
+    const sel = splitSelection(detail);
+    if (sel.keep.length === 0) { toast(SPLIT_ALL_OFF_TEXT, 'err'); return; }
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 分離は差戻しと同じ扱いのため理由必須。サーバでも弾かれるが往復させない。
+    if (sel.drop.length > 0 && !comment.trim()) {
+      toast('差し戻す明細がある場合は、理由（コメント）を入力してください', 'err');
+      return;
+    }
+    if (sel.drop.length > 0 && !window.confirm(splitConfirmText(detail, sel, '承認します'))) { return; }
+    setBusy(true);
+    try {
+      const updated = await gas('approveRequest', state.currentDetail.request.requestId, comment, false, sel.returnItems);
+      state.currentDetail = updated;
+      await refreshCounts();
+      renderDetail(updated);
+      renderTabs();
+      toast(sel.drop.length > 0
+        ? (sel.keep.length + '件を承認し、' + sel.drop.length + '件を差し戻しました')
+        : '承認しました', 'ok');
       window.scrollTo(0, 0);
     } catch (error) {
       toast(errText(error), 'err');
@@ -912,6 +1035,15 @@
     const comment = (document.getElementById('approveComment') || {}).value || '';
     // 却下は理由必須（サーバでも検証）。破壊的操作の確認ダイアログより前にチェックする。
     if (discard && !comment.trim()) { toast('却下理由（コメント）を入力してください', 'err'); return; }
+    // 差戻し・却下は申請まるごとが対象で、明細のチェックは効かない。外した行は取り消し線と
+    // 「差戻し」バッジが付いて「この明細だけ戻る」と読めてしまうため、必ず明示して確認を取る。
+    const sel = splitSelection(state.currentDetail);
+    if (sel.drop.length > 0) {
+      const word = discard ? '却下' : '差戻し';
+      if (!window.confirm('明細の選択（' + sel.drop.length + '件を解除）は' + word + 'には反映されません。\n' +
+        'この申請の明細' + (sel.keep.length + sel.drop.length) + '件すべてが' + word + 'の対象になります。よろしいですか？\n\n' +
+        '一部の明細だけを差し戻す場合は、キャンセルして承認ボタンから実行してください。')) { return; }
+    }
     if (discard && !window.confirm('この申請を却下します。差戻しプールに入れず取消となり、申請者は再提出できません。よろしいですか？')) { return; }
     setBusy(true);
     try {
@@ -931,8 +1063,12 @@
 
   /* ---------- 見積・金額入力（購買） ---------- */
   function quotePanelHtml(detail) {
+    const split = !!detail.permissions.canSplitItems;
+    // チェック列を足すと合計行の桁がずれるため、colspan も同じ数だけ広げる。
+    const footSpan = split ? 5 : 4;
     const rows = detail.items.map((it, i) =>
       '<tr data-qrow="' + i + '">' +
+        (split ? '<td class="q-chk"><input type="checkbox" class="split-chk" data-sidx="' + i + '" checked></td>' : '') +
         '<td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
         '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
         '<td class="cell-amt">' + qtyText(it.quantity, it.unit) + '</td>' +
@@ -949,16 +1085,24 @@
         '<span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span>' +
         (detail.permissions.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn2">✎ 明細を修正</button>' : '') +
       '</div></div>' +
-      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:200px">単価(税抜・単位あたり)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr>' +
+      (split ? '<th class="q-chk">選択</th>' : '') +
+      '<th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:200px">単価(税抜・単位あたり)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '<tfoot>' +
-      '<tr><td colspan="4" class="r">小計（税抜）</td><td class="cell-amt" id="q-subtotal">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr>' +
-      '<tr><td colspan="4" class="r">消費税（10%）</td><td class="cell-amt" id="q-tax">' + escapeHtml(yen(detail.request.totalAmount > 0 ? taxOf(detail.request.totalAmount) : 0)) + '</td></tr>' +
-      '<tr><td colspan="4" class="r" style="font-weight:700;letter-spacing:.08em">合計（税込）</td>' +
+      '<tr><td colspan="' + footSpan + '" class="r">小計（税抜）</td><td class="cell-amt" id="q-subtotal">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr>' +
+      '<tr><td colspan="' + footSpan + '" class="r">消費税（10%）</td><td class="cell-amt" id="q-tax">' + escapeHtml(yen(detail.request.totalAmount > 0 ? taxOf(detail.request.totalAmount) : 0)) + '</td></tr>' +
+      '<tr><td colspan="' + footSpan + '" class="r" style="font-weight:700;letter-spacing:.08em">合計（税込）</td>' +
       '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? grossOf(detail.request.totalAmount) : 0)) + '</td></tr></tfoot>' +
-      '</table></div></div>' +
+      '</table></div>' +
+      (split ? '<div class="card-pad" style="padding-top:0"><span class="hint">チェックを外した明細は金額を入力せず、新しい申請として差戻しプールへ移ります（小計・消費税・合計からも除外されます）。</span></div>' : '') +
+      '</div>' +
       returnNoticeHtml() +
-      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
+      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>',
+        split
+          ? '差戻し（見積不可・要修正）の場合、および明細の選択を外した場合は理由を明確に記入してください（必須）'
+          : '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
+      (split ? '<div class="ss-warn" id="splitAllWarn" hidden>' + escapeHtml(SPLIT_ALL_OFF_TEXT) + '</div>' : '') +
       '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
         '<button class="btn danger ghost" id="rejectBtn" style="margin-right:auto">✕ 却下（削除）</button>' +
         '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
@@ -966,18 +1110,31 @@
         '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
       '</div>' +
       '<div class="hint" style="text-align:right;margin-top:6px">価格が商社と確定済みの標準品（CO2・酸素・溶接ワイヤー・標準塗装色・標準作動油 等）は「金額不要／至急承認」で総務部長へ至急回せます。</div>' +
+      (split ? '<div class="ss-warn" id="expediteSplitHint" style="text-align:right" hidden>「⚡ 金額不要／至急承認」は明細の分割に対応していません。明細を選択解除している場合は使えません。</div>' : '') +
       '</div>';
   }
 
   function bindQuotePanel(detail) {
+    const split = !!detail.permissions.canSplitItems;
+    const btn = document.getElementById('quoteBtn');
+    const eb = document.getElementById('expediteBtn');
+    const ebHint = document.getElementById('expediteSplitHint');
     const recompute = () => {
+      const sel = splitSelection(detail);
       let total = 0;
       detail.items.forEach((it, i) => {
         const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
+        const cell = document.querySelector('[data-qamt="' + i + '"]');
+        // 選択を外した明細は分離先で単価0にリセットされるため、入力を止めて集計からも外す。
+        const dropped = sel.drop.indexOf(i) >= 0;
+        if (input) { input.disabled = dropped; }
+        if (dropped) {
+          if (cell) { cell.textContent = '—'; }
+          return;
+        }
         const unit = input ? Number(input.value) : 0;
         const amount = (isFinite(unit) && unit >= 0 ? unit : 0) * Number(it.quantity || 0);
         total += amount;
-        const cell = document.querySelector('[data-qamt="' + i + '"]');
         if (cell) { cell.textContent = yen(amount); }
       });
       const subEl = document.getElementById('q-subtotal');
@@ -986,11 +1143,16 @@
       if (taxEl) { taxEl.textContent = yen(taxOf(total)); }
       const totalEl = document.getElementById('q-total');
       if (totalEl) { totalEl.textContent = yen(grossOf(total)); }
+      if (!split) { return; }
+      markSplitRows(sel);
+      applySplitButtonState(sel, btn, '✓ 金額を確定', (k, d) => '✓ ' + k + '件の金額を確定し、' + d + '件を差戻し');
+      // 至急承認は分割に対応しない仕様のため、一部でも解除されていれば使わせない。
+      if (eb) { eb.disabled = sel.drop.length > 0; }
+      if (ebHint) { ebHint.hidden = sel.drop.length === 0; }
     };
     document.querySelectorAll('.q-unit').forEach(input => input.addEventListener('input', recompute));
-    const btn = document.getElementById('quoteBtn');
+    document.querySelectorAll('.split-chk').forEach(box => box.addEventListener('change', recompute));
     if (btn) { btn.addEventListener('click', () => confirmQuoteAction(detail)); }
-    const eb = document.getElementById('expediteBtn');
     if (eb) { eb.addEventListener('click', () => confirmExpeditedAction(detail)); }
   }
 
@@ -1014,28 +1176,40 @@
   }
 
   async function confirmQuoteAction(detail) {
+    const sel = splitSelection(detail);
+    if (sel.keep.length === 0) { toast(SPLIT_ALL_OFF_TEXT, 'err'); return; }
     const items = [];
     let total = 0;
-    for (let i = 0; i < detail.items.length; i++) {
+    // 選択を外した明細の単価は分離先で0にリセットされるため、検証も送信もしない。
+    for (let k = 0; k < sel.keep.length; k++) {
+      const i = sel.keep[k];
       const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
       const unitPrice = input ? Number(input.value) : NaN;
       if (!isFinite(unitPrice) || unitPrice < 0) {
-        toast('すべての明細に0以上の単価を入力してください', 'err');
+        toast('選択した明細すべてに0以上の単価を入力してください', 'err');
         return;
       }
       items.push({ itemId: detail.items[i].itemId, unitPrice: unitPrice });
       total += unitPrice * Number(detail.items[i].quantity || 0);
     }
     if (total <= 0) { toast('合計金額が0です。単価を入力してください', 'err'); return; }
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 分離は差戻しと同じ扱いのため理由必須。サーバでも弾かれるが往復させない。
+    if (sel.drop.length > 0 && !comment.trim()) {
+      toast('差し戻す明細がある場合は、理由（コメント）を入力してください', 'err');
+      return;
+    }
+    if (sel.drop.length > 0 && !window.confirm(splitConfirmText(detail, sel, '金額を確定します'))) { return; }
     setBusy(true);
     try {
-      const comment = (document.getElementById('approveComment') || {}).value || '';
-      const updated = await gas('confirmQuote', state.currentDetail.request.requestId, items, comment);
+      const updated = await gas('confirmQuote', state.currentDetail.request.requestId, items, comment, sel.returnItems);
       state.currentDetail = updated;
       await refreshCounts();
       renderDetail(updated);
       renderTabs();
-      toast('見積金額を確定しました', 'ok');
+      toast(sel.drop.length > 0
+        ? (sel.keep.length + '件の金額を確定し、' + sel.drop.length + '件を差し戻しました')
+        : '見積金額を確定しました', 'ok');
       window.scrollTo(0, 0);
     } catch (error) {
       toast(errText(error), 'err');

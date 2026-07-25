@@ -170,6 +170,9 @@ function toClientRequest_(request) {
     amountWaived: parseBoolean_(request.amountWaived),
     pdfFileId: request.pdfFileId,
     pdfUrl: request.pdfUrl,
+    // 明細の部分差戻しで分離された申請だけ値を持つ。画面が分離元へのリンクを出すために返す。
+    // 分割前に作られた既存行は空欄のため、常に文字列へ落とす。
+    splitFromRequestId: request.splitFromRequestId || '',
     version: request.version
   };
 }
