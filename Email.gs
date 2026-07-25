@@ -274,8 +274,7 @@ function sendRejectedEmail_(request, comment) {
 }
 
 function sendReturnedBroadcast_(request, stepAtReturn, comment, actorName) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+  if (!emailNotificationsEnabled_()) {
     return;
   }
   // 通知宛先マスタの送信区分どおり To / CC で送る。
@@ -430,8 +429,7 @@ function buildGeneralAffairsBody_(request, heading) {
 // 通知宛先マスタの種別ごとに、To / CC を振り分けて1通送信する共通処理。
 // 宛先が無ければ fallbackEmail を To に。To が空（CCのみ）の場合は CC を To に昇格して必ず送信先を確保する。
 function sendTypedNotification_(type, fallbackEmail, subject, body, pdfFile) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+  if (!emailNotificationsEnabled_()) {
     return;
   }
 
@@ -546,8 +544,7 @@ function purchasingFallbackByType_(type, request) {
 // CC  = 主担当の CC 宛先 ＋ もう一方の購買（共有用、無ければ承認者マスタにフォールバック）。
 //       To と重複する宛先は除外する。
 function sendPurchasingByCategory_(request, subject, body, pdfFile) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+  if (!emailNotificationsEnabled_()) {
     return;
   }
 
@@ -669,8 +666,7 @@ function amountBreakdownLines_(request) {
 }
 
 function sendEmail_(to, subject, body, cc) {
-  var settings = getSettings_();
-  if (String(settings.enableEmailNotifications || 'true') === 'false') {
+  if (!emailNotificationsEnabled_()) {
     return;
   }
   if (!to) {

@@ -13,7 +13,7 @@ function getBootstrap() {
       thresholdAmount: getThresholdAmount_(),
       pdfFolderId: settings.pdfFolderId || '',
       adminEmails: settings.adminEmails || '',
-      enableEmailNotifications: String(settings.enableEmailNotifications || 'true') !== 'false'
+      enableEmailNotifications: emailNotificationsEnabled_()
     },
     reasons: REASONS,
     unitOptions: UNIT_OPTIONS,

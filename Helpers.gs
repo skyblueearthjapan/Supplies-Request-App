@@ -93,6 +93,23 @@ function assertAdmin_(user) {
   }
 }
 
+// メール通知が有効か。
+// 設定シートの値はセルの型によって「文字列 'false'」にも「真偽値 false」にもなりうる
+// （シートに false と入力すると Google スプレッドシートが真偽値へ自動変換するため）。
+// これを `settings.enableEmailNotifications || 'true'` と書くと、真偽値 false が falsy として
+// 既定の 'true' に落ちてしまい、「メールを止めたのに止まらない」という事故になる。
+// 運用中アプリのテスト時に致命的なので、両方の型を明示的に false として扱う。
+function emailNotificationsEnabled_() {
+  var raw = getSettings_().enableEmailNotifications;
+  if (raw === false) {
+    return false;
+  }
+  if (raw === null || raw === undefined || raw === '') {
+    return true;
+  }
+  return String(raw).trim().toLowerCase() !== 'false';
+}
+
 function getThresholdAmount_() {
   var settings = getSettings_();
   var threshold = parseNumber_(settings.thresholdAmount);
