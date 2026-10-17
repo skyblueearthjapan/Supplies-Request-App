@@ -276,18 +276,28 @@ function replaceItems_(requestId, items) {
       itemId: createId_('ITEM'),
       requestId: requestId,
       lineNo: index + 1,
-      name: item.name,
-      model: item.model,
-      maker: item.maker,
+      name: asTextCell_(item.name),
+      model: asTextCell_(item.model),
+      maker: asTextCell_(item.maker),
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       amount: item.amount,
       desiredDeliveryDate: item.desiredDeliveryDate,
-      note: item.note,
-      unit: item.unit || ''
+      note: asTextCell_(item.note),
+      unit: asTextCell_(item.unit || '')
     };
   });
   appendRows_(SHEETS.ITEMS, objects, ITEM_COLUMNS);
+}
+
+// setValues は文字列を手入力と同じく解釈するため、「3/8」（配管サイズ）が日付に、
+// 「0123」（型式）が数値に化ける。先頭に ' を付けて文字列のまま保存させる（' はセル値に残らない）。
+// 注意: 対象列の表示形式を「書式なしテキスト」に変えると ' が値として残るので、明細シートの書式は触らないこと。
+function asTextCell_(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  return "'" + String(value);
 }
 
 function addHistory_(input) {
