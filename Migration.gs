@@ -331,3 +331,144 @@ function migrateSpreadsheetToJapanese() {
     lock.releaseLock();
   }
 }
+
+// ===== 自由入力欄の日付化の修復（2026-10 の「3/8」不具合） =====
+// 修正前は自由入力の文字列が setValues / appendRow で自動解釈され、「3/8」などが日付として
+// 保存されていた（FREE_TEXT_COLUMNS 参照）。自由入力の列にある次の値を「月/日」（シートの地域設定が
+// 日/月順なら「日/月」）の文字列に戻す。年は付けない（「3/8」と入力して当年の日付になった想定）。
+//   - Date 値のセル
+//   - 「yyyy-MM-dd」の文字列（7c18204〜FREE_TEXT_COLUMNS 導入前に、読み戻した日付が文字列で固定されたもの）
+// 申請の作成年と年が一致するものだけ復元し、それ以外（本当に日付を書いた備考など）は要目視に回す。
+//
+// 【順序】FREE_TEXT_COLUMNS を含むコードを /exec に出す前に修復すること。以後は更新のたびに
+// Date セルが「yyyy-MM-dd」の文字列に固定されていく（上記の2つ目で拾えるが、本物の日付と区別しにくくなる）。
+//
+// 手順: reportDateCorruptedText() で一覧を確認 → 内容が正しければ repairDateCorruptedText()。
+// 修復前の値はログに残るので、誤りがあればそこから手で戻せる。
+// 型式「0123」→ 123 のような数値化は元の表記が失われているため対象外。
+function reportDateCorruptedText() {
+  return scanDateCorruptedText_(false);
+}
+
+function repairDateCorruptedText() {
+  return scanDateCorruptedText_(true);
+}
+
+function scanDateCorruptedText_(apply) {
+  // getSpreadsheet_() は ensureSchema_ でシート作成・改名・設定追記を行いうるため、確認モードでも
+  // 書き込みが起きないよう、参照先IDを直接開く。
+  var spreadsheetId = PropertiesService.getScriptProperties().getProperty(APP.PROP_SPREADSHEET_ID);
+  if (!spreadsheetId) {
+    throw new Error('DATA_SPREADSHEET_ID が未設定です。showCurrentDatabaseId() で確認してください。');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    var locale = spreadsheet.getSpreadsheetLocale();
+    var timeZone = spreadsheet.getSpreadsheetTimeZone();
+    var monthFirst = /^(ja|en_US|zh|ko)/.test(locale);
+    var dateText = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+    // 申請ID → 作成年（年の一致判定に使う）
+    var createdYearById = {};
+    var requestSheet = spreadsheet.getSheetByName(SHEETS.REQUESTS);
+    if (requestSheet && requestSheet.getLastRow() >= 2) {
+      var idCol = REQUEST_COLUMNS.indexOf('requestId');
+      var createdCol = REQUEST_COLUMNS.indexOf('createdAt');
+      requestSheet.getRange(2, 1, requestSheet.getLastRow() - 1, REQUEST_COLUMNS.length).getValues()
+        .forEach(function(row) {
+          var created = row[createdCol];
+          var year = created instanceof Date
+            ? Utilities.formatDate(created, timeZone, 'yyyy')
+            : String(created).slice(0, 4);
+          createdYearById[String(row[idCol])] = year;
+        });
+    }
+
+    var targets = [
+      { name: SHEETS.REQUESTS, columns: REQUEST_COLUMNS },
+      { name: SHEETS.ITEMS, columns: ITEM_COLUMNS },
+      { name: SHEETS.HISTORY, columns: HISTORY_COLUMNS }
+    ];
+    var lines = [
+      (apply ? '【修復を実行】' : '【確認のみ・書き込みなし】') + ' 保存先: ' + spreadsheet.getName() + ' (' + spreadsheetId + ')',
+      '地域設定: ' + locale + '（' + (monthFirst ? '月/日' : '日/月') + ' の順で復元）',
+      ''
+    ];
+    var found = 0;
+    var skipped = 0;
+
+    targets.forEach(function(target) {
+      var sheet = spreadsheet.getSheetByName(target.name);
+      if (!sheet || sheet.getLastRow() < 2) {
+        return;
+      }
+      var range = sheet.getRange(2, 1, sheet.getLastRow() - 1, target.columns.length);
+      var values = range.getValues();
+      var displays = range.getDisplayValues();
+      var idIndex = target.columns.indexOf('requestId');
+
+      values.forEach(function(row, rowIndex) {
+        target.columns.forEach(function(column, columnIndex) {
+          if (FREE_TEXT_COLUMNS[column] !== true) {
+            return;
+          }
+          var value = row[columnIndex];
+          var year, month, day, time;
+          if (value instanceof Date) {
+            year = Utilities.formatDate(value, timeZone, 'yyyy');
+            month = Number(Utilities.formatDate(value, timeZone, 'M'));
+            day = Number(Utilities.formatDate(value, timeZone, 'd'));
+            time = Utilities.formatDate(value, timeZone, 'HH:mm:ss');
+          } else {
+            var match = dateText.exec(String(value));
+            if (!match) {
+              return;
+            }
+            year = match[1];
+            month = Number(match[2]);
+            day = Number(match[3]);
+            time = '00:00:00';
+          }
+          var requestId = idIndex >= 0 ? String(row[idIndex]) : '';
+          var label = target.name + ' ' + (rowIndex + 2) + '行目 ' + column +
+            '（申請ID ' + (requestId || '-') + '）: 表示「' + displays[rowIndex][columnIndex] + '」 値 ' +
+            (value instanceof Date ? Utilities.formatDate(value, timeZone, 'yyyy-MM-dd HH:mm:ss') + '（日付）' : '「' + value + '」（文字列）');
+          var restored = monthFirst ? month + '/' + day : day + '/' + month;
+
+          // 時刻付きの日時は「3/8」のような短い入力から生じない。
+          // 年が申請の作成年と違うものは、本当に日付を書いた可能性があるため推定しない。
+          var reason = '';
+          if (time !== '00:00:00') {
+            reason = '時刻付き';
+          } else if (createdYearById[requestId] !== year) {
+            reason = '申請の作成年(' + (createdYearById[requestId] || '不明') + ')と年が違う';
+          }
+          if (reason) {
+            skipped++;
+            lines.push('× 要目視（' + reason + '・候補「' + restored + '」） ' + label);
+            return;
+          }
+          found++;
+          lines.push('○ ' + label + ' → 「' + restored + '」');
+          if (apply) {
+            sheet.getRange(rowIndex + 2, columnIndex + 1).setValue(asTextCell_(restored));
+          }
+        });
+      });
+    });
+
+    lines.push('');
+    lines.push('復元対象: ' + found + ' 件 / 要目視: ' + skipped + ' 件' +
+      (apply ? '（復元対象は書き込み済み）' : '（まだ書き込んでいません）'));
+    if (apply) {
+      invalidateCache_();
+    }
+    var text = lines.join('\n');
+    Logger.log(text);
+    return text;
+  } finally {
+    lock.releaseLock();
+  }
+}

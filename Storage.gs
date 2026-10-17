@@ -146,7 +146,7 @@ function readObjects_(sheetName, columns) {
 function appendObject_(sheetName, object, columns) {
   var sheet = getSheet_(sheetName);
   var values = columns.map(function(column) {
-    return Object.prototype.hasOwnProperty.call(object, column) ? object[column] : '';
+    return toCellValue_(column, Object.prototype.hasOwnProperty.call(object, column) ? object[column] : '');
   });
   sheet.appendRow(values);
   invalidateCache_();
@@ -162,7 +162,7 @@ function appendRows_(sheetName, objects, columns) {
   var startRow = sheet.getLastRow() + 1;
   var values = objects.map(function(object) {
     return columns.map(function(column) {
-      return Object.prototype.hasOwnProperty.call(object, column) ? object[column] : '';
+      return toCellValue_(column, Object.prototype.hasOwnProperty.call(object, column) ? object[column] : '');
     });
   });
   sheet.getRange(startRow, 1, values.length, columns.length).setValues(values);
@@ -187,7 +187,7 @@ function updateObjectById_(sheetName, columns, idColumn, idValue, patch) {
   getSheet_(sheetName)
     .getRange(row._rowNumber, 1, 1, columns.length)
     .setValues([columns.map(function(column) {
-      return merged[column];
+      return toCellValue_(column, merged[column]);
     })]);
 
   invalidateCache_();
@@ -276,23 +276,42 @@ function replaceItems_(requestId, items) {
       itemId: createId_('ITEM'),
       requestId: requestId,
       lineNo: index + 1,
-      name: asTextCell_(item.name),
-      model: asTextCell_(item.model),
-      maker: asTextCell_(item.maker),
+      name: item.name,
+      model: item.model,
+      maker: item.maker,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       amount: item.amount,
       desiredDeliveryDate: item.desiredDeliveryDate,
-      note: asTextCell_(item.note),
-      unit: asTextCell_(item.unit || '')
+      note: item.note,
+      unit: item.unit || ''
     };
   });
   appendRows_(SHEETS.ITEMS, objects, ITEM_COLUMNS);
 }
 
-// setValues は文字列を手入力と同じく解釈するため、「3/8」（配管サイズ）が日付に、
-// 「0123」（型式）が数値に化ける。先頭に ' を付けて文字列のまま保存させる（' はセル値に残らない）。
-// 注意: 対象列の表示形式を「書式なしテキスト」に変えると ' が値として残るので、明細シートの書式は触らないこと。
+// setValues / appendRow は文字列を手入力と同じく解釈するため、「3/8」（配管サイズ）や
+// コメントの「1/2」が日付に、「0123」（型式）が数値に化け、「=」始まりは数式になる。
+// 自由入力の列だけ先頭に ' を付けて文字列のまま保存させる（' はセル値に残らない）。
+// 日時・数値・enum の列は従来どおり（日時は Date 化を前提に normalizeCellValue_ で読んでいる）。
+// 注意: 対象列の表示形式を「書式なしテキスト」に変えると ' が値として残るので、書式は触らないこと。
+var FREE_TEXT_COLUMNS = Object.freeze({
+  applicantName: true,
+  department: true,
+  reasonDetail: true,
+  name: true,
+  model: true,
+  maker: true,
+  note: true,
+  unit: true,
+  actorName: true,
+  comment: true
+});
+
+function toCellValue_(column, value) {
+  return FREE_TEXT_COLUMNS[column] === true ? asTextCell_(value) : value;
+}
+
 function asTextCell_(value) {
   if (value === null || value === undefined || value === '') {
     return '';
