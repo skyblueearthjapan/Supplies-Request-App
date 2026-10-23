@@ -1653,6 +1653,9 @@
           '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
           '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span></div>' +
         '</div>' +
+        '<div class="card"><div class="card-head"><h3>作業員マスタ（外部 作業日報シートと同期・読み取り専用）</h3><button class="btn sm" id="syncWorkersBtn">↻ 外部シートから同期</button></div>' +
+          '<div class="card-pad"><span class="hint" id="workersSyncInfo"></span></div>' +
+        '</div>' +
         APPROVER_ROLES.map(function(role, i) {
           return '<div class="card"><div class="card-head"><h3>承認者：' + role.title + '</h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>' +
             '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
@@ -1681,6 +1684,8 @@
     }
     document.getElementById('saveAdminBtn').addEventListener('click', saveAdmin);
     document.getElementById('syncDeptSupBtn').addEventListener('click', syncDeptSupervisors);
+    document.getElementById('syncWorkersBtn').addEventListener('click', syncWorkers);
+    renderWorkersSyncInfo();
     positionAdminStickyHead();
     renderDeptSupervisorRows();
 
@@ -1767,6 +1772,38 @@
       toast(errText(error), 'err');
     } finally {
       setBusy(false);
+    }
+  }
+
+  function renderWorkersSyncInfo() {
+    const el = document.getElementById('workersSyncInfo');
+    if (!el) { return; }
+    const n = (state.bootstrap.workers || []).length;
+    el.textContent = '新規申請の「部署」「申請者」の選択肢は、外部の作業日報スプレッドシート（作業員マスタ）から同期したこの一覧（現在 ' + n + ' 名）から作られます。毎朝8時台に自動同期します。異動・入社をすぐ反映したいときは「外部シートから同期」を押してください。';
+  }
+
+  async function syncWorkers() {
+    const btn = document.getElementById('syncWorkersBtn');
+    if (btn) { btn.disabled = true; }
+    setBusy(true);
+    try {
+      const result = await gas('syncWorkersNow') || {};
+      state.bootstrap = await gas('getBootstrap');
+      renderWorkersSyncInfo();
+      if (result.error) {
+        toast('元シートが見つからないため、作業員マスタを同期できませんでした', 'err');
+      } else if (result.skipped) {
+        toast('元シートが空のため、作業員マスタは更新しませんでした', 'err');
+      } else if (result.triggers && result.triggers.error) {
+        toast('作業員マスタを同期しました（' + result.count + '名）。ただし毎朝の自動同期の設定に失敗しました: ' + result.triggers.error, 'err');
+      } else {
+        toast('作業員マスタを同期しました（' + result.count + '名）', 'ok');
+      }
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+      if (btn) { btn.disabled = false; }
     }
   }
 

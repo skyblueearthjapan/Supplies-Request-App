@@ -43,6 +43,41 @@ function syncWorkersMaster() {
   return { count: rows.length };
 }
 
+// 管理者による手動同期（管理画面の作業員マスタ「外部シートから同期」ボタン用）。
+// 日次トリガーが消えていると同期が止まったままになるため、無ければ併せて作り直す。
+function syncWorkersNow() {
+  assertAdmin_(getCurrentUser_());
+  var triggers = installSyncTriggersSafely_();
+  var result = syncWorkersMaster();
+  result.triggers = triggers;
+  return result;
+}
+
+// 作業員マスタ・部署別上席マスタの日次同期トリガーを、無ければ作成する（GASエディタから実行してもよい）。
+// トリガーは実行ユーザー（Webアプリはデプロイ者）の所有になる。同時実行で重複しないようロックする。
+function installSyncTriggers() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return {
+      workers: ensureMasterSyncTrigger_(),
+      deptSupervisors: ensureDeptSupervisorSyncTrigger_()
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// トリガー作成の失敗で同期本体まで失敗扱いにしない。
+function installSyncTriggersSafely_() {
+  try {
+    return installSyncTriggers();
+  } catch (error) {
+    Logger.log('installSyncTriggers failed: ' + error.message);
+    return { error: String(error.message || error) };
+  }
+}
+
 function writeWorkersCache_(rows) {
   var sheet = getSheet_(SHEETS.WORKERS_CACHE);
   var cacheLastRow = sheet.getLastRow();

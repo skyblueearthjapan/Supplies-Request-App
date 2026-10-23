@@ -96,7 +96,10 @@ function saveDeptSupervisors_(rows) {
 // 管理者による手動同期（管理画面の「外部シートから同期」ボタン用）。
 function syncDeptSupervisorsNow() {
   assertAdmin_(getCurrentUser_());
-  return syncDeptSupervisorsMaster();
+  var triggers = installSyncTriggersSafely_();
+  var result = syncDeptSupervisorsMaster();
+  result.triggers = triggers;
+  return result;
 }
 
 // 外部スプレッドシートの DeptApprovers シートを DeptSupervisors キャッシュへ取り込む。
