@@ -213,7 +213,26 @@ def insert_tables(engine: Any, tables: dict) -> dict:
             dropped[table] = sorted({k for r in rows for k in r if k not in names})
             if rows:
                 conn.execute(target.insert(), [{k: _db_value(v) for k, v in r.items() if k in names} for r in rows])
+        _advance_sequences(conn, metadata, tables)
     return dropped
+
+
+def _advance_sequences(conn: Any, metadata: Any, tables: dict) -> None:
+    """番号を指定して入れた列の連番を、入れた最大値の先へ進める（PostgreSQL だけ）。
+
+    進めないと、移行の後に履歴を 1 行足すたびに既存の番号とぶつかり、書き込みがすべて失敗する。
+    """
+    from sqlalchemy import text
+
+    if conn.dialect.name != "postgresql":
+        return
+    for table in tables:
+        for column in metadata.tables[table].columns:
+            seq = conn.execute(text("SELECT pg_get_serial_sequence(:t, :c)"),
+                               {"t": table, "c": column.name}).scalar()
+            if seq:
+                conn.execute(text(
+                    f"SELECT setval('{seq}', COALESCE((SELECT max({column.name}) FROM {table}), 0) + 1, false)"))
 
 
 def verify_in_db(engine: Any, tables: dict) -> list:
