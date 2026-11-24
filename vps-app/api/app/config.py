@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str = Field(min_length=1)
     session_secret: str = Field(min_length=32)
     session_max_age_days: int = Field(default=14, ge=1, le=90)
+    session_idle_hours: int = Field(default=12, ge=1, le=24 * 90)  # 使っていない時間の期限
     allowed_domain: str = "lineworks-local.info"
     bootstrap_admins: str = "imaizumi@lineworks-local.info"
 

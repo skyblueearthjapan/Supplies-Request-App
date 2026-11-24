@@ -69,6 +69,7 @@ RPC_FUNCTIONS: tuple[str, ...] = (
     "clearMailRedirect",
     "listFailedJobs",
     "retryFailedJob",
+    "revokeSessions",
 )
 GAS_RPC_COUNT = 22  # GAS 版から引き継いだ関数の数（先頭の 22 個）
 READ_ONLY_FUNCTIONS = frozenset({"getBootstrap", "getTabCounts", "getRequests", "getRequestDetail", "listFailedJobs"})
@@ -77,6 +78,7 @@ IDEMPOTENCY_HEADER = "X-Idempotency-Key"
 _IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 
 ERR_SHAPE = "呼び出しの形が正しくありません。"
+ERR_FORBIDDEN_ORIGIN = "この画面からは操作できません。"
 ERR_ARGS = "引数の数が正しくありません。"
 ERR_INTERNAL = "サーバーでエラーが起きました。時間をおいてもう一度お試しください。"
 ERR_IN_PROGRESS = "同じ操作を処理しています。少し待ってから画面を読み込み直してください。"
@@ -281,9 +283,17 @@ async def call_rpc(
     settings: Settings = Depends(get_settings),
     user: CurrentUser = Depends(require_user),
 ) -> Response:
+    # 入口の確認: 同じサイトの画面からの JSON の呼び出しだけを受ける（ほかのサイトからの書き込みを止める）。
+    # Origin があれば PUBLIC_ORIGIN と照合し、無ければブラウザの Sec-Fetch-Site: same-origin を求める。
     origin = request.headers.get("origin")
-    if origin is not None and origin.rstrip("/") != settings.public_origin:
-        return error_response("この画面からは操作できません。", 403)
+    if origin is not None:
+        if origin.rstrip("/") != settings.public_origin:
+            return error_response(ERR_FORBIDDEN_ORIGIN, 403)
+    elif request.headers.get("sec-fetch-site") != "same-origin":
+        return error_response(ERR_FORBIDDEN_ORIGIN, 403)
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return error_response(ERR_SHAPE, 415)
     if fn not in _registry:
         return error_response("その操作はありません。", 404)
 

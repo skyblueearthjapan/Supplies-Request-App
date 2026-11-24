@@ -12,6 +12,7 @@ x-api-env: &api-env
   GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
   SESSION_SECRET: ${SESSION_SECRET}
   SESSION_MAX_AGE_DAYS: ${SESSION_MAX_AGE_DAYS:-14}
+  SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-12}
   ALLOWED_DOMAIN: ${ALLOWED_DOMAIN}
   BOOTSTRAP_ADMINS: ${BOOTSTRAP_ADMINS}
   FERNET_KEY: ${FERNET_KEY}
@@ -22,6 +23,8 @@ x-api-env: &api-env
   STAGING_PDF_FOLDER_ID: ${STAGING_PDF_FOLDER_ID:-}
   EXPORT_HOURLY_UNTIL: ${EXPORT_HOURLY_UNTIL:-}
   TZ: Asia/Tokyo
+  # uvicorn が X-Forwarded-* を信じる相手（web コンテナの固定 IP だけ）
+  FORWARDED_ALLOW_IPS: ${CHOZOUHIN_WEB_IP:-172.29.77.10}
 
 services:
   db:
@@ -83,10 +86,13 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    networks: [chozouhin-net]
+    networks:
+      chozouhin-net:
+        # api が X-Forwarded-For を信じるのはこの IP だけ（FORWARDED_ALLOW_IPS）
+        ipv4_address: ${CHOZOUHIN_WEB_IP:-172.29.77.10}
 
   cloudflared:
-    image: cloudflare/cloudflared:2024.12.2
+    image: cloudflare/cloudflared:2026.10.7
     container_name: chozouhin-cloudflared
     restart: unless-stopped
     command: ["tunnel", "--no-autoupdate", "run"]
@@ -124,3 +130,8 @@ networks:
   chozouhin-net:
     name: chozouhin-net
     driver: bridge
+    # web の IP を固定するため、サブネットを決める（ほかのアプリのネットワークと重なるときは .env で変える）。
+    # 既にあるネットワークには反映されないので、変えたときは docker compose down → up で作り直す。
+    ipam:
+      config:
+        - subnet: ${CHOZOUHIN_NET_SUBNET:-172.29.77.0/24}

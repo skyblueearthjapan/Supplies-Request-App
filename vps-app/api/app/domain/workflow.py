@@ -1,7 +1,8 @@
 """申請の操作（Workflow.gs / Pdf.gs の generateRequestPdf の移植）。
 
 関数名・引数の並び・エラー文言・戻り値の形は GAS 版と同じ。変えた点（計画書 9 章の決定）:
-- 全画面承認（kiosk）は状態と段を確かめ、さらに expectedStep（最後の追加引数）を今の段と照合する
+- 詳細画面の書き込み（承認・差戻し・却下・見積確定・至急・手配完了・リコール・社長決裁）は expectedStep（最後の
+  追加引数）を今の段と照合する。全画面承認（kiosk）では expectedStep を必須にし、状態と段も確かめる
 - 再申請で amountWaived を false に戻す
 - 申請日の既定は日本時間の今日
 - マイナスの単価をはじく
@@ -14,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.constants import ACTION, CATEGORY_VALUES, STATUS, STEPS
@@ -54,6 +55,8 @@ from app.serialize import history_row, item_row, request_row
 from app.timeutil import today_jst
 
 MAX_PAGE_SIZE = 200
+MAX_ITEMS = 100  # VPS 版で追加: 1 申請の明細の上限（送られてきた行の数で数える）
+ERR_TOO_MANY_ITEMS = f"明細は{MAX_ITEMS}行までにしてください。"
 ERR_REOPEN = "画面を開いた後に申請の段が変わりました。画面を開き直してください。"
 
 
@@ -203,10 +206,13 @@ def assert_kiosk_target(request: Request) -> None:
         raise RpcError("全画面モードで操作できる申請ではありません。画面を開き直してください。")
 
 
-def assert_expected_step(request: Request, expected_step: Any) -> None:
-    """VPS 版で追加: 画面を開いたときの段（expectedStep）と今の段が違えば止める（2 台で同時に押したとき）。"""
+def assert_expected_step(request: Request, expected_step: Any, required: bool = False) -> None:
+    """VPS 版で追加: 画面を開いたときの段（expectedStep）と今の段が違えば止める（2 台で同時に押したとき）。
+
+    全画面（kiosk）では必須（required=True）。送られていなければ同じ文で止める。
+    """
     expected = sanitize_text(expected_step, 20)
-    if expected and expected != request.current_step:
+    if (required and not expected) or (expected and expected != request.current_step):
         raise RpcError(ERR_REOPEN)
 
 
@@ -228,6 +234,8 @@ def _item_inputs(payload: Any) -> list[dict[str, Any]]:
     items = data.get("items") or []
     if not isinstance(items, list):
         return []
+    if len(items) > MAX_ITEMS:
+        raise RpcError(ERR_TOO_MANY_ITEMS)
     return [item if isinstance(item, dict) else {} for item in items]
 
 
@@ -409,22 +417,6 @@ def resolve_step_titles(op: Op, request: Request, history: list[dict[str, Any]])
     return titles
 
 
-def stamp_names(op: Op, request: Request, history: list[dict[str, Any]]) -> dict[str, str]:
-    """VPS 版で追加（決定事項 Q3: 押印は氏名）: 履歴の操作者メール → 上席マスタ・承認者マスタの氏名。
-
-    マスタに無い人は入れない（画面・PDF は履歴の操作者名に戻す）。
-    """
-    names: dict[str, str] = {}
-    for h in history:
-        email = normalize_email(h["actorEmail"])
-        if not email or email in names:
-            continue
-        full = op.masters.full_name_for(email, request.applicant_email, request.department)
-        if full:
-            names[email] = full
-    return {k: v for k, v in names.items() if v}
-
-
 def build_detail(op: Op, request: Request) -> dict[str, Any]:
     """getRequestDetail の戻り値。"""
     if not op.email:
@@ -432,8 +424,9 @@ def build_detail(op: Op, request: Request) -> dict[str, Any]:
     items = store.get_item_rows(op.db, request.request_id)
     history = history_client_rows(store.get_history(op.db, request.request_id))
     approve = can_approve(op, request)
+    client_request = to_client_request(request)
     return {
-        "request": to_client_request(request),
+        "request": client_request,
         "items": items,
         "history": history,
         "permissions": {
@@ -454,7 +447,8 @@ def build_detail(op: Op, request: Request) -> dict[str, Any]:
         },
         "stepTitles": resolve_step_titles(op, request, history),
         "purchasingStampName": op.masters.purchasing_stamp_name(request.applicant_email, request.department),
-        "stampNames": stamp_names(op, request, history),
+        # VPS 版で追加（決定事項 Q3: 押印は氏名）: 段 → 押印の氏名。PDF と同じ Masters.stamp_names で決める。
+        "stampNames": op.masters.stamp_names(client_request, client_request["route"], history),
         # GAS 版の deferredJobs の代わり。後回しの仕事（PDF・メール）のうち、まだ終わっていない数。
         "pendingJobs": outbox.pending_count(op.db, request.request_id),
     }
@@ -523,40 +517,73 @@ def get_requests(ctx: RpcContext, filter: Any = None) -> dict[str, Any]:  # noqa
     status = sanitize_text(data.get("status"), 50)
     page = max(1, _int_arg(data.get("page"), 1))
     page_size = min(MAX_PAGE_SIZE, max(1, _int_arg(data.get("pageSize"), MAX_PAGE_SIZE)))
-    supervisor_all = sees_all_supervisor_rows(op) if mode == "supervisor" else False
-
-    rows = []
-    for request in op.db.execute(select(Request)).scalars():
-        if not _matches_mode(op, request, mode, supervisor_all):
-            continue
-        if status and request.status != status:
-            continue
-        if query:
-            haystack = " ".join([
-                request.request_id, request.applicant_name, request.department,
-                request.reason_detail, request.current_approver_name,
-            ]).lower()
-            if query not in haystack:
-                continue
-        rows.append(request)
-
-    # 並びは更新日時の新しい順（決定事項 Q8: 時刻まで使う）。同じ時刻は申請 ID の新しい順。
-    rows.sort(key=lambda r: (r.updated_at.timestamp() if r.updated_at else float("-inf"), r.request_id), reverse=True)
-
-    in_review = sum(1 for r in rows if r.status == STATUS.IN_REVIEW)
-    returned = sum(1 for r in rows if r.status == STATUS.RETURNED)
-    # 未完了金額: 完了・取消を除く。1 件ずつ税込（税は切り捨て）にしてから足す。
-    open_amount = sum(
-        gross_amount(r.total_amount) for r in rows if r.status not in (STATUS.COMPLETED, STATUS.CANCELLED)
-    )
     start = (page - 1) * page_size
+
+    where = _mode_sql_conditions(op, mode)
+    if status:
+        where.append(Request.status == status)
+    if query:
+        where.append(or_(*(
+            func.lower(col).contains(query, autoescape=True)
+            for col in (Request.request_id, Request.applicant_name, Request.department,
+                        Request.reason_detail, Request.current_approver_name)
+        )))
+    # 並びは更新日時の新しい順（決定事項 Q8: 時刻まで使う）。同じ時刻は申請 ID の新しい順。
+    order = (Request.updated_at.desc().nulls_last(), Request.request_id.desc())
+
+    if mode in ("pending", "supervisor"):
+        # マスタで決まる条件（承認者か・上席の部署か）は SQL で候補を絞ってから確かめる
+        supervisor_all = sees_all_supervisor_rows(op) if mode == "supervisor" else False
+        rows = [
+            r for r in op.db.execute(select(Request).where(*where).order_by(*order)).scalars()
+            if _matches_mode(op, r, mode, supervisor_all)
+        ]
+        total = len(rows)
+        page_rows = rows[start:start + page_size]
+        stats = [(r.status, r.total_amount) for r in rows]
+    else:
+        total = op.db.execute(select(func.count()).select_from(Request).where(*where)).scalar_one()
+        page_rows = list(op.db.execute(
+            select(Request).where(*where).order_by(*order).offset(start).limit(page_size)
+        ).scalars())
+        stats = [tuple(row) for row in op.db.execute(select(Request.status, Request.total_amount).where(*where))]
+
+    in_review = sum(1 for st, _ in stats if st == STATUS.IN_REVIEW)
+    returned = sum(1 for st, _ in stats if st == STATUS.RETURNED)
+    # 未完了金額: 完了・取消を除く。1 件ずつ税込（税は切り捨て）にしてから足す。
+    open_amount = sum(gross_amount(amount) for st, amount in stats if st not in (STATUS.COMPLETED, STATUS.CANCELLED))
     return {
-        "rows": [to_client_request(r) for r in rows[start:start + page_size]],
-        "total": len(rows),
+        "rows": [to_client_request(r) for r in page_rows],
+        "total": total,
         "page": page,
         "pageSize": page_size,
         "summary": {"inReview": in_review, "returned": returned, "openAmount": open_amount},
     }
+
+
+def _mode_sql_conditions(op: Op, mode: str) -> list[Any]:
+    """_matches_mode のうち SQL で書ける条件。pending・supervisor は候補を絞るだけ（残りは _matches_mode）。"""
+    where: list[Any] = []
+    if mode not in ("mine", "all"):
+        where.append(Request.status != STATUS.CANCELLED)
+    in_review = Request.status == STATUS.IN_REVIEW
+    if mode == "pending":
+        where.append(or_(in_review, func.lower(Request.current_approver_email).contains(op.email, autoescape=True)))
+    elif mode == "supervisor":
+        where += [in_review, Request.current_step == STEPS.SUPERVISOR]
+    elif mode == "quote":
+        where.append(Request.current_step == STEPS.PURCHASING_QUOTE)
+    elif mode == "gm":
+        where += [in_review, Request.current_step == STEPS.GENERAL_MANAGER]
+    elif mode == "president":
+        where += [in_review, Request.current_step == STEPS.PRESIDENT]
+    elif mode == "arrange":
+        where += [in_review, Request.current_step == STEPS.PURCHASING]
+    elif mode == "returned":
+        where.append(Request.status == STATUS.RETURNED)
+    elif mode != "all":
+        where.append(func.lower(Request.applicant_email) == op.email)
+    return where
 
 
 def get_tab_counts(ctx: RpcContext) -> dict[str, int]:
@@ -899,7 +926,7 @@ def approve_request(
 ) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
-    assert_expected_step(request, expectedStep)
+    assert_expected_step(request, expectedStep, required=js_truthy(kiosk))
     if js_truthy(kiosk):
         assert_kiosk_target(request)
     elif not can_approve(op, request):
@@ -968,9 +995,11 @@ def _general_affairs_body(op: Op, snapshot: dict[str, Any], heading: str) -> str
 
 def confirm_quote(
     ctx: RpcContext, requestId: Any = None, items: Any = None, comment: Any = "", returnItems: Any = None,  # noqa: N803
+    expectedStep: Any = None,  # noqa: N803
 ) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
+    assert_expected_step(request, expectedStep)
     if not can_approve(op, request) or request.current_step != STEPS.PURCHASING_QUOTE:
         raise RpcError("購買担当者のみ見積金額を入力できます。")
 
@@ -980,6 +1009,8 @@ def confirm_quote(
         assert_split_allowed(op, request, False, clean_comment)
         selection = resolve_split_selection(op, request, returnItems)
 
+    if isinstance(items, list) and len(items) > MAX_ITEMS:
+        raise RpcError(ERR_TOO_MANY_ITEMS)
     price_map: dict[str, float] = {}
     for entry in items if isinstance(items, list) else []:
         if isinstance(entry, dict) and js_truthy(entry.get("itemId")):
@@ -1047,9 +1078,12 @@ def confirm_quote(
     return _detail(op, request.request_id)
 
 
-def confirm_expedited(ctx: RpcContext, requestId: Any = None, comment: Any = "") -> dict[str, Any]:  # noqa: N803
+def confirm_expedited(
+    ctx: RpcContext, requestId: Any = None, comment: Any = "", expectedStep: Any = None,  # noqa: N803
+) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
+    assert_expected_step(request, expectedStep)
     if not can_approve(op, request) or request.current_step != STEPS.PURCHASING_QUOTE:
         raise RpcError("購買担当者のみ操作できます。")
     rule = op.masters.require_approver_rule(request.applicant_email, request.department)
@@ -1079,9 +1113,12 @@ def confirm_expedited(ctx: RpcContext, requestId: Any = None, comment: Any = "")
     return _detail(op, request.request_id)
 
 
-def arrange_complete(ctx: RpcContext, requestId: Any = None, comment: Any = "") -> dict[str, Any]:  # noqa: N803
+def arrange_complete(
+    ctx: RpcContext, requestId: Any = None, comment: Any = "", expectedStep: Any = None,  # noqa: N803
+) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
+    assert_expected_step(request, expectedStep)
     if not can_approve(op, request) or request.current_step != STEPS.PURCHASING:
         raise RpcError("購買担当者のみ手配完了できます。")
     if not (parse_number(request.total_amount) > 0) and not parse_boolean(bool(request.amount_waived)):
@@ -1109,7 +1146,7 @@ def return_request(
 ) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
-    assert_expected_step(request, expectedStep)
+    assert_expected_step(request, expectedStep, required=js_truthy(kiosk))
     is_kiosk = js_truthy(kiosk)
     is_discard = js_truthy(discard)
     if is_kiosk:
@@ -1176,9 +1213,12 @@ def resolve_step_approver_for_recall(op: Op, request: Request, step: str, rule: 
     return {"approver": approver, "members": members if members else [approver]}
 
 
-def recall_step(ctx: RpcContext, requestId: Any = None, comment: Any = "") -> dict[str, Any]:  # noqa: N803
+def recall_step(
+    ctx: RpcContext, requestId: Any = None, comment: Any = "", expectedStep: Any = None,  # noqa: N803
+) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
+    assert_expected_step(request, expectedStep)
     route = json_parse(request.route_json, [])
     if not can_recall(op, request):
         raise RpcError("この申請を前段へ戻す権限がありません。")
@@ -1262,7 +1302,7 @@ def record_president_decision(
 ) -> dict[str, Any]:
     op = Op(ctx)
     request = store.require_request(op.db, requestId, lock=True)
-    assert_expected_step(request, expectedStep)
+    assert_expected_step(request, expectedStep, required=js_truthy(kiosk))
     is_kiosk = js_truthy(kiosk)
     if is_kiosk and not is_president_pending_row(request):
         raise RpcError("社長決裁待ちの申請ではありません。画面を開き直してください。")

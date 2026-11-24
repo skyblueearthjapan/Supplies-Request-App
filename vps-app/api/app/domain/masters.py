@@ -6,13 +6,14 @@ Masters.load(db) で 1 回の操作の間のマスタを読み込み、探し方
 """
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.constants import CATEGORIES, STEPS
+from app.constants import ACTION, CATEGORIES, STATUS, STEPS
 from app.domain.helpers import (
     normalize_category,
     normalize_email,
@@ -28,6 +29,30 @@ from app.serialize import approver_row, dept_supervisor_row, recipient_row
 
 ERR_NO_SUPERVISOR = "上席承認者が未設定です。部署別 上席マスタ（または承認者マスタの上席）を設定してください。"
 ERR_NO_APPROVER_RULE = "承認者マスタが未設定です。管理画面で部署または申請者の承認者を登録してください。"
+
+# 押印に使う履歴の操作（画面のプレビュー・PDF で共用）
+STAMP_ACTIONS = (ACTION.APPROVE, ACTION.COMPLETE, ACTION.RETURN, ACTION.QUOTE, ACTION.EXPEDITE)
+
+
+def _js(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def pick_stamp_history(step: str, route: Sequence[str], current_step: Any, status: Any,
+                       history: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """その段の印に使う履歴（無ければ None）。history は古い順。画面の stampFor・PDF と同じ決まり。
+
+    申請者: 最後の申請・再申請。そのほか: まだ来ていない段（現在の段とそれより後）は完了の申請を除いて空欄、
+    それ以外は その段から出た最後の承認・完了処理・差戻・金額確定・金額不要至急。
+    """
+    if step == STEPS.APPLICANT:
+        return next((h for h in reversed(history) if h.get("action") in (ACTION.SUBMIT, ACTION.RESUBMIT)), None)
+    route = list(route or [])
+    ki = route.index(step) if step in route else -1
+    ci = route.index(current_step) if current_step in route else -1
+    if ki >= 0 and ci >= 0 and ki >= ci and status != STATUS.COMPLETED:
+        return None
+    return next((h for h in reversed(history) if h.get("fromStep") == step and h.get("action") in STAMP_ACTIONS), None)
 
 
 def to_client_approver(row: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +264,73 @@ class Masters:
     def purchasing_stamp_name(self, applicant_email: Any, department: Any) -> str:
         return strip_role_paren(self.role_name_title(applicant_email, department, STEPS.PURCHASING)["name"])
 
+    # ===== 押印の氏名（画面の詳細 stampNames と PDF で共用） =====
+
+    def _rule_candidates(self, applicant_email: Any, department: Any) -> list[dict[str, Any]]:
+        """この申請の承認者マスタ行 → '*' 行 → そのほかの有効な行の順。"""
+        out: list[dict[str, Any]] = []
+        for r in [self.find_approver_rule(applicant_email, department), self.find_star_rule()] + self.active_approvers():
+            if r is not None and all(r is not x for x in out):
+                out.append(r)
+        return out
+
+    def _first_email_name(self, email: str, applicant_email: Any, department: Any, field: str) -> str:
+        """欄の先頭のメールが email の行の氏名。2 人目以降のメールには使わない（氏名は 1 人分しか無いため）。"""
+        from app.domain.helpers import split_emails
+
+        for rule in self._rule_candidates(applicant_email, department):
+            emails = split_emails(rule.get(field + "Email"))
+            if emails and emails[0] == email and rule.get(field + "Name"):
+                return rule[field + "Name"]
+        return ""
+
+    def _dept_supervisor_name(self, email: str, department: Any) -> str:
+        """上席マスタの氏名: 申請の部署の行 → '*' の行 → ほかの部署の行（同じ人が複数部署の上席のことがある）。"""
+        rows = [r for r in self.dept_supervisors if r["email"] == email and r["name"]]
+        dept = sanitize_text(department, 100)
+        pick = (next((r for r in rows if r["department"] == dept), None)
+                or next((r for r in rows if r["department"] == "*"), None)
+                or (rows[0] if rows else None))
+        return pick["name"] if pick else ""
+
+    def stamp_name(self, step: str, request: Mapping[str, Any], actor_email: Any, actor_name: Any) -> str:
+        """押印の氏名（決定事項 Q3）。request は applicantEmail・department・applicantName を持つ dict。
+
+        - 申請者: 申請者氏名（無ければ履歴の操作者名）
+        - 購買見積・購買手配: 承認者マスタの購買氏名（メカ購買。GAS 版と同じで、電気の案件でも変えない）
+        - 上席: 上席マスタの氏名 → 承認者マスタの上席氏名
+        - 総務部長・社長: 承認者マスタの氏名（欄の先頭のメールの人だけ）→ 上席マスタの氏名
+        - どれも無ければ履歴の操作者名（無ければメール）。マスタの氏名のカッコ書きは除く。
+        """
+        applicant_email = request.get("applicantEmail")
+        department = request.get("department")
+        fallback = _js(actor_name) or _js(actor_email)
+        if step == STEPS.APPLICANT:
+            name = _js(request.get("applicantName")) or fallback
+            return strip_role_paren(name) or name
+        if step in (STEPS.PURCHASING, STEPS.PURCHASING_QUOTE):
+            return self.purchasing_stamp_name(applicant_email, department) or fallback
+        email = normalize_email(actor_email)
+        name = ""
+        if email and step == STEPS.SUPERVISOR:
+            name = (self._dept_supervisor_name(email, department)
+                    or self._first_email_name(email, applicant_email, department, "supervisor"))
+        elif email and step in (STEPS.GENERAL_MANAGER, STEPS.PRESIDENT):
+            field = "generalManager" if step == STEPS.GENERAL_MANAGER else "president"
+            name = (self._first_email_name(email, applicant_email, department, field)
+                    or self._dept_supervisor_name(email, department))
+        return strip_role_paren(name) or fallback
+
+    def stamp_names(self, request: Mapping[str, Any], route: Sequence[str],
+                    history: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+        """段ごとの押印の氏名（印が出る段だけ）。画面の stampFor はこれを使う。"""
+        names: dict[str, str] = {}
+        for step in [STEPS.APPLICANT] + list(route or []):
+            h = pick_stamp_history(step, route, request.get("currentStep"), request.get("status"), history)
+            if h is not None:
+                names[step] = self.stamp_name(step, request, h.get("actorEmail"), h.get("actorName"))
+        return names
+
     # ===== 部署別上席マスタ =====
 
     def resolve_supervisors(self, applicant_email: Any, department: Any) -> list[dict[str, str]]:
@@ -275,32 +367,6 @@ class Masters:
         for s in self.resolve_supervisors(applicant_email, department):
             if s["email"] == target:
                 return s["title"] or ""
-        return ""
-
-    def full_name_for(self, email: Any, applicant_email: Any = "", department: Any = "") -> str:
-        """押印に使う氏名（決定事項 Q3）。上席マスタ → 承認者マスタの順に、そのメールの氏名を探す。
-
-        見つからなければ ''（呼ぶ側でメールの @ より前などに戻す）。役職カッコは除く。
-        """
-        target = normalize_email(email)
-        if not target:
-            return ""
-        for s in self.resolve_supervisors(applicant_email, department):
-            if s["email"] == target and s["name"] and s["name"] != "上席":
-                return strip_role_paren(s["name"])
-        for row in self.dept_supervisors:
-            if row["email"] == target and row["name"]:
-                return strip_role_paren(row["name"])
-        from app.domain.helpers import split_emails
-
-        rule = self.find_approver_rule(applicant_email, department)
-        rules = ([rule] if rule else []) + [r for r in self.active_approvers() if r is not rule]
-        for r in rules:
-            if r["supervisorEmail"] == target and r["supervisorName"]:
-                return strip_role_paren(r["supervisorName"])
-            for field in ("generalManager", "president", "purchasing", "purchasingElec"):
-                if target in split_emails(r[field + "Email"]) and r[field + "Name"]:
-                    return strip_role_paren(r[field + "Name"])
         return ""
 
     # ===== 通知宛先 =====

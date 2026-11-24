@@ -5,6 +5,9 @@ exp・iat、email_verified、hd（社内ドメイン）、メールのドメイ�
 
 セッション: クッキーには署名付きの乱数を入れ、DB（sessions 表）には その SHA-256 を置く。
 ログアウトで DB の行を消すので、クッキーが残っていても使えなくなる。
+使っていない時間が SESSION_IDLE_HOURS（既定 12 時間）を超えたセッションは切れる。expires_at を
+「最後に使った時刻 + その時間」（ただしログインから SESSION_MAX_AGE_DAYS まで）として、使うたびに延ばす。
+管理者は revoke_sessions(email) でそのメールのセッションを全部消せる（RPC revokeSessions）。
 """
 from __future__ import annotations
 
@@ -42,6 +45,7 @@ GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
 SESSION_COOKIE = "__Host-chozouhin_session"
 LOGIN_FLOW_COOKIE = "__Host-chozouhin_login"
 FLOW_MAX_AGE_SECONDS = 600
+SESSION_TOUCH_INTERVAL = timedelta(minutes=5)  # これより短い間隔では expires_at を書き直さない
 CLOCK_SKEW_SECONDS = 60
 
 LOGIN_SCOPES = "openid email profile"
@@ -117,12 +121,26 @@ def create_session(db: Session, response: Response, email: str, settings: Settin
             email=user.email,
             name=user.name,
             created_at=now,
-            expires_at=now + timedelta(seconds=max_age),
+            expires_at=_session_expiry(now, now, settings),
         )
     )
     db.commit()
     _set_cookie(response, SESSION_COOKIE, _serializer(settings, "session").dumps(token), max_age)
     return user
+
+
+def _session_expiry(created_at, now, settings: Settings):
+    """使っていない時間の期限（now + SESSION_IDLE_HOURS）。ただしログインから SESSION_MAX_AGE_DAYS まで。"""
+    return min(now + timedelta(hours=settings.session_idle_hours),
+               created_at + timedelta(days=settings.session_max_age_days))
+
+
+def revoke_sessions(db: Session, email: str) -> int:
+    """そのメールのセッションを全部消す。消した数を返す。commit は呼び出し側。"""
+    target = (email or "").strip().lower()
+    if not target:
+        return 0
+    return int(db.execute(delete(UserSession).where(UserSession.email == target)).rowcount or 0)
 
 
 def _session_token(request: Request, settings: Settings) -> str | None:
@@ -142,11 +160,17 @@ def get_optional_user(
     token = _session_token(request, settings)
     if not token:
         return None
+    now = now_utc()
     row = db.execute(
-        select(UserSession).where(UserSession.token_hash == _token_hash(token), UserSession.expires_at > now_utc())
+        select(UserSession).where(UserSession.token_hash == _token_hash(token), UserSession.expires_at > now)
     ).scalar_one_or_none()
     if row is None:
         return None
+    # 使うたびに期限を延ばす（書き込みを減らすため、前に延ばしてから SESSION_TOUCH_INTERVAL 以上たったときだけ）
+    new_expiry = _session_expiry(row.created_at, now, settings)
+    if new_expiry - row.expires_at >= SESSION_TOUCH_INTERVAL:
+        row.expires_at = new_expiry
+        db.commit()
     return user_from_email(row.email)
 
 
@@ -352,7 +376,7 @@ def callback(
     return response
 
 
-@router.api_route("/auth/logout", methods=["GET", "POST"])
+@router.post("/auth/logout")
 def logout(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> Response:
     token = _session_token(request, settings)
     if token:

@@ -458,18 +458,6 @@ class MailBuilder:
             out += self.approval_request(request, m)
         return out
 
-    def recall_approval_requests(self, request: Mapping, step: str) -> list[OutgoingMail]:
-        """recallStep: 戻し先の段の承認者（購買は品目区分で代表の並びを変える）へ再承認依頼。"""
-        if step == STEPS.SUPERVISOR:
-            members = resolve_supervisors(self.masters, request.get("applicantEmail"), request.get("department"))
-        else:
-            rule = find_approver_rule(self.masters, request.get("applicantEmail"), request.get("department"))
-            members = resolve_step_approvers_with_star(self.masters, rule, step, request.get("category"))
-        out: list[OutgoingMail] = []
-        for m in members:
-            out += self.approval_request(request, m)
-        return out
-
     # --- 差戻し・却下 -------------------------------------------------------
     def returned(self, request: Mapping, comment: str, kind: str = MailKind.RETURNED) -> list[OutgoingMail]:
         rid = js_str(request.get("requestId"))
@@ -782,7 +770,7 @@ def general_affairs_body(masters: Masters, public_origin: str, request: Mapping,
 
 
 def job_failure_admin_mail(settings: Mapping[str, Any], fn: str, request_id: str, message: str,
-                           extra_admins: Sequence[str] = ()) -> list[OutgoingMail]:
+                           extra_admins: Sequence[str] = (), lead: str = "") -> list[OutgoingMail]:
     """notifyAdminsOfJobFailure_。通知の停止設定を見ずに送る（GAS 版と同じ）。
 
     VPS 版は自動で送り直すので、1 行目の「（自動での再送はしません）」を「送り直しても失敗しました」に、
@@ -795,7 +783,7 @@ def job_failure_admin_mail(settings: Mapping[str, Any], fn: str, request_id: str
     if not admins:
         return []
     body = "\n".join([
-        "承認などの後に行う通知メール・PDF作成が失敗しました（時間をおいて送り直しましたが、成功しませんでした）。",
+        lead or "承認などの後に行う通知メール・PDF作成が失敗しました（時間をおいて送り直しましたが、成功しませんでした）。",
         "処理: " + fn,
         "申請: " + (request_id or "（不明）"),
         "エラー: " + message,

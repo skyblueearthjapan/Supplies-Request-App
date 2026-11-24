@@ -17,7 +17,7 @@ def test_exactly_22_functions_are_public():
     # GAS 版の 22 関数 ＋ VPS 版の管理画面の 5 関数（担当 U の依頼）
     assert len(rpc.RPC_FUNCTIONS[: rpc.GAS_RPC_COUNT]) == 22
     assert rpc.RPC_FUNCTIONS[rpc.GAS_RPC_COUNT:] == (
-        "saveAdminAll", "setMailRedirect", "clearMailRedirect", "listFailedJobs", "retryFailedJob")
+        "saveAdminAll", "setMailRedirect", "clearMailRedirect", "listFailedJobs", "retryFailedJob", "revokeSessions")
     assert "runDeferredJobs" not in rpc.RPC_FUNCTIONS
     with pytest.raises(ValueError):
         rpc.register("runDeferredJobs", lambda ctx: None)
@@ -90,7 +90,29 @@ def test_body_must_be_json_array(logged_in, body):
 
 def test_empty_body_means_no_args(logged_in):
     rpc.register("getBootstrap", lambda ctx: "ok")
-    assert logged_in.post("/api/rpc/getBootstrap").json() == {"ok": True, "result": "ok"}
+    resp = logged_in.post("/api/rpc/getBootstrap", content=b"", headers={"content-type": "application/json"})
+    assert resp.json() == {"ok": True, "result": "ok"}
+
+
+def test_content_type_must_be_json(logged_in):
+    rpc.register("getBootstrap", lambda ctx: "ok")
+    assert logged_in.post("/api/rpc/getBootstrap").status_code == 415
+    assert logged_in.post("/api/rpc/getBootstrap", content=b"[]",
+                          headers={"content-type": "text/plain"}).status_code == 415
+    ok = logged_in.post("/api/rpc/getBootstrap", content=b"[]",
+                        headers={"content-type": "application/json; charset=utf-8"})
+    assert ok.status_code == 200
+
+
+def test_missing_origin_requires_same_origin_fetch(logged_in):
+    rpc.register("getBootstrap", lambda ctx: "ok")
+    for site in ("cross-site", "same-site", "none"):
+        assert logged_in.post("/api/rpc/getBootstrap", json=[], headers={"sec-fetch-site": site}).status_code == 403
+    del logged_in.headers["sec-fetch-site"]
+    assert logged_in.post("/api/rpc/getBootstrap", json=[]).status_code == 403
+    # Origin が正しければ Sec-Fetch-Site は見ない（古いブラウザ）
+    ok = logged_in.post("/api/rpc/getBootstrap", json=[], headers={"origin": "https://supplies.lineworks-local.net"})
+    assert ok.status_code == 200
 
 
 def test_cross_origin_is_rejected(logged_in):

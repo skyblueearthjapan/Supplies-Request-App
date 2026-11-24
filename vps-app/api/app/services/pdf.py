@@ -5,8 +5,7 @@
       → PdfRenderer.render()（Playwright の Chromium で A4 の PDF。必ず 1 ページ）
 
 GAS 版からの変更（計画書 9-2 の決定）:
-- 押印は氏名。押した人のメールから上席マスタ（上席）・承認者マスタ（総務部長・社長・購買）の氏名を引く。
-  カッコ書きは除く。マスタに無ければ履歴の操作者名。申請者の印は申請者氏名。
+- 押印は氏名。決め方は app.domain.masters.Masters.stamp_name（画面の詳細 stampNames と共用）。
 - まだ来ていない段の印は空欄（画面のプレビューと同じ。リコール後・再提出後に前の回の印を出さない）。
 - 必ず 1 ページ（明細・履歴が多いときは詰めた組み方にし、履歴は新しい方から HISTORY_MAX 件。
   それでもあふれたら Chromium で縮小して収める）。
@@ -44,16 +43,15 @@ from .mailpdf_common import (
     request_url,
     route_of,
     sanitize_file_name,
-    sanitize_text,
-    split_emails,
-    strip_role_paren,
     tax_amount,
 )
-from .recipients import find_approver_rule, find_star_rule, resolve_supervisors
+from app.domain.masters import Masters as DomainMasters
+from app.domain.masters import pick_stamp_history
+
+from .recipients import find_approver_rule, resolve_supervisors
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 HISTORY_MAX = 20  # 1 ページに収めるため、承認履歴は新しい方からこの件数まで
-STAMP_ACTIONS = (ACTION.APPROVE, ACTION.COMPLETE, ACTION.RETURN, ACTION.QUOTE, ACTION.EXPEDITE)
 
 # A4 の高さ（CSS px, 96dpi）。297mm = 1122.5px
 A4_HEIGHT_PX = 297 / 25.4 * 96
@@ -86,50 +84,12 @@ def name_font(name: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 押印の氏名
+# 押印の氏名（決め方は app.domain.masters.Masters.stamp_name の 1 か所。画面の詳細 stampNames と同じ）
 # ---------------------------------------------------------------------------
 
-def _rule_candidates(masters: Masters, request: Mapping) -> list[dict]:
-    """この申請の承認者マスタ行 → '*' 行 → そのほかの有効な行の順。"""
-    out: list[dict] = []
-    first = find_approver_rule(masters, request.get("applicantEmail"), request.get("department"))
-    for r in [first, find_star_rule(masters)] + [r for r in masters.approver_rules if r["active"]]:
-        if r is not None and all(r is not x for x in out):
-            out.append(r)
-    return out
-
-
-def _name_from_rules(masters: Masters, request: Mapping, email: str, fields: Sequence[str]) -> str:
-    for rule in _rule_candidates(masters, request):
-        for fld in fields:
-            if email in split_emails(rule.get(fld + "Email")) and rule.get(fld + "Name"):
-                return rule[fld + "Name"]
-    return ""
-
-
-def stamp_master_name(masters: Masters, request: Mapping, step: str, actor_email: Any) -> str:
-    """押した人のメールからマスタの氏名を引く（無ければ ''）。カッコ書きは除く。"""
-    email = normalize_email(actor_email)
-    if not email:
-        return ""
-    name = ""
-    if step == STEPS.SUPERVISOR:
-        # 上席マスタ: 申請の部署の行 → '*' の行 → ほかの部署の行（同じ人が複数部署の上席のことがある）
-        rows = [r for r in masters.dept_supervisors if r["email"] == email and r["name"]]
-        dept = sanitize_text(request.get("department"), 100)
-        pick = (next((r for r in rows if r["department"] == dept), None)
-                or next((r for r in rows if r["department"] == "*"), None)
-                or (rows[0] if rows else None))
-        name = pick["name"] if pick else ""
-        if not name:
-            name = _name_from_rules(masters, request, email, ["supervisor"])
-    elif step == STEPS.GENERAL_MANAGER:
-        name = _name_from_rules(masters, request, email, ["generalManager"])
-    elif step == STEPS.PRESIDENT:
-        name = _name_from_rules(masters, request, email, ["president"])
-    elif step in (STEPS.PURCHASING, STEPS.PURCHASING_QUOTE):
-        name = _name_from_rules(masters, request, email, ["purchasing", "purchasingElec"])
-    return strip_role_paren(name)
+def stamp_masters(masters: Masters) -> DomainMasters:
+    """メール・PDF 用のマスタ（列名は同じ）を、押印の決め方を持つ業務側の Masters に包む。"""
+    return DomainMasters(approvers=masters.approver_rules, dept_supervisors=masters.dept_supervisors, recipients=[])
 
 
 def supervisor_title_by_email(masters: Masters, request: Mapping, email: Any) -> str:
@@ -183,27 +143,12 @@ def stamp_for(step: str, request: Mapping, history: Sequence[Mapping], masters: 
               titles: Mapping[str, str]) -> Stamp:
     """1 段の印。プレビュー（Client.html の stampFor）と同じ決まりで、押す・空欄を決める。"""
     role_label = STEP_LABELS.get(step) or step
-    empty = Stamp(step=step, role_label=role_label, acted=False)
-    if step == STEPS.APPLICANT:
-        for h in reversed(history):
-            if h.get("action") in (ACTION.SUBMIT, ACTION.RESUBMIT):
-                name = js_str(request.get("applicantName")) or js_str(h.get("actorName")) or js_str(h.get("actorEmail"))
-                return Stamp(step=step, role_label=role_label, acted=True, name=strip_role_paren(name) or name,
-                             date=era_date(h.get("happenedAt")), title=titles.get(step) or role_label)
-        return empty
-    # まだ来ていない段（現在の段とそれより後）は、完了の申請を除いて空欄。
-    route = route_of(request)
-    ki = route.index(step) if step in route else -1
-    ci = route.index(request.get("currentStep")) if request.get("currentStep") in route else -1
-    if ki >= 0 and ci >= 0 and ki >= ci and request.get("status") != STATUS.COMPLETED:
-        return empty
-    for h in reversed(history):
-        if h.get("fromStep") == step and h.get("action") in STAMP_ACTIONS:
-            name = stamp_master_name(masters, request, step, h.get("actorEmail")) \
-                or js_str(h.get("actorName")) or js_str(h.get("actorEmail"))
-            return Stamp(step=step, role_label=role_label, acted=True, name=name, date=era_date(h.get("happenedAt")),
-                         title=titles.get(step) or role_label, ng=h.get("action") == ACTION.RETURN)
-    return empty
+    h = pick_stamp_history(step, route_of(request), request.get("currentStep"), request.get("status"), history)
+    if h is None:
+        return Stamp(step=step, role_label=role_label, acted=False)
+    name = stamp_masters(masters).stamp_name(step, request, h.get("actorEmail"), h.get("actorName"))
+    return Stamp(step=step, role_label=role_label, acted=True, name=name, date=era_date(h.get("happenedAt")),
+                 title=titles.get(step) or role_label, ng=h.get("action") == ACTION.RETURN)
 
 
 def select_stamps(request: Mapping, history: Sequence[Mapping], masters: Masters) -> list[Stamp]:
@@ -341,6 +286,14 @@ _FIT_SCRIPT = """
 """
 
 
+def block_non_data_request(route) -> None:
+    """Playwright の page.route の処理: data: だけ通し、ほかの URL への通信は止める。"""
+    if route.request.url.startswith("data:"):
+        route.continue_()
+    else:
+        route.abort()
+
+
 class PdfRenderer:
     """Playwright の Chromium を 1 つ開いたまま使い回す（worker の中で 1 つ）。"""
 
@@ -360,6 +313,8 @@ class PdfRenderer:
         browser = self._ensure()
         page = browser.new_page(viewport={"width": 794, "height": 1123})
         try:
+            # data: 以外の通信は全部止める（申請の文に URL が入っても外へ取りに行かない）
+            page.route("**/*", block_non_data_request)
             page.emulate_media(media="print")
             page.set_content(html, wait_until="load")
             page.evaluate("document.fonts.ready.then(() => true)")
