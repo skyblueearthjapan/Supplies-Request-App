@@ -162,8 +162,12 @@ def test_qr_code_points_to_detail_url():
     assert "<svg" in html and 'class="barcode"' not in html
     import segno  # 同じ URL から作った QR と同じ形であること
 
-    expected = segno.make_qr(view["detailUrl"], error="m").svg_inline(scale=2, border=0, dark="#0e0e0e")
+    expected = segno.make_qr(view["detailUrl"], error="m").svg_inline(
+        scale=1, border=4, omitsize=True, dark="#0e0e0e", light="#ffffff")
     assert expected in html
+    # 固定の幅・高さだと CSS で縮まずに切れて読めなかった（受け入れテストで発見）。viewBox で縮むこと
+    svg_tag = expected.split(">")[0]
+    assert "viewBox" in svg_tag and "width=" not in svg_tag
 
 
 def test_long_history_is_trimmed_and_density_rises():
