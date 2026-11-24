@@ -1600,8 +1600,12 @@ window.INITIAL_REQUEST_ID = new URLSearchParams(window.location.search).get('req
     const r = detail.request;
     const root = document.getElementById('pmodeRoot');
     const isPres = pmodeState.canPresident && !pmodeState.canApprove;
-    const isPurchasing = r.currentStep === '購買手配';
-    const stepLbl = r.currentStepLabel || stepLabel(r.currentStep);
+    // 記録した後は、申請が次の段へ進んでいる。完了の表示は「記録した段」で言う
+    // （総務部長の承認の後に「手配完了を記録しました」と出ていた。GAS 版にもあった表示の誤り）
+    const isDone = pmodeState.phase === 'done-approve' || pmodeState.phase === 'done-return';
+    const shownStep = isDone && pmodeState.openedStep ? pmodeState.openedStep : r.currentStep;
+    const isPurchasing = shownStep === '購買手配';
+    const stepLbl = shownStep === r.currentStep ? (r.currentStepLabel || stepLabel(shownStep)) : stepLabel(shownStep);
     const kicker = isPres ? '社長決裁モード' : (stepLbl + ' モード');
     const approveWord = isPurchasing ? '手配完了' : '承認する';
     const approveSmall = isPres ? '社長決裁' : (isPurchasing ? '発注手配' : stepLbl);
