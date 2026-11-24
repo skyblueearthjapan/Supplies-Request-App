@@ -175,6 +175,17 @@ def route_snapshot(tables: dict) -> list:
 
 # ===== DB への書き込み（SQLAlchemy の表を読み取って使う。モデルには依存しない） =====
 
+def _db_value(value: Any) -> Any:
+    """list・dict（承認経路など）は JSON の文字列にする。
+
+    reflect した表の Text 列へ list をそのまま渡すと、PostgreSQL の配列表記 `{上席,購買見積}` で
+    保存されてしまい、アプリ（json.loads）が読めなくなるため。
+    """
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return value
+
+
 def insert_tables(engine: Any, tables: dict) -> dict:
     """表名 → dict のリストを 1 つのトランザクションで入れる。8 表のどれかに行があれば止める。
 
@@ -201,7 +212,7 @@ def insert_tables(engine: Any, tables: dict) -> dict:
             names = set(target.columns.keys())
             dropped[table] = sorted({k for r in rows for k in r if k not in names})
             if rows:
-                conn.execute(target.insert(), [{k: v for k, v in r.items() if k in names} for r in rows])
+                conn.execute(target.insert(), [{k: _db_value(v) for k, v in r.items() if k in names} for r in rows])
     return dropped
 
 

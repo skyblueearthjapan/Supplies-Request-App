@@ -174,3 +174,17 @@ def test_csv_and_xlsx_sources(tmp_path, engine):
         created = conn.exec_driver_sql(
             "select created_at from requests where request_id='REQ-20261124093000-000001'").scalar()
     assert str(created).startswith("2026-11-24 00:30:00")
+
+
+def test_db_value_turns_lists_into_json_not_pg_array():
+    # 承認経路を list のまま入れると PostgreSQL の配列表記になり、アプリが読めなくなった不具合の再発防止
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "tools" / "migrate_from_sheets.py"
+    spec = importlib.util.spec_from_file_location("migrate_tool_for_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._db_value(["上席", "購買見積"]) == '["上席","購買見積"]'
+    assert mod._db_value("文字") == "文字"
+    assert mod._db_value(None) is None
