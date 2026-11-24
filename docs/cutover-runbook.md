@@ -11,7 +11,7 @@
 
 | # | 内容 | 状態 |
 |---|---|---|
-| 1 | production では PDF をどのフォルダーにも書けた（safety が staging だけを照合していた）。設定 `pdfFolderId` を取り違えると本番の外に書いてしまう | **直した**（`app/safety.py`・`app/config.py`）。production でも `PROD_PDF_FOLDER_ID` を必須にし、その中にだけ書く。ステージング用のフォルダーへは書かない |
+| 1 | production では PDF をどのフォルダーにも書けた（safety が staging だけを照合していた）。設定 `pdfFolderId` を取り違えると本番の外に書いてしまう | **直した**（`app/safety.py`・`app/config.py`）。production でも `PROD_PDF_FOLDER_ID` を必須にし、その中にだけ書く。ステージング用のフォルダーへは書かない。あわせて、本番フォルダーの外（親・祖父母に `PROD_PDF_FOLDER_ID` が無い場所）にある古い PDF は、作り直しや取消のときもゴミ箱へ移さず、worker のログに警告を出すだけになる |
 | 2 | 道具（`vps-app/tools/`）はイメージに入っていない。`import app` するには `PYTHONPATH=/app` が要る | 手順で対応（下のコマンドは、道具のフォルダーを読み取り専用で付けて動かす） |
 | 3 | worker は起動した直後に書き出しを 1 回動かす（`EXPORT_HOURLY_UNTIL` の間は毎時）。起動した瞬間に本番のスプレッドシートが DB の内容で上書きされる | 手順で対応（worker を起動する前に、シートの控えを作り、api だけで安全装置を確かめる） |
 | 4 | 設定 `pdfFolderId`（シートから移る値）と `.env` の `PROD_PDF_FOLDER_ID` が違うと、1 の直しで PDF が作れない（後処理が失敗して管理者へ通知が届く） | 手順 B-7 で照合する |
@@ -132,10 +132,13 @@ GAS エディタ（本番のプロジェクト）で、関数 `enterMigrationMod
 - 確かめ:
   - 実行ログに「移転モードにしました: https://supplies.lineworks-local.net」。
   - 本番の `/exec` を開くと「新しいアドレスへ移りました」と出ること。
-  - `/exec?requestId=REQ-…`（実在の番号）を開くと、1 秒後に `https://supplies.lineworks-local.net/?requestId=REQ-…` へ移ること（この時点では VPS は staging のデータ）。
+  - `/exec?requestId=REQ-…`（実在の番号）を開き、「新しいアドレスで開く」のボタンを押すと `https://supplies.lineworks-local.net/?requestId=REQ-…` が開くこと（この時点では VPS は staging のデータ）。
+  - 押さずに自動で移る仕掛けも入れてありますが、GAS の枠（iframe）の中ではブラウザが止めることがあります。自動で移らなくても問題ありません。
 - 失敗したら: `exitMigrationMode` を実行すれば元どおりです。
 
 この時点から GAS 版の画面の操作は、すべて「このアプリは新しいアドレスへ移りました」で止まります。
+
+**1〜2 分待ってから B-2 へ進みます。** 移転モードにする直前に押された操作が、後回しの仕事（JOB_*）を積み終えるのを待つためです。
 
 ### B-2. GAS の後回しの仕事を流しきる
 
@@ -153,6 +156,13 @@ GAS エディタで `removeAllTriggersForMigration` を実行します。
 - 確かめ: 「削除したトリガー」に `syncWorkersMaster`・`syncDeptSupervisorsMaster`・`runDeferredJobsSweep` の 3 つが出ること。GAS エディタの「トリガー」画面が空であること。
 - 戻す範囲: `exitMigrationMode` → `restoreTriggersAfterRollback`。
 
+### B-3b. もう一度、後回しの仕事を流しきる
+
+B-2 の後に積まれた仕事が無いかを確かめるため、GAS エディタで `drainDeferredJobsForMigration` をもう一度実行します。
+
+- 確かめ: 「流した仕事: 0 件」と「残っている仕事（JOB_*）: 0 件」。0 件でなければ、0 件になるまで繰り返します。
+- 新しく「失敗した仕事（JOBFAILED_*）」が出ていれば、B-2 と同じく控えて B-14 で扱います。
+
 ### B-4. 本番のスプレッドシートの控えを作る
 
 worker を起動すると本番のシートが DB の内容で上書きされるため、その前の控えを残します。
@@ -166,10 +176,11 @@ worker を起動すると本番のシートが DB の内容で上書きされる
 ```sh
 ssh lineworks-vps-user "hostname"   # srv1508169
 ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose stop api worker" && sg docker -c "docker compose ps"'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db pg_dump -U chozouhin -Fc chozouhin" > backups/chozouhin_before_cutover_20261125.dump && ls -l backups/chozouhin_before_cutover_20261125.dump'
+ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db pg_dump -U chozouhin -Fc chozouhin" > /opt/chozouhin/cutover/before-cutover-20261125.pgdump && ls -l /opt/chozouhin/cutover/before-cutover-20261125.pgdump'
 ```
 
 - 確かめ: api と worker が `exited`。db・web・cloudflared・backup は動いたまま。ダンプが 1KB より大きいこと。
+- ダンプは `backups/` に置きません（backup コンテナが `chozouhin_*.dump` を 14 日で消すため）。
 - 戻す範囲: `sg docker -c "docker compose start api worker"` で staging に戻ります。
 
 ### B-6. DB の業務の表を空にする
@@ -188,7 +199,7 @@ SQL
 ```
 
 - 確かめ: `requests=0`・`jobs=0`・`delegate=1`。
-- 戻す範囲: B-5 のダンプから戻します（RUNBOOK「DB を戻す」の `pg_restore`、ファイル名は `chozouhin_before_cutover_20261125.dump`）。
+- 戻す範囲: B-5 のダンプから戻します（RUNBOOK「DB を戻す」の `pg_restore`。ファイルは `/opt/chozouhin/cutover/before-cutover-20261125.pgdump`）。
 
 ### B-7. 本番から最終移行する（dry-run → 本番）
 
@@ -292,7 +303,18 @@ SELECT id, kind, started_at, ok, row_count, left(message, 200) AS message FROM s
 SQL
 ```
 
-- 確かめ: `kind=export` の行が `ok=t` で、message が `1VKbB13yhJPkyTYu7VYfHm-Zc3sl0nYp0npXUAxau4p4:` で始まる。本番のシートの「申請」タブの行数と最終行の申請番号が B-4 の控えと同じ。
+- 確かめ:
+  - `kind=export` の行が `ok=t` で、message が `1VKbB13yhJPkyTYu7VYfHm-Zc3sl0nYp0npXUAxau4p4:` で始まる。
+  - 本番のシートの「申請」タブの行数（見出しを除く）が、B-4 の控えの行数から除外した申請（`migrate-dryrun.json` の `excludedRequestIds`。`SAMPLE-`・`TEST-EXP-`）の件数を引いた数と同じ。
+  - 下の SQL で出る DB の最新の申請番号が、本番のシートの「申請」タブにある（シートで検索する）。
+  - 注: 書き出しは DB の内容でタブを丸ごと置き換えるため、`SAMPLE-`・`TEST-EXP-` の行（申請・明細・履歴）は本番のシートから消えます。控えは B-4 のコピーに残ります。
+
+```sh
+ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+SELECT request_id, created_at FROM requests ORDER BY created_at DESC, request_id DESC LIMIT 1;
+SQL
+```
+
 - 1 分で行が出ないときは、手でもう 1 回動かします。
 
 ```sh
@@ -336,7 +358,7 @@ SQL
 
 - 一覧の件数と、各タブの件数バッジが B-8 の段ごとの件数と合う。
 - 承認中の申請を 1 件開き、明細・履歴・PDF のリンクが出る。購買の段の申請は、新しい PDF のリンクになっている。
-- GAS 版の古いリンク（以前のメールにある `/exec?requestId=…`）を開くと、新しいアプリの同じ申請が開く。
+- GAS 版の古いリンク（以前のメールにある `/exec?requestId=…`）を開き、「新しいアドレスで開く」のボタンを押すと、新しいアプリの同じ申請が開く（自動で移るかは問いません）。
 - 管理画面:
   - テスト転送が「無効」。
   - 失敗した後処理が 0 件。

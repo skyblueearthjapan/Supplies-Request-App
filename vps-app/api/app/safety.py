@@ -1,4 +1,10 @@
-"""安全装置（実装仕様 4 章）。ステージングから本番のスプレッドシート・PDF フォルダーへ書かせない。
+"""安全装置（実装仕様 4 章）。書き込み先を許可リストで決め、環境に合わない先へは書かせない。
+
+- ステージング: スプレッドシートは STAGING_SPREADSHEET_ID だけ、PDF は STAGING_PDF_FOLDER_ID の中だけ。
+  本番のスプレッドシート・本番の PDF フォルダーへは書かない。メールは MAIL_REDIRECT_TO へ寄せる。
+- 本番: スプレッドシートは本番の ID だけ、PDF は PROD_PDF_FOLDER_ID の中だけ（ステージング用のフォルダーへは書かない）。
+  そのため、本番フォルダーの外にある古い PDF はゴミ箱へ移さない（drive.PdfStorage.trash が警告を出して飛ばす）。
+- どの環境でも、旧 DB・作業員マスタ・DeptApprovers へは書かない。
 
 使い方（担当 M・D）:
 - 書き込む直前に assert_writable_spreadsheet(id) / assert_writable_drive_folder(id, ancestor_ids=...) を呼ぶ。

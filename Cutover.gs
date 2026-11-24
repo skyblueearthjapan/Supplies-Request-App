@@ -11,8 +11,14 @@
 var MIGRATED_TO_URL_KEY = 'MIGRATED_TO_URL';
 var MIGRATION_TRIGGER_FUNCTIONS = ['syncWorkersMaster', 'syncDeptSupervisorsMaster', 'runDeferredJobsSweep'];
 
+var MIGRATED_TO_URL_PATTERN = /^https:\/\/[^\s"'<>]+$/;
+
 function getMigratedToUrl_() {
   return String(PropertiesService.getScriptProperties().getProperty(MIGRATED_TO_URL_KEY) || '').trim();
+}
+
+function isValidMigratedToUrl_(url) {
+  return MIGRATED_TO_URL_PATTERN.test(String(url || ''));
 }
 
 function migratedRequestUrl_(baseUrl, requestId) {
@@ -20,8 +26,19 @@ function migratedRequestUrl_(baseUrl, requestId) {
   return requestId ? base + '/?requestId=' + encodeURIComponent(requestId) : base + '/';
 }
 
-// doGet の代わりに返す案内。iframe（GAS の HtmlService）の外へ出るため target=_top と window.top を使う。
+// doGet の代わりに返す案内。iframe（GAS の HtmlService）の外へ出るため target=_top を使う。
+// クリックなしの window.top の移動はブラウザが止めることがあるため、主はボタンを押してもらう（自動の移動は動けばよい）。
+// プロパティの値が URL の形でなければ、リンクを出さずに固定の文言だけを返す（手で入れた値の誤りでおかしな先へ送らない）。
 function renderMigratedPage_(baseUrl, requestId) {
+  if (!isValidMigratedToUrl_(baseUrl)) {
+    Logger.log('renderMigratedPage_: invalid ' + MIGRATED_TO_URL_KEY + ', showing fixed message');
+    return HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;margin:40px 16px">' +
+      '<p>' + escapeHtml_(APP.NAME) + ' は新しいアドレスへ移りました。新しいアドレスは管理者にお問い合わせください。</p>' +
+      '</body></html>')
+      .setTitle(APP.NAME + '（移転しました）')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   var target = migratedRequestUrl_(baseUrl, requestId);
   var autoMove = requestId
     ? '<script>setTimeout(function(){try{window.top.location.href=' +
@@ -31,11 +48,12 @@ function renderMigratedPage_(baseUrl, requestId) {
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<style>body{font-family:sans-serif;margin:40px 16px;line-height:1.7;color:#222}',
-    'a{font-size:18px}</style></head><body>',
+    '.go{display:inline-block;padding:16px 32px;font-size:20px;font-weight:bold;color:#fff;background:#2f4f8f;',
+    'border-radius:8px;text-decoration:none}.url{font-size:14px;color:#555;word-break:break-all}</style></head><body>',
     '<h1 style="font-size:20px">' + escapeHtml_(APP.NAME) + ' は新しいアドレスへ移りました</h1>',
-    '<p>これからは次のアドレスをお使いください。ブックマークも差し替えをお願いします。</p>',
-    '<p><a href="' + escapeHtml_(target) + '" target="_top">' + escapeHtml_(target) + '</a></p>',
-    requestId ? '<p>申請 ' + escapeHtml_(requestId) + ' の画面へ自動で移ります。移らないときは上のリンクを押してください。</p>' : '',
+    '<p>' + (requestId ? '申請 ' + escapeHtml_(requestId) + ' を開くには、' : '') + '下のボタンを押してください。</p>',
+    '<p><a class="go" href="' + escapeHtml_(target) + '" target="_top">新しいアドレスで開く</a></p>',
+    '<p class="url">新しいアドレス: ' + escapeHtml_(target) + '<br>ブックマークをお使いの方は、差し替えをお願いします。</p>',
     autoMove,
     '</body></html>'
   ].join('');
@@ -73,7 +91,7 @@ function assertCutoverAdmin_() {
 function enterMigrationMode(url) {
   assertCutoverAdmin_();
   var value = String(url || 'https://supplies.lineworks-local.net').trim().replace(/\/+$/, '');
-  if (!/^https:\/\/[^\s"'<>]+$/.test(value)) {
+  if (!isValidMigratedToUrl_(value)) {
     throw new Error('URL は https:// で始まる形で渡してください: ' + value);
   }
   PropertiesService.getScriptProperties().setProperty(MIGRATED_TO_URL_KEY, value);

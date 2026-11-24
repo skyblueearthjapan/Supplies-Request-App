@@ -31,7 +31,7 @@ for _p in (_ROOT / "api", _ROOT):  # 手元（vps-app/api/app）とコンテナ�
     if (_p / "app").is_dir() and str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.constants import STATUS, STEPS  # noqa: E402
@@ -45,6 +45,7 @@ from app.services.mailpdf_common import MailPdfConfig, email_notifications_enabl
 from app.timeutil import now_utc  # noqa: E402
 
 SYNC_KIND = "resend_after_cutover"
+ADVISORY_LOCK_KEY = 2026112501  # pg_advisory_xact_lock の鍵（この道具だけが使う）
 ACTOR_NAME = "切り替え時の送り直し"
 APPROVAL_STEPS = (STEPS.SUPERVISOR, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT)
 PURCHASING_STEPS = (STEPS.PURCHASING_QUOTE, STEPS.PURCHASING)
@@ -115,6 +116,9 @@ def enqueue_plans(session_factory: Callable[[], Session], plans: list[Plan], now
     now = now or now_utc()
     count = 0
     with session_factory() as db, db.begin():
+        if db.get_bind().dialect.name == "postgresql":
+            # 同時に 2 つ動かしても、記録の確認と積むのを 1 つずつにする（トランザクションの終わりで外れる）
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": ADVISORY_LOCK_KEY})
         if already_ran(db) is not None:
             raise ResendStop("送り直しは実行済みです（sync_runs に記録があります）。二重に送らないため止めました。")
         for plan in plans:
