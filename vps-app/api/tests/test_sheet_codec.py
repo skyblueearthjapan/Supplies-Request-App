@@ -162,9 +162,22 @@ def test_free_text_turned_into_date_is_reported():
 def test_desired_delivery_date_cell_becomes_jst_date_text():
     s = serial_of(datetime(2026, 12, 1))
     record, back, ctx = roundtrip("request_items", ["ITEM-1", "REQ-1", 1, "部品", "", "", 1, 1, 1, s, "", ""])
-    assert record["desired_delivery_date"] == "2026-12-01"
+    # DB の列（models.RequestItem.desired_delivery_date）は Date 型（担当 W がそろえた）
+    assert record["desired_delivery_date"] == date(2026, 12, 1)
     assert back[9] == "2026-12-01"
     assert ctx.warnings == []
+
+
+@pytest.mark.parametrize("raw, expected", [("2026-12-01", date(2026, 12, 1)), ("", None)])
+def test_desired_delivery_date_text_becomes_date(raw, expected):
+    record, back, _ = roundtrip("request_items", ["ITEM-1", "REQ-1", 1, "部品", "", "", 1, 1, 1, raw, "", ""])
+    assert record["desired_delivery_date"] == expected
+    assert back[9] == raw
+
+
+def test_desired_delivery_date_that_is_not_a_date_stops_migration():
+    with pytest.raises(codec.CodecError):
+        codec.sheet_row_to_db("request_items", ["ITEM-1", "REQ-1", 1, "部品", "", "", 1, 1, 1, "来週中", "", ""], row_no=2)
 
 
 @pytest.mark.parametrize("raw, expected", [
