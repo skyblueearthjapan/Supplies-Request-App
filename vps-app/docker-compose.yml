@@ -24,7 +24,7 @@ x-api-env: &api-env
   EXPORT_HOURLY_UNTIL: ${EXPORT_HOURLY_UNTIL:-}
   TZ: Asia/Tokyo
   # uvicorn が X-Forwarded-* を信じる相手（web コンテナの固定 IP だけ）
-  FORWARDED_ALLOW_IPS: ${CHOZOUHIN_WEB_IP:-172.29.77.10}
+  FORWARDED_ALLOW_IPS: ${CHOZOUHIN_WEB_IP:-10.91.0.10}
 
 services:
   db:
@@ -89,7 +89,7 @@ services:
     networks:
       chozouhin-net:
         # api が X-Forwarded-For を信じるのはこの IP だけ（FORWARDED_ALLOW_IPS）
-        ipv4_address: ${CHOZOUHIN_WEB_IP:-172.29.77.10}
+        ipv4_address: ${CHOZOUHIN_WEB_IP:-10.91.0.10}
 
   cloudflared:
     image: cloudflare/cloudflared:2026.10.7
@@ -134,4 +134,4 @@ networks:
     # 既にあるネットワークには反映されないので、変えたときは docker compose down → up で作り直す。
     ipam:
       config:
-        - subnet: ${CHOZOUHIN_NET_SUBNET:-172.29.77.0/24}
+        - subnet: ${CHOZOUHIN_NET_SUBNET:-10.91.0.0/24}
