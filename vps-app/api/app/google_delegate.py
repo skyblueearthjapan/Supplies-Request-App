@@ -105,8 +105,27 @@ def get_delegate_credentials(db: Session, settings: Settings | None = None):
         token_uri=GOOGLE_TOKEN_URL,
         client_id=s.google_oauth_client_id,
         client_secret=s.google_oauth_client_secret,
-        scopes=list(REQUIRED_API_SCOPES),
+        # 実際に許可されたスコープで更新する（必須に足したスコープを未許可のまま要求すると invalid_scope で全部止まる）
+        scopes=(row.scopes or "").split() or list(REQUIRED_API_SCOPES),
     )
+
+
+def has_delegate_scope(db: Session, scope: str) -> bool:
+    """委任でそのスコープが許可済みか（許可し直す前に足したスコープを使う処理が、無いときに縮退するため）。"""
+    row = db.get(GoogleCredential, DELEGATE_NAME)
+    return bool(row) and scope in (row.scopes or "").split()
+
+
+def get_access_token(scopes: list[str] | None = None, settings: Settings | None = None) -> str:
+    """移行の道具など、リクエストの外から委任のアクセストークンを得る（scopes は互換のための引数で使わない）。"""
+    from google.auth.transport.requests import Request as GoogleRequest
+
+    from app.db import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        creds = get_delegate_credentials(db, settings)
+    creds.refresh(GoogleRequest())
+    return creds.token
 
 
 def get_delegate_status(db: Session) -> dict[str, Any]:
