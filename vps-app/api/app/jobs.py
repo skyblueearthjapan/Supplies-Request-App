@@ -16,6 +16,14 @@ GAS 版からの変更（計画書 9-2・実装仕様 3 章）:
 - 取り出しは SELECT ... FOR UPDATE SKIP LOCKED（SQLite では SQLAlchemy が出さない）。
 
 段の分け方: ①PDF（要る仕事だけ）→ ②メールを組み立てて mail_log に積む（1 回だけ）→ ③未送信の分を送る。
+
+送り直しの決まり:
+- ①で作った PDF のファイル ID は仕事の行（jobs.pdf_file_id）に残す。②③で失敗して送り直すとき、PDF は作り直さない。
+- ③は 1 通ごとに、送る直前に設定を読み直す（通知停止・テスト転送の期限。GAS 版と同じく送る直前に判定）。
+- 送る前に Message-ID を決めて mail_log に書き、それから送る。前に送ろうとしたことがある分は、
+  その Message-ID で送信済みかを確かめてから送り直す（時間切れで実は届いていたときに 2 通にしない）。
+- 送れた後で記録に失敗したら、送り直さずに管理者へ知らせる。
+- 送れなかったメールが残ったまま照合で捨てる（skipped）ときは、管理者へ知らせる。
 """
 
 from __future__ import annotations
@@ -31,8 +39,16 @@ from sqlalchemy.orm import Session
 
 from app import models, serialize
 from app.services.drive import PdfStorage
-from app.services.mail import MailTransport, effective_redirect, send_mail
-from app.services.mailpdf_common import ACTION, STATUS, STEPS, MailPdfConfig, Masters, js_str
+from app.services.mail import MailTransport, effective_redirect, new_message_id, send_mail
+from app.services.mailpdf_common import (
+    ACTION,
+    STATUS,
+    STEPS,
+    MailPdfConfig,
+    Masters,
+    email_notifications_enabled,
+    js_str,
+)
 from app.services.pdf import PdfRenderer, build_pdf_view, pdf_file_name, render_pdf_html
 from app.services.recipients import MailBuilder, MailKind, OutgoingMail, job_failure_admin_mail
 from app.timeutil import new_id, now_utc
@@ -163,6 +179,11 @@ class DbRequestGateway:
                 settings=serialize.settings_map(s.scalars(select(models.Setting)).all()),
             )
 
+    def get_settings(self) -> dict:
+        """設定だけを読み直す（メールを送る直前に通知停止・テスト転送を確かめるため）。"""
+        with self.session_factory() as s:
+            return serialize.settings_map(s.scalars(select(models.Setting)).all())
+
     def record_pdf(self, request_id: str, file_id: str, url: str, actor: Mapping | None) -> RecordPdfResult:
         """行ロックを取って読み直し、取消でなければ pdfFileId / pdfUrl を書いて履歴「PDF作成」を足す。"""
         with self.session_factory() as s, s.begin():
@@ -193,6 +214,7 @@ class JobView:
     guard_status: str
     guard_step: str
     attempts: int
+    pdf_file_id: str = ""  # 前の回に作った PDF（作り直さない）
 
 
 class JobStore:
@@ -230,7 +252,8 @@ class JobStore:
                     args = []
                 claimed.append(JobView(id=job.id, kind=job.kind, request_id=job.request_id,
                                        args=args if isinstance(args, list) else [], guard_status=job.guard_status or "",
-                                       guard_step=job.guard_step or "", attempts=job.attempts))
+                                       guard_step=job.guard_step or "", attempts=job.attempts,
+                                       pdf_file_id=job.pdf_file_id or ""))
         return claimed
 
     def update_job(self, job_id: int, now: datetime, **fields: Any) -> None:
@@ -261,7 +284,14 @@ class JobStore:
             rows = s.scalars(select(M).where(M.job_id == job_id, M.sent.is_(False)).order_by(M.id)).all()
             return [{"id": r.id, "kind": r.kind, "request_id": r.request_id, "to": r.to_addrs, "cc": r.cc_addrs,
                      "subject": r.subject, "body": r.body_text, "attachment_file_id": r.attachment_file_id,
-                     "attempts": r.attempts or 0} for r in rows]
+                     "attempts": r.attempts or 0, "message_id_header": r.message_id_header or ""} for r in rows]
+
+    def has_failed_unsent_mails(self, job_id: int) -> bool:
+        """送ろうとして送れなかったメール（未送信で、送った回数が 1 以上）があるか。"""
+        M = models.MailLog
+        with self.session_factory() as s:
+            return bool(s.scalar(select(func.count()).select_from(M).where(
+                M.job_id == job_id, M.sent.is_(False), M.attempts > 0)))
 
     def update_mail(self, mail_id: int, now: datetime, **fields: Any) -> None:
         with self.session_factory() as s, s.begin():
@@ -334,12 +364,23 @@ class JobRunner:
             masters = self.gateway.get_masters()
             self._check_guard(job)
             if not self.store.has_mails(job.id):
-                pdf_file_id = self._pdf_stage(job, masters)
+                pdf_file_id = job.pdf_file_id
+                if not pdf_file_id:
+                    pdf_file_id = self._pdf_stage(job, masters)
+                    if pdf_file_id:  # 後で失敗しても、送り直しでは作り直さない
+                        self.store.update_job(job.id, self.now(), pdf_file_id=pdf_file_id)
+                        job.pdf_file_id = pdf_file_id
                 self.store.add_mails(job.id, self._build_mails(job, masters), pdf_file_id, self.now())
             errors = self._send_stage(job, masters)
         except SkipJob as skip:
             log.info("job %s skipped: %s", job.id, skip)
+            failed_before = self.store.has_failed_unsent_mails(job.id)
             self.store.mark_unsent_skipped(job.id, str(skip), self.now())
+            if failed_before:
+                # 送れなかったメールが届かないまま終わるので、管理者へ知らせる
+                self._notify_admins(job, str(skip), lead=(
+                    "送れなかった通知メールが残ったまま、申請の状態が変わったため、送るのをやめました"
+                    "（関係者に届いていない可能性があります）。"))
             self.store.update_job(job.id, self.now(), state="skipped", finished_at=self.now(), last_error=str(skip)[:1000])
             return "skipped"
         except Exception as error:  # PDF・ドライブ・組み立ての失敗も送り直しの対象
@@ -479,30 +520,60 @@ class JobRunner:
 
     def _send_stage(self, job: JobView, masters: Masters) -> list[str]:
         errors: list[str] = []
-        redirect_raw = masters.settings.get(SETTINGS_REDIRECT_KEY)
         for row in self.store.unsent_mails(job.id):
             mail = OutgoingMail(kind=row["kind"], to=[x.strip() for x in (row["to"] or "").split(",") if x.strip()],
                                 cc=[x.strip() for x in (row["cc"] or "").split(",") if x.strip()], subject=row["subject"],
                                 body=row["body"], attach_pdf=bool(row["attachment_file_id"]), request_id=row["request_id"])
             try:
+                # 送る直前に設定を読み直す（通知停止・テスト転送の期限）
+                settings = self.gateway.get_settings()
+                if not email_notifications_enabled(settings):
+                    self.store.update_mail(row["id"], self.now(), last_error="skipped: email notifications disabled")
+                    continue
+                redirect_raw = settings.get(SETTINGS_REDIRECT_KEY)
                 redirect = effective_redirect(self.config, redirect_raw, self.now())
-                message_id = send_mail(mail, self.transport, self.config, redirect_raw, self._attachment(row), self.now())
-                self.store.update_mail(row["id"], self.now(), sent=True, gmail_message_id=message_id, sent_at=self.now(),
-                                       attempts=row["attempts"] + 1, last_error="",
-                                       redirected_to=redirect.email if redirect else "")
+                message_id_header = row["message_id_header"]
+                if message_id_header and row["attempts"] > 0:
+                    # 前に送ろうとした（時間切れなど）。届いていれば送り直さない。確かめられなければ例外で次の回へ。
+                    found = self.transport.find_sent(message_id_header)
+                    if found:
+                        self._record_sent(job, row, found, redirect)
+                        continue
+                message_id_header = message_id_header or new_message_id(self.config)
+                # 送る前に Message-ID と回数を書く（ここで失敗したら送らない）
+                self.store.update_mail(row["id"], self.now(), message_id_header=message_id_header,
+                                       attempts=row["attempts"] + 1)
+                row["attempts"] += 1
+                gmail_id = send_mail(mail, self.transport, self.config, redirect_raw, self._attachment(row), self.now(),
+                                     message_id=message_id_header)
             except Exception as error:
                 log.warning("mail %s failed: %s", row["id"], error)
                 msg = f"{type(error).__name__}: {error}"[:1000]
-                self.store.update_mail(row["id"], self.now(), attempts=row["attempts"] + 1, last_error=msg)
+                try:
+                    self.store.update_mail(row["id"], self.now(), last_error=msg)
+                except Exception:  # noqa: BLE001 - 記録できなくても、次の回は Message-ID で確かめる
+                    log.exception("mail %s: could not record the error", row["id"])
                 errors.append(msg)
+                continue
+            self._record_sent(job, row, gmail_id, redirect)
         return errors
 
-    def _notify_admins(self, job: JobView, message: str) -> None:
+    def _record_sent(self, job: JobView, row: dict, gmail_id: str, redirect: Any) -> None:
+        """送れたことを記録する。記録で失敗しても送り直さない（2 通にしない）。管理者へ知らせる。"""
+        try:
+            self.store.update_mail(row["id"], self.now(), sent=True, gmail_message_id=gmail_id, sent_at=self.now(),
+                                   last_error="", redirected_to=redirect.email if redirect else "")
+        except Exception as error:  # noqa: BLE001
+            log.exception("mail %s was sent (gmail id %s) but could not be recorded", row["id"], gmail_id)
+            self._notify_admins(job, f"mail_log {row['id']} / Gmail {gmail_id}: {type(error).__name__}: {error}",
+                                lead="通知メールは送れましたが、送ったことの記録に失敗しました（送り直しはしません）。")
+
+    def _notify_admins(self, job: JobView, message: str, lead: str = "") -> None:
         try:
             masters = self.gateway.get_masters()
             redirect_raw = masters.settings.get(SETTINGS_REDIRECT_KEY)
             for mail in job_failure_admin_mail(masters.settings, JOB_LABELS.get(job.kind, job.kind) + "（" + job.kind + "）",
-                                               job.request_id, message, self.extra_admins):
+                                               job.request_id, message, self.extra_admins, lead=lead):
                 try:
                     redirect = effective_redirect(self.config, redirect_raw, self.now())
                     mid = send_mail(mail, self.transport, self.config, redirect_raw, None, self.now())

@@ -43,12 +43,17 @@ sg docker -c "docker compose logs --tail=50 api worker"
 - api は起動のたびに `alembic upgrade head` を流してから立ち上がります。DB の構成の変更とアプリの版は、続けて一度に出します。
 - 設定の値が欠けていると、api と worker は起動しません（ログに欠けている名前が出ます）。
 - 動作の確認: `sg docker -c "docker compose exec web wget -qO- http://127.0.0.1/healthz"` が `{"ok":true,...}`。
+- web の IP を固定したため（api は web からの X-Forwarded-For だけを信じる）、ネットワーク `chozouhin-net` にサブネットを付けた。
+  初めてこの版を出すとき・`CHOZOUHIN_NET_SUBNET` を変えたときは `docker compose down` → `up -d` でネットワークを作り直す。
+- 委任の権限に `gmail.metadata`（送信済みメールのヘッダーを見るだけ）を足した。この版を出した後、管理画面から委任を許可し直す
+  （許可し直すまでは、送信が時間切れになったメールは送信済みかを確かめられないため、送り直さずに失敗として残る）。
 
 ## 結合テスト（PostgreSQL）
 
 ```sh
 sg docker -c "docker compose exec db psql -U chozouhin -c 'CREATE DATABASE chozouhin_test'"   # 初回だけ
-sg docker -c "docker compose run --rm -e TEST_DATABASE_URL=postgresql+psycopg://chozouhin:<pw>@db:5432/chozouhin_test api pytest"
+sg docker -c "docker build --target test -t chozouhin-app:test ./api"   # 本番のイメージには tests と pytest が入っていない
+sg docker -c "docker run --rm --network chozouhin-net -e TEST_DATABASE_URL=postgresql+psycopg://chozouhin:<pw>@db:5432/chozouhin_test chozouhin-app:test pytest"
 ```
 
 DB 名に `test` を含まない URL は、テストが拒みます（表を消すため）。

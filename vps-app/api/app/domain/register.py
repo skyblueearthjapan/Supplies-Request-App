@@ -32,6 +32,7 @@ HANDLERS = {
     "clearMailRedirect": admin.clear_mail_redirect,
     "listFailedJobs": admin.list_failed_jobs,
     "retryFailedJob": admin.retry_failed_job,
+    "revokeSessions": admin.revoke_sessions,
 }
 
 

@@ -5,7 +5,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app import auth
+from app import auth, rpc
 from app.models import Setting, UserSession
 
 CLIENT_ID = "test-client-id.apps.googleusercontent.com"
@@ -168,6 +168,55 @@ def test_rpc_requires_login_and_logout_revokes(client, db, login_as):
     for k, v in saved.items():  # 古いクッキーを持ち続けても使えない
         client.cookies.set(k, v)
     assert client.post("/api/rpc/getBootstrap", json=[]).status_code == 401
+
+
+def test_logout_is_post_only(client, db, login_as):
+    login_as("someone@lineworks-local.info")
+    assert client.get("/auth/logout").status_code == 405
+    assert db.query(UserSession).count() == 1
+
+
+def test_idle_session_expires_and_use_extends_it(client, db, login_as, settings, monkeypatch):
+    from datetime import timedelta
+
+    from app.timeutil import now_utc
+
+    rpc.register("getBootstrap", lambda ctx: "ok")
+    login_as("someone@lineworks-local.info")
+    row = db.query(UserSession).one()
+    # ログイン直後の期限は 12 時間後（ログインから 14 日より短い）
+    assert abs((row.expires_at - row.created_at) - timedelta(hours=settings.session_idle_hours)) < timedelta(seconds=5)
+    assert settings.session_idle_hours == 12
+
+    # 11 時間後に使うと、そこから 12 時間に延びる
+    later = now_utc() + timedelta(hours=11)
+    monkeypatch.setattr(auth, "now_utc", lambda: later)
+    assert client.post("/api/rpc/getBootstrap", json=[]).status_code == 200
+    db.expire_all()
+    assert db.query(UserSession).one().expires_at >= later + timedelta(hours=12) - timedelta(seconds=5)
+
+    # その後 13 時間使わなければ切れる
+    monkeypatch.setattr(auth, "now_utc", lambda: later + timedelta(hours=13))
+    assert client.post("/api/rpc/getBootstrap", json=[]).status_code == 401
+
+
+def test_session_never_outlives_max_age(settings):
+    from datetime import datetime, timedelta, timezone
+
+    created = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    near_end = created + timedelta(days=settings.session_max_age_days) - timedelta(hours=1)
+    assert auth._session_expiry(created, near_end, settings) == created + timedelta(days=settings.session_max_age_days)
+
+
+def test_revoke_sessions_removes_all_sessions_of_one_email(db, settings):
+    from fastapi.responses import Response
+
+    for email in ("a@lineworks-local.info", "a@lineworks-local.info", "b@lineworks-local.info"):
+        auth.create_session(db, Response(), email, settings)
+    assert auth.revoke_sessions(db, " A@lineworks-local.info ") == 2
+    db.commit()
+    assert [s.email for s in db.query(UserSession).all()] == ["b@lineworks-local.info"]
+    assert auth.revoke_sessions(db, "") == 0
 
 
 def test_tampered_session_cookie_is_rejected(client, login_as):

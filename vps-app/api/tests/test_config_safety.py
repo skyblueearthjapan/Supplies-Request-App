@@ -87,3 +87,26 @@ def test_pdf_root_ignores_migrated_setting_in_staging():
 def test_forced_mail_redirect():
     assert safety.forced_mail_redirect(make_settings()) == "imaizumi@lineworks-local.info"
     assert safety.forced_mail_redirect(make_settings(app_env="production")) == ""
+
+
+@pytest.mark.parametrize("env", ["staging", "production"])
+@pytest.mark.parametrize("sid", sorted(safety.NEVER_WRITABLE_SPREADSHEET_IDS))
+def test_read_only_spreadsheets_are_never_writable(env, sid):
+    with pytest.raises(UnsafeWriteError):
+        safety.assert_writable_spreadsheet(sid, make_settings(app_env=env))
+
+
+def test_spreadsheet_writes_use_an_allow_list():
+    staging = make_settings()
+    with pytest.raises(UnsafeWriteError):
+        safety.assert_writable_spreadsheet("some-other-sheet", staging)
+    prod = make_settings(app_env="production")
+    with pytest.raises(UnsafeWriteError):
+        safety.assert_writable_spreadsheet("staging-sheet-id", prod)
+    with pytest.raises(UnsafeWriteError):
+        safety.assert_writable_spreadsheet("some-other-sheet", prod)
+    assert set(safety.NEVER_WRITABLE_SPREADSHEET_IDS) == {
+        "1xCkpAIB8wPq49mzTwy6WNj3i485eV9oGwnzE-7aREQo",
+        "1iu5HoaknlW1W1HheeYv0jqcRq-aY0SyEE2seQd2pHkQ",
+        "1Knx_kaQMZZams65J1oeSDaBeWUt8XXanNe94XSAHKFQ",
+    }

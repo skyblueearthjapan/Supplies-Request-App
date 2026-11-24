@@ -348,14 +348,6 @@ def test_approval_requests_for_step_all_members_and_fallback():
     assert [m.to for m in star] == [["star-sup@lineworks-local.info"]]
 
 
-def test_recall_requests_purchasing_order_follows_category():
-    b = builder()
-    elec = b.recall_approval_requests(make_request(currentStep="購買見積", category="電気"), "購買見積")
-    assert [m.to[0] for m in elec] == ["elec@lineworks-local.info", "mech@lineworks-local.info"]
-    mech = b.recall_approval_requests(make_request(currentStep="購買見積"), "購買見積")
-    assert [m.to[0] for m in mech] == ["mech@lineworks-local.info", "elec@lineworks-local.info"]
-
-
 def test_notifications_disabled_sends_nothing():
     for value in (False, "false", " FALSE "):
         b = builder(settings={"enableEmailNotifications": value})

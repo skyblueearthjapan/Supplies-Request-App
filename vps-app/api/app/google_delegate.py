@@ -39,6 +39,8 @@ DELEGATE_SCOPES = (
     "openid",
     "email",
     "https://www.googleapis.com/auth/gmail.send",
+    # 送信が時間切れになったとき、送る前に決めた Message-ID で送信済みかを確かめる（ヘッダーだけ。本文は読めない）
+    "https://www.googleapis.com/auth/gmail.metadata",
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
 )

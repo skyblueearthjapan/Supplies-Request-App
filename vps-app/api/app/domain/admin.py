@@ -6,6 +6,7 @@ VPS 版で足したもの（画面担当 U の依頼）:
 - saveAdminAll(approvers, recipients, settings): 承認者マスタ・通知宛先・設定を 1 つのトランザクションで保存
 - setMailRedirect(minutes) / clearMailRedirect(): テスト転送（宛先はログイン中の本人。期限付き）
 - listFailedJobs() / retryFailedJob(jobId)
+- revokeSessions(email): そのメールのセッションを全部消す（端末をなくしたときなど）
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app import google_delegate
+from app import auth, google_delegate
 from app.constants import APP_NAME, APP_VERSION, RECIPIENT_TYPE_VALUES
 from app.domain import outbox, store
 from app.domain.helpers import js_string, normalize_email, parse_boolean, parse_number, sanitize_text
@@ -154,8 +155,9 @@ def build_bootstrap(op: Op) -> dict[str, Any]:
         "isAdmin": admin,
         "settings": {
             "thresholdAmount": store.threshold_amount(settings),
-            "pdfFolderId": settings.get("pdfFolderId") or "",
-            "adminEmails": settings.get("adminEmails") or "",
+            # 管理者以外には空で返す（管理画面でしか使わない値）
+            "pdfFolderId": (settings.get("pdfFolderId") or "") if admin else "",
+            "adminEmails": (settings.get("adminEmails") or "") if admin else "",
             "enableEmailNotifications": store.email_notifications_enabled(settings),
         },
         "reasons": REASONS,
@@ -343,3 +345,16 @@ def retry_failed_job(ctx: RpcContext, jobId: Any = None) -> dict[str, Any]:  # n
     op = Op(ctx)
     assert_admin(op)
     return outbox.retry_failed(op.db, jobId)
+
+
+# ===== セッションの取り消し =====
+
+
+def revoke_sessions(ctx: RpcContext, email: Any = None) -> dict[str, Any]:
+    """VPS 版で追加: そのメールのセッション（ログイン中の端末）を全部消す。消した数を返す。"""
+    op = Op(ctx)
+    assert_admin(op)
+    target = normalize_email(email)
+    if not target or "@" not in target:
+        raise RpcError("メールアドレスを入力してください。")
+    return {"email": target, "revoked": auth.revoke_sessions(op.db, target)}

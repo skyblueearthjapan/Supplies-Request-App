@@ -448,9 +448,51 @@ def test_kiosk_checks_state_and_step(call, db):
     # 取消済みは復活できない
     rid2 = create(call)
     call.ok(APP1, "deleteRequest", rid2, "")
-    assert call.err(OTHER, "approveRequest", rid2, "", True, None, "") == \
+    assert call.err(OTHER, "approveRequest", rid2, "", True, None, "上席") == \
         "全画面モードで操作できる申請ではありません。画面を開き直してください。"
     assert req(db, rid2).status == "取消"
+
+
+def test_kiosk_requires_expected_step(call, db):
+    rid = create(call)
+    for missing in (None, ""):
+        assert call.err(OTHER, "approveRequest", rid, "", True, None, missing) == ERR_REOPEN
+        assert call.err(OTHER, "returnRequest", rid, "x", True, False, missing) == ERR_REOPEN
+    assert call.err(OTHER, "approveRequest", rid, "", True) == ERR_REOPEN
+    assert req(db, rid).current_step == "上席"
+    # 全画面でなければ省略できる（GAS 版と同じ呼び方）
+    call.ok(SUP1, "approveRequest", rid, "", False)
+
+
+def test_detail_write_operations_check_expected_step(call, db):
+    rid = create(call)
+    call.ok(SUP1, "approveRequest", rid, "", False, None, "上席")
+    # 購買見積の段: 見積確定・至急・リコールは画面の段と違えば止める
+    item_id = detail(call, rid, MECH)["items"][0]["itemId"]
+    assert call.err(MECH, "confirmQuote", rid, [{"itemId": item_id, "unitPrice": 100}], "", None, "上席") == ERR_REOPEN
+    assert call.err(MECH, "confirmExpedited", rid, "", "上席") == ERR_REOPEN
+    assert call.err(MECH, "recallStep", rid, "戻す", "上席") == ERR_REOPEN
+    assert req(db, rid).current_step == "購買見積"
+    call.ok(MECH, "confirmQuote", rid, [{"itemId": item_id, "unitPrice": 100}], "", None, "購買見積")
+    call.ok(GM, "approveRequest", rid, "", False, None, "総務部長")
+    assert call.err(MECH, "arrangeComplete", rid, "", "総務部長") == ERR_REOPEN
+    call.ok(MECH, "recallStep", rid, "戻す", "購買手配")
+    assert req(db, rid).current_step == "総務部長"
+
+
+def test_expected_step_counts_as_an_argument(call, db):
+    rid = create(call)
+    assert call.err(SUP1, "recallStep", rid, "c", "上席", "余分") == "引数の数が正しくありません。"
+    assert call.err(SUP1, "arrangeComplete", rid, "c", "上席", "余分") == "引数の数が正しくありません。"
+    assert call.err(SUP1, "confirmExpedited", rid, "c", "上席", "余分") == "引数の数が正しくありません。"
+    assert call.err(SUP1, "confirmQuote", rid, [], "c", None, "上席", "余分") == "引数の数が正しくありません。"
+
+
+def test_item_count_limit(call, db):
+    many = [{"name": f"品{i}", "quantity": 1, "unit": "個"} for i in range(101)]
+    assert call.err(APP1, "createRequest", payload(items=many)) == "明細は100行までにしてください。"
+    rid = create(call, items=many[:100])
+    assert len(detail(call, rid)["items"]) == 100
 
 
 def test_kiosk_return_and_reject(call, db):
@@ -466,7 +508,8 @@ def test_kiosk_return_and_reject(call, db):
 def test_kiosk_president_requires_president_pending(call, db):
     rid = create(call)
     to_gm(call, rid, price=50000)
-    assert call.err(OTHER, "recordPresidentDecision", rid, "approve", "", True) == \
+    assert call.err(OTHER, "recordPresidentDecision", rid, "approve", "", True) == ERR_REOPEN  # 全画面は段が必須
+    assert call.err(OTHER, "recordPresidentDecision", rid, "approve", "", True, None, "総務部長") == \
         "社長決裁待ちの申請ではありません。画面を開き直してください。"
     # expectedStep は状態の確認より先に照合する
     assert call.err(OTHER, "recordPresidentDecision", rid, "approve", "", True, None, "社長") == ERR_REOPEN
@@ -756,6 +799,21 @@ def test_split_on_president_decision(call, db):
 # ===== 一覧・件数・ページ送り =====
 
 
+def test_list_query_is_literal_and_sorted_in_sql(call, db):
+    a = create(call, reasonDetail="100%_off の件")
+    b = create(call, reasonDetail="1000 off")
+    req(db, a).updated_at = req(db, b).updated_at  # 同じ時刻は申請 ID の新しい順
+    db.commit()
+    assert [r["requestId"] for r in call.ok(APP1, "getRequests", {"query": "100%_"})["rows"]] == [a]
+    assert call.ok(APP1, "getRequests", {"query": "%"})["total"] == 1
+    rows = call.ok(APP1, "getRequests", {"mode": "all"})["rows"]
+    assert [r["requestId"] for r in rows] == sorted([a, b], reverse=True)
+    assert call.ok(APP1, "getRequests", {"mode": "all", "status": "差戻し"})["total"] == 0
+    # 一覧の件数は全件で数え、ページは SQL で切る
+    res = call.ok(APP1, "getRequests", {"mode": "all", "pageSize": 1, "page": 2})
+    assert res["total"] == 2 and len(res["rows"]) == 1 and res["summary"]["inReview"] == 2
+
+
 def test_list_modes_and_badges_match(call, db):
     a = create(call)                                   # 上席（製造部）
     b = create(call, email=APP2, department="設計部")   # 上席（設計部）
@@ -818,8 +876,10 @@ def test_detail_permissions_titles_and_stamp_names(call, db):
     # GAS 版どおり、役職は当たった行（製造部の行）から取る。* では補わない。
     assert d["stepTitles"] == {"総務部長": "", "社長": "", "購買手配": "", "上席": "課長"}
     assert d["purchasingStampName"] == "五十嵐"
-    assert d["stampNames"][SUP1] == "上田 一" and d["stampNames"][MECH] == "五十嵐"
-    assert APP1 not in d["stampNames"]
+    # 段 → 押印の氏名（PDF と同じ Masters.stamp_name）。申請者は申請者氏名、購買見積はメカ購買の氏名
+    assert d["stampNames"]["上席"] == "上田 一" and d["stampNames"]["購買見積"] == "五十嵐"
+    assert d["stampNames"]["申請者"] == "申請 花子"
+    assert "総務部長" not in d["stampNames"]  # 今の段はまだ押さない
     assert d["history"][0]["fromStatusLabel"] == "" and d["history"][-1]["toStepLabel"] == "総務部長"
     assert call.err(OTHER, "getRequestDetail", "REQ-none") == "申請が見つかりません。"
 
@@ -874,6 +934,27 @@ def test_bootstrap_shape_admin_and_non_admin(call, db):
     assert b["myApproverRule"]["department"] == "*"
     nb = call.ok(OTHER, "getBootstrap")
     assert nb["isAdmin"] is False and nb["approvers"] == [] and nb["recipients"] == [] and nb["delegate"] is None
+    # 管理者以外には管理者の一覧と PDF の保存先を返さない
+    db.add(Setting(key="pdfFolderId", value="FOLDER-1"))
+    db.commit()
+    assert call.ok(ADMIN, "getBootstrap")["settings"]["pdfFolderId"] == "FOLDER-1"
+    assert call.ok(OTHER, "getBootstrap")["settings"] == {
+        "thresholdAmount": 100000, "pdfFolderId": "", "adminEmails": "", "enableEmailNotifications": True}
+
+
+def test_revoke_sessions_admin_only(call, db, settings):
+    from fastapi.responses import Response
+
+    from app.auth import create_session
+    from app.models import UserSession
+
+    create_session(db, Response(), OTHER, settings)
+    create_session(db, Response(), OTHER, settings)
+    create_session(db, Response(), APP1, settings)
+    assert call.err(OTHER, "revokeSessions", OTHER) == "管理者のみ実行できます。"
+    assert call.err(ADMIN, "revokeSessions", "") == "メールアドレスを入力してください。"
+    assert call.ok(ADMIN, "revokeSessions", " Other" + D) == {"email": OTHER, "revoked": 2}
+    assert [r.email for r in db.query(UserSession).all()] == [APP1]
 
 
 def test_admin_list_empty_does_not_make_everyone_admin(call, db):

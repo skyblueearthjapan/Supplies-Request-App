@@ -1,5 +1,6 @@
 # 実行に使うもの（api と worker で共用）。版は固定する。
-fastapi==0.115.6
+fastapi==0.123.10
+starlette==0.50.0
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 alembic==1.14.0
@@ -7,11 +8,11 @@ psycopg[binary]==3.2.3
 pydantic==2.10.3
 pydantic-settings==2.6.1
 pyjwt[crypto]==2.10.1
-cryptography==44.0.0
+cryptography==46.0.7
 itsdangerous==2.2.0
 httpx==0.28.1
 anyio==4.7.0
-jinja2==3.1.4
+jinja2==3.1.6
 google-auth==2.37.0
 google-api-python-client==2.155.0
 playwright==1.49.1

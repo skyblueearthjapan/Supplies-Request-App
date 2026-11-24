@@ -18,6 +18,8 @@ KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 RUNNER=/usr/local/bin/run_backup.sh
 cat > "$RUNNER" <<EOF
 #!/bin/sh
+# ダンプ（申請データ・設定を含む）を本人だけが読める権限で作る
+umask 077
 export PGPASSFILE=$PGPASS
 export TZ=Asia/Tokyo
 out=/backups/chozouhin_\$(date +%Y%m%d_%H%M).dump

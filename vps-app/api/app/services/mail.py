@@ -4,6 +4,8 @@
 - staging では必ず MAIL_REDIRECT_TO へ寄せる（件名【テスト転送】、本来の To/Cc を本文の頭、Cc は落とす、添付は残す）。
 - production でも、管理画面のテスト転送（期限付き）が有効な間は同じ形で寄せる（GAS 版の sendMail_ と同じ）。
 - 送信は必ず send_mail() を通すこと（直接 Gmail API を呼ぶと転送を素通りする）。
+- 送り直しのため、送る前に Message-ID（と同じ値の X-Chozouhin-Mail-Id）を決めて付ける。時間切れなどの後は
+  find_sent() でその値の送信済みメールを探し、見つかれば送り直さない。
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from datetime import datetime, timezone
 from email.headerregistry import Address
 from email.message import EmailMessage
 from email.policy import SMTP
+from email.utils import make_msgid
 from typing import Any, Callable, Protocol
 
 from .mailpdf_common import MailPdfConfig, normalize_email, parse_number, to_jst
@@ -27,6 +30,10 @@ MIME_POLICY = SMTP.clone(max_line_length=998)
 
 MAIL_REDIRECT_DEFAULT_MINUTES = 120
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+# Gmail が Message-ID を付け替えても探せるよう、同じ値をこのヘッダーにも入れる
+MAIL_ID_HEADER = "X-Chozouhin-Mail-Id"
+FIND_SENT_LIMIT = 100  # 送信済みを探すときに見る、新しい方からの件数
 
 
 class MailConfigError(RuntimeError):
@@ -95,9 +102,19 @@ def apply_redirect(mail: OutgoingMail, redirect: MailRedirect | None) -> Outgoin
 # MIME の組み立て
 # ---------------------------------------------------------------------------
 
-def build_mime(mail: OutgoingMail, config: MailPdfConfig, attachment: tuple[str, bytes] | None = None) -> EmailMessage:
+def new_message_id(config: MailPdfConfig) -> str:
+    """送る前に決める Message-ID（<...@差出人のドメイン>）。"""
+    domain = (config.mail_from.rsplit("@", 1)[-1] if "@" in config.mail_from else "") or "localhost"
+    return make_msgid(domain=domain)
+
+
+def build_mime(mail: OutgoingMail, config: MailPdfConfig, attachment: tuple[str, bytes] | None = None,
+               message_id: str = "") -> EmailMessage:
     """1 通の MIME。日本語・絵文字の件名と差出人名は RFC 2047、添付のファイル名は RFC 2231 になる。"""
     msg = EmailMessage(policy=MIME_POLICY)
+    if message_id:
+        msg["Message-ID"] = message_id
+        msg[MAIL_ID_HEADER] = message_id
     msg["From"] = Address(display_name=config.mail_from_name, addr_spec=config.mail_from)
     msg["To"] = ", ".join(mail.to)
     if mail.cc:
@@ -123,6 +140,10 @@ class MailTransport(Protocol):
     def send(self, msg: EmailMessage) -> str:
         """送って Gmail のメッセージ ID を返す。失敗は例外。"""
 
+    def find_sent(self, message_id: str) -> str:
+        """送る前に決めた Message-ID の送信済みメールを探し、Gmail のメッセージ ID を返す（無ければ ''）。
+        確かめられないときは例外（送り直さない）。"""
+
 
 class GmailApiTransport:
     """Gmail API（users.messages.send）で送る。credentials は google_delegate.get_delegate_credentials() の戻り値。"""
@@ -146,18 +167,40 @@ class GmailApiTransport:
             raise RuntimeError(f"Gmail API の送信に失敗しました: HTTP {resp.status_code} {resp.text[:300]}")
         return str(resp.json().get("id", ""))
 
+    def find_sent(self, message_id: str) -> str:
+        """送信済み（SENT）の新しい方から FIND_SENT_LIMIT 件のヘッダーを見て探す（gmail.metadata の権限）。"""
+        target = (message_id or "").strip()
+        if not target:
+            return ""
+        session = self._session()
+        resp = session.get(GMAIL_MESSAGES_URL, params={"labelIds": "SENT", "maxResults": FIND_SENT_LIMIT},
+                           timeout=self._timeout)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Gmail API で送信済みを確かめられませんでした: HTTP {resp.status_code} {resp.text[:300]}")
+        for item in resp.json().get("messages", []) or []:
+            gid = str(item.get("id", ""))
+            r = session.get(f"{GMAIL_MESSAGES_URL}/{gid}", timeout=self._timeout,
+                            params={"format": "metadata", "metadataHeaders": ["Message-ID", MAIL_ID_HEADER]})
+            if r.status_code >= 400:
+                raise RuntimeError(f"Gmail API で送信済みを確かめられませんでした: HTTP {r.status_code} {r.text[:300]}")
+            headers = (r.json().get("payload") or {}).get("headers") or []
+            if any(str(h.get("value", "")).strip() == target for h in headers
+                   if str(h.get("name", "")).lower() in ("message-id", MAIL_ID_HEADER.lower())):
+                return gid
+        return ""
+
 
 def send_mail(mail: OutgoingMail, transport: MailTransport, config: MailPdfConfig,
               settings_redirect_raw: Any = None, attachment: tuple[str, bytes] | None = None,
-              now: datetime | None = None) -> str:
-    """1 通送る。転送の判定はここで必ず行う。戻り値は Gmail のメッセージ ID。"""
+              now: datetime | None = None, message_id: str = "") -> str:
+    """1 通送る。転送の判定はここで必ず行う（送る直前の設定で）。戻り値は Gmail のメッセージ ID。"""
     redirect = effective_redirect(config, settings_redirect_raw, now)
     actual = apply_redirect(mail, redirect)
     if not actual.to:
         raise ValueError("宛先がありません。")
     if redirect is not None:
         log.info("send_mail: redirected to %s (original to=%s, cc=%s)", redirect.email, mail.to_header(), mail.cc_header())
-    msg = build_mime(actual, config, attachment if actual.attach_pdf else None)
+    msg = build_mime(actual, config, attachment if actual.attach_pdf else None, message_id=message_id)
     return transport.send(msg)
 
 
@@ -168,6 +211,7 @@ __all__ = [
     "GmailApiTransport",
     "apply_redirect",
     "build_mime",
+    "new_message_id",
     "effective_redirect",
     "format_mail_redirect",
     "parse_mail_redirect",

@@ -111,7 +111,9 @@ def app(session_factory, settings):
 
 @pytest.fixture
 def client(app) -> TestClient:
-    return TestClient(app, base_url="https://testserver", follow_redirects=False)
+    # ブラウザが同じサイトの fetch に付ける Sec-Fetch-Site（RPC の入口で確かめる）を既定で付ける
+    return TestClient(app, base_url="https://testserver", follow_redirects=False,
+                      headers={"Sec-Fetch-Site": "same-origin"})
 
 
 def login(client: TestClient, db: Session, email: str, settings: Settings | None = None) -> None:

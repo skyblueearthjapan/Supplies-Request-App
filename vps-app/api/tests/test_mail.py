@@ -144,3 +144,50 @@ def test_gmail_api_transport_posts_raw():
     url, body = calls[0]
     assert url.endswith("/users/me/messages/send")
     assert base64.urlsafe_b64decode(body["raw"]) == msg.as_bytes()
+
+
+def test_message_id_is_set_and_found_in_sent_mail():
+    from app.services.mail import MAIL_ID_HEADER, new_message_id
+
+    mid = new_message_id(PROD)
+    assert mid.startswith("<") and mid.endswith("@lineworks-local.info>")
+    msg = build_mime(sample(), PROD, message_id=mid)
+    assert msg["Message-ID"] == mid and msg[MAIL_ID_HEADER] == mid
+
+    calls = []
+
+    class Resp:
+        def __init__(self, data, status=200):
+            self.status_code, self.text, self._data = status, "", data
+
+        def json(self):
+            return self._data
+
+    headers = {
+        "a": [{"name": "Message-ID", "value": "<other@x>"}],
+        "b": [{"name": "Message-Id", "value": "<gmail-replaced@mail.gmail.com>"},
+              {"name": MAIL_ID_HEADER, "value": mid}],  # Gmail が Message-ID を付け替えても見つける
+    }
+
+    class Session:
+        def get(self, url, params=None, timeout=None):
+            calls.append((url, params))
+            if url.endswith("/messages"):
+                return Resp({"messages": [{"id": "a"}, {"id": "b"}]})
+            return Resp({"payload": {"headers": headers[url.rsplit("/", 1)[1]]}})
+
+    transport = GmailApiTransport(lambda: "creds", session_factory=lambda creds: Session())
+    assert transport.find_sent(mid) == "b"
+    assert calls[0][1]["labelIds"] == "SENT"
+    assert calls[1][1]["format"] == "metadata"
+    assert transport.find_sent("<missing@x>") == ""
+
+    class Denied(Session):
+        def get(self, url, params=None, timeout=None):
+            return Resp({}, status=403)
+
+    denied = GmailApiTransport(lambda: "creds", session_factory=lambda creds: Denied())
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        denied.find_sent(mid)

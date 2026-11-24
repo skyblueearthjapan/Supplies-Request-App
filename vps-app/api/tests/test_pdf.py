@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from mailpdf_fixtures import ORIGIN, make_items, make_masters, make_request
+from mailpdf_fixtures import ORIGIN, approver_rules, make_items, make_masters, make_request
 
 from app.services.pdf import (
     HISTORY_MAX,
@@ -51,12 +51,44 @@ def test_stamp_names_come_from_masters_and_dates_are_jst():
     assert st["上席"].name == "上田 一郎"  # 上席マスタの氏名（履歴の sup1 ではない）
     assert st["上席"].date == "令8. 11. 21"  # 0 時 30 分（日本時間）の承認はその日
     assert st["上席"].title == "課長"
-    assert st["購買見積"].name == "電田 次郎"  # 押した人（電気購買）の氏名。GAS 版はメカ購買の氏名だった
+    assert st["購買見積"].name == "五十嵐"  # 押した人が電気購買でも、GAS 版どおりメカ購買の氏名（カッコ除き）
     assert st["購買見積"].title == "購買（見積）"  # 購買見積の段は段の名前
-    assert st["総務部長"].name == "辻野 一郎"  # カッコ書きは除く
+    assert st["総務部長"].name == "gm2"  # 欄の 2 人目のメール → マスタの氏名は使わず履歴の操作者名
     assert st["総務部長"].title == "総務部長"  # 部署の行の役職が空 → 段の名前（'*' は見ない。GAS と同じ）
     assert st["社長"].name == "社長 太郎"
     assert not st["購買手配"].acted  # 今の段は空欄
+
+
+def test_first_email_of_field_gets_master_name():
+    req = make_request(routeJson=ROUTE4, currentStep="購買手配", totalAmount=3600)
+    gm1 = h("承認", "総務部長", "購買手配", "2026-11-23 10:00:00", "gm1@lineworks-local.info", "gm1")
+    st = stamps_by_step(req, [SUBMIT, SUP_OK, QUOTE, gm1])
+    assert st["総務部長"].name == "辻野 一郎"  # 欄の先頭のメール → マスタの氏名（カッコ書きは除く）
+
+
+def test_second_email_falls_back_to_supervisor_master():
+    # 総務部長の欄の 2 人目が上席マスタにいれば、その氏名
+    rules = [dict(r) for r in approver_rules()]
+    rules[0]["generalManagerEmail"] = "gm1@lineworks-local.info, sup1@lineworks-local.info"
+    req = make_request(routeJson=ROUTE4, currentStep="購買手配", totalAmount=3600)
+    gm = h("承認", "総務部長", "購買手配", "2026-11-23 10:00:00", "sup1@lineworks-local.info", "sup1")
+    st = stamps_by_step(req, [SUBMIT, SUP_OK, QUOTE, gm], make_masters(approver_rules=rules))
+    assert st["総務部長"].name == "上田 一郎"
+
+
+def test_pdf_and_detail_use_the_same_stamp_names():
+    from app.services.pdf import stamp_masters
+
+    req = make_request(routeJson=ROUTE5, currentStep="購買手配", totalAmount=150000)
+    hist = [SUBMIT, SUP_OK, QUOTE, GM_OK, PRES_OK]
+    masters = make_masters()
+    names = stamp_masters(masters).stamp_names(req, ["上席", "購買見積", "総務部長", "社長", "購買手配"], hist)
+    assert names == {s.step: s.name for s in select_stamps(req, hist, masters) if s.acted}
+
+
+def test_applicant_stamp_is_applicant_name():
+    req = make_request(routeJson=ROUTE4, currentStep="上席", applicantName="申請 次郎（製造）")
+    assert stamps_by_step(req, [SUBMIT])["申請者"].name == "申請 次郎"
 
 
 def test_unknown_actor_falls_back_to_history_name():
@@ -154,6 +186,23 @@ def test_era_date():
     assert era_date(datetime(2026, 5, 26, 15, 0, tzinfo=timezone.utc)) == "令8. 5. 27"
     assert era_date("2018-12-31") == "18. 12. 31"
     assert era_date("") == ""
+
+
+def test_pdf_page_blocks_everything_but_data_urls():
+    from types import SimpleNamespace
+
+    from app.services.pdf import block_non_data_request
+
+    calls = []
+
+    def route(url):
+        return SimpleNamespace(request=SimpleNamespace(url=url), continue_=lambda: calls.append(("go", url)),
+                               abort=lambda: calls.append(("stop", url)))
+
+    for url in ("data:image/png;base64,AAAA", "https://example.com/x.png", "http://169.254.169.254/", "file:///etc/passwd"):
+        block_non_data_request(route(url))
+    assert calls == [("go", "data:image/png;base64,AAAA"), ("stop", "https://example.com/x.png"),
+                     ("stop", "http://169.254.169.254/"), ("stop", "file:///etc/passwd")]
 
 
 # ---------------------------------------------------------------------------

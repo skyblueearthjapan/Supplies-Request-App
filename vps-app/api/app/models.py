@@ -253,6 +253,8 @@ class Job(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_error: Mapped[str] = _text()
+    # この仕事で作った PDF（ドライブのファイル ID）。PDF の後で失敗したとき、送り直しで作り直さないため
+    pdf_file_id: Mapped[str] = _str(256)
     run_after: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
@@ -284,6 +286,8 @@ class MailLog(Base):
     sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     gmail_message_id: Mapped[str] = _str(128)
+    # 送る前に決めた Message-ID。時間切れなどの後は、これで送信済みかを確かめてから送り直す
+    message_id_header: Mapped[str] = _str(256)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_error: Mapped[str] = _text()
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)

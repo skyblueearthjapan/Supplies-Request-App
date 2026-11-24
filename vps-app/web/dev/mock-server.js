@@ -7,6 +7,10 @@
 //   MOCK_ADMIN=0        管理者でない利用者として返す
 //
 // 呼び出しの記録: GET /__calls（関数名・引数・X-Idempotency-Key）。GET /__reset で記録を消す。
+// 失敗の見本: GET /__fail?status=500&count=1 で次の書き込みを status で失敗させる（処理はしない）。
+//            GET /__fail?status=500&count=1&after=1 は処理した後に status を返す（届いたのに応答が失敗）。
+//            GET /__fail?status=401 で次の呼び出しをログイン切れにする。
+// 画面は nginx と同じ CSP（script-src 'self'）で返す（インラインの script を使うと動かない）。
 'use strict';
 
 const http = require('http');
@@ -140,6 +144,8 @@ function detailOf(id) {
     },
     stepTitles: { '上席': '製造部長', '総務部長': '総務部長' },
     purchasingStampName: '五十嵐',
+    // 段 → 押印の氏名（サーバーは Masters.stamp_names で決める。見本は固定）
+    stampNames: { '申請者': r.applicantName, '上席': '上田 一郎', '購買見積': '五十嵐', '総務部長': '辻野', '社長': '社長 太郎', '購買手配': '五十嵐' },
     pendingJobs: pending
   };
 }
@@ -283,7 +289,8 @@ const RPC = {
     if (!String(comment || '').trim()) { throw new Error('差戻し理由（コメント）を入力してください'); }
     return touch(id, discard ? { status: '取消' } : { status: '差戻し', currentStep: '申請者' }, h(discard ? '却下' : '差戻', r.currentStep, '申請者', USER.name, nowStr(), comment));
   },
-  confirmQuote: (id, items, comment) => {
+  confirmQuote: (id, items, comment, returnItems, expectedStep) => {
+    checkStep(id, expectedStep);
     let total = 0;
     (items || []).forEach(x => {
       const it = db.items[id].find(i => i.itemId === x.itemId);
@@ -291,9 +298,10 @@ const RPC = {
     });
     return touch(id, { totalAmount: total, currentStep: '総務部長' }, h('金額確定', '購買見積', '総務部長', USER.name, nowStr(), comment));
   },
-  confirmExpedited: (id, comment) => touch(id, { amountWaived: true, currentStep: '総務部長' }, h('金額不要至急', '購買見積', '総務部長', USER.name, nowStr(), comment)),
-  arrangeComplete: (id, comment) => touch(id, { status: '完了', currentStep: '完了済' }, h('完了処理', '購買手配', '完了済', USER.name, nowStr(), comment)),
-  recallStep: (id, comment) => {
+  confirmExpedited: (id, comment, expectedStep) => checkStep(id, expectedStep) || touch(id, { amountWaived: true, currentStep: '総務部長' }, h('金額不要至急', '購買見積', '総務部長', USER.name, nowStr(), comment)),
+  arrangeComplete: (id, comment, expectedStep) => checkStep(id, expectedStep) || touch(id, { status: '完了', currentStep: '完了済' }, h('完了処理', '購買手配', '完了済', USER.name, nowStr(), comment)),
+  recallStep: (id, comment, expectedStep) => {
+    checkStep(id, expectedStep);
     const r = db.requests[id];
     const i = r.route.indexOf(r.currentStep);
     const to = i > 0 ? r.route[i - 1] : r.currentStep;
@@ -327,8 +335,24 @@ const RPC = {
   },
   clearMailRedirect: () => { mailRedirect = { active: false, to: '', until: '', forced: false }; return mailRedirect; },
   listFailedJobs: () => failedJobs,
-  retryFailedJob: (jobId) => { failedJobs = failedJobs.filter(j => j.jobId !== jobId); return { ok: true }; }
+  retryFailedJob: (jobId) => { failedJobs = failedJobs.filter(j => j.jobId !== jobId); return { ok: true }; },
+  revokeSessions: (email) => {
+    if (!String(email || '').trim()) { throw new Error('メールアドレスを入力してください。'); }
+    return { email: String(email).trim().toLowerCase(), revoked: 2 };
+  }
 };
+
+// 詳細画面の書き込みの expectedStep（サーバーと同じ文）。合っていれば undefined を返す。
+function checkStep(id, expectedStep) {
+  const r = db.requests[id];
+  if (r && expectedStep && expectedStep !== r.currentStep) {
+    throw new Error('画面を開いた後に申請の段が変わりました。画面を開き直してください。');
+  }
+}
+const READ_ONLY = ['getBootstrap', 'getTabCounts', 'getRequests', 'getRequestDetail', 'listFailedJobs'];
+let failNext = null; // { status, count, after }
+const done = {}; // 二重押し対策のキー → 1 回目の結果（サーバーと同じく 2 回目は同じ結果を返す）
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'";
 
 const calls = [];
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -341,7 +365,12 @@ function send(res, status, body, type) {
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/__calls') { return send(res, 200, calls); }
-  if (url.pathname === '/__reset') { calls.length = 0; return send(res, 200, { ok: true }); }
+  if (url.pathname === '/__reset') { calls.length = 0; failNext = null; return send(res, 200, { ok: true }); }
+  if (url.pathname === '/__fail') {
+    failNext = { status: Number(url.searchParams.get('status')) || 500, count: Number(url.searchParams.get('count')) || 1,
+      after: url.searchParams.get('after') === '1' };
+    return send(res, 200, { ok: true });
+  }
   if (url.pathname.startsWith('/auth/')) {
     return send(res, 200, '<!doctype html><meta charset="utf-8"><title>mock</title><p>見本サーバーのログイン画面（' + url.pathname + '）。next=' + (url.searchParams.get('next') || '') + '</p>', 'text/html; charset=utf-8');
   }
@@ -352,10 +381,23 @@ http.createServer((req, res) => {
     req.on('end', () => {
       let args = [];
       try { args = raw ? JSON.parse(raw) : []; } catch (e) { return send(res, 400, { ok: false, error: '入力が不正です' }); }
-      calls.push({ name: name, args: args, idempotencyKey: req.headers['x-idempotency-key'] || '' });
+      const key = req.headers['x-idempotency-key'] || '';
+      calls.push({ name: name, args: args, idempotencyKey: key });
       if (req.method !== 'POST' || !Object.prototype.hasOwnProperty.call(RPC, name)) { return send(res, 404, { ok: false, error: '不明な関数です: ' + name }); }
+      if (failNext && failNext.status === 401) {
+        failNext = null;
+        return send(res, 401, { ok: false, error: 'ログインの有効期限が切れました。', login: '/auth/login' });
+      }
+      const write = READ_ONLY.indexOf(name) < 0;
+      if (write && key && done[key]) { return send(res, 200, done[key]); }
+      const fail = write && failNext && failNext.count > 0 ? failNext : null;
+      if (fail) { fail.count--; if (fail.count <= 0) { failNext = null; } }
+      if (fail && !fail.after) { return send(res, fail.status, { ok: false, error: 'サーバーでエラーが起きました。' }); }
       try {
-        send(res, 200, { ok: true, result: RPC[name].apply(null, Array.isArray(args) ? args : []) });
+        const body = { ok: true, result: RPC[name].apply(null, Array.isArray(args) ? args : []) };
+        if (write && key) { done[key] = body; }
+        if (fail) { return send(res, fail.status, { ok: false, error: 'サーバーでエラーが起きました。' }); }
+        send(res, 200, body);
       } catch (e) {
         send(res, 400, { ok: false, error: e.message });
       }
@@ -370,7 +412,8 @@ http.createServer((req, res) => {
     if (err) {
       return fs.readFile(path.join(STATIC_DIR, 'index.html'), (e2, idx) => send(res, e2 ? 404 : 200, e2 ? 'not found' : idx, TYPES['.html']));
     }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store',
+      'Content-Security-Policy': CSP });
     res.end(buf);
   });
 }).listen(PORT, '127.0.0.1', () => {

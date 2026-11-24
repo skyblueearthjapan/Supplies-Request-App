@@ -79,13 +79,25 @@ class FakeTransport:
     def __init__(self):
         self.sent = []
         self.fail_to: set[str] = set()  # 本来の To にこの宛先を含むメールは失敗させる
+        self.lose_response = 0  # 送れたのに応答が時間切れになる回数
+        self.find_calls = []
 
     def send(self, msg):
         body = msg.get_body(("plain",)).get_content()
         if any(("本来の To : " + addr) in body for addr in self.fail_to):
             raise RuntimeError("gmail down")
         self.sent.append(msg)
+        if self.lose_response:
+            self.lose_response -= 1
+            raise TimeoutError("read timed out")
         return f"gm-{len(self.sent)}"
+
+    def find_sent(self, message_id):
+        self.find_calls.append(message_id)
+        for i, m in enumerate(self.sent, start=1):
+            if m["Message-ID"] == message_id:
+                return f"gm-{i}"
+        return ""
 
 
 class FakeStorage:
@@ -473,3 +485,143 @@ def test_outbox_defer_uses_enqueue_for_new_kinds(env, session_factory):
         assert (trash.request_id, trash.guard_status, trash.guard_step) == (RID, "", "")
         assert json.loads(trash.args_json) == ["P9", RID]
     assert jobs.JOB_LABELS["regeneratePdf"] and jobs.JOB_LABELS["trashPdf"]
+
+
+# ---------------------------------------------------------------------------
+# 送り直しの決まり（レビュー指摘の修正）
+# ---------------------------------------------------------------------------
+
+
+def test_timed_out_send_is_checked_by_message_id_before_resending(env):
+    jid = env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    env.transport.lose_response = 1  # Gmail には届いたが、応答が来なかった
+    assert env.runner.run_once()["retry"] == 1
+    (m,) = env.mails(jid)
+    assert m.sent is False and m.attempts == 1 and m.message_id_header.startswith("<")
+    assert env.transport.sent[0]["Message-ID"] == m.message_id_header
+    assert env.transport.sent[0]["X-Chozouhin-Mail-Id"] == m.message_id_header
+    env.clock.advance(minutes=5)
+    assert env.runner.run_once()["done"] == 1
+    assert len(env.transport.sent) == 1  # 送り直さない
+    assert env.transport.find_calls == [m.message_id_header]
+    (m,) = env.mails(jid)
+    assert m.sent and m.gmail_message_id == "gm-1"
+
+
+def test_failed_send_is_resent_with_the_same_message_id(env):
+    jid = env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    env.transport.fail_to = {"applicant@lineworks-local.info"}
+    env.runner.run_once()
+    first_id = env.mails(jid)[0].message_id_header
+    env.transport.fail_to = set()
+    env.clock.advance(minutes=5)
+    assert env.runner.run_once()["done"] == 1
+    assert len(env.transport.sent) == 1 and env.transport.sent[0]["Message-ID"] == first_id
+    assert env.transport.find_calls == [first_id]
+
+
+def test_unverifiable_send_is_not_resent(env):
+    jid = env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    env.transport.lose_response = 1
+    env.runner.run_once()
+
+    def broken(message_id):
+        raise RuntimeError("403 insufficient scope")
+
+    env.transport.find_sent = broken
+    env.clock.advance(minutes=5)
+    assert env.runner.run_once()["retry"] == 1
+    assert len(env.transport.sent) == 1  # 確かめられないうちは送らない
+    assert "insufficient scope" in env.mails(jid)[0].last_error
+
+
+def test_record_failure_after_send_is_not_resent_and_admin_is_told(env, monkeypatch):
+    jid = env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    real_update = env.runner.store.update_mail
+
+    def update_mail(mail_id, now, **fields):
+        if fields.get("sent"):
+            raise RuntimeError("db write failed")
+        return real_update(mail_id, now, **fields)
+
+    monkeypatch.setattr(env.runner.store, "update_mail", update_mail)
+    assert env.runner.run_once()["done"] == 1
+    monkeypatch.setattr(env.runner.store, "update_mail", real_update)
+    assert len([m for m in env.transport.sent if "差戻し" in str(m["Subject"])]) == 1
+    admin = [m for m in env.mails() if m.job_id is None]
+    assert len(admin) == 1 and "記録に失敗しました（送り直しはしません）" in admin[0].body_text
+    env.clock.advance(hours=3)
+    assert env.runner.run_once() == {"done": 0, "skipped": 0, "retry": 0, "failed": 0}
+    assert env.job(jid).state == "done"
+
+
+def test_skip_with_failed_unsent_mail_tells_admin(env):
+    jid = env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    env.transport.fail_to = {"applicant@lineworks-local.info"}
+    env.runner.run_once()
+    env.set_request(current_step="購買見積")
+    env.clock.advance(minutes=5)
+    assert env.runner.run_once()["skipped"] == 1
+    admin = [m for m in env.mails() if m.job_id is None]
+    assert len(admin) == 1 and admin[0].kind == "admin_job_failure"
+    assert admin[0].body_text.startswith("送れなかった通知メールが残ったまま")
+    assert env.job(jid).state == "skipped"
+
+
+def test_skip_without_failed_mail_does_not_tell_admin(env):
+    env.enqueue("dispatchApprovalNotifications_", [snapshot(env), "上席", "購買見積", {"email": "mech@x"}, ACTOR])
+    env.set_request(current_step="購買見積")
+    assert env.runner.run_once()["skipped"] == 1
+    assert [m for m in env.mails() if m.job_id is None] == []
+
+
+def test_notification_setting_is_checked_right_before_sending(env, session_factory):
+    env.set_request(current_step="購買見積")
+    jid = env.enqueue("dispatchApprovalNotifications_", [snapshot(env), "上席", "購買見積", {"email": "mech@x"}, ACTOR])
+
+    def turn_off():
+        with session_factory() as db:
+            db.get(models.Setting, "enableEmailNotifications").value = "false"
+            db.commit()
+
+    env.storage.on_save = turn_off  # メールを組み立てた後・送る前に通知を止めた
+    assert env.runner.run_once()["done"] == 1
+    assert env.transport.sent == []
+    assert all(not m.sent and m.last_error.startswith("skipped:") for m in env.mails(jid))
+
+
+def test_test_redirect_expiry_is_checked_right_before_sending(env, session_factory):
+    env.runner.config = MailPdfConfig(app_env="production", public_origin=ORIGIN)
+    with session_factory() as db:
+        until = int((env.clock() + timedelta(minutes=3)).timestamp() * 1000)
+        db.add(models.Setting(key="mailRedirectTo", value=f"imaizumi@lineworks-local.info|{until}"))
+        db.commit()
+    env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
+    env.transport.fail_to = {"applicant@lineworks-local.info"}
+    env.runner.run_once()
+    env.transport.fail_to = set()
+    env.clock.advance(minutes=5)  # 送り直すときにはテスト転送が切れている
+    env.runner.run_once()
+    assert env.transport.sent[-1]["To"] == "applicant@lineworks-local.info"
+
+
+def test_pdf_is_not_remade_when_mail_building_fails(env, monkeypatch):
+    env.set_request(current_step="購買手配")
+    jid = env.enqueue("dispatchApprovalNotifications_", [snapshot(env), "総務部長", "購買手配", {}, ACTOR])
+    real_build = env.runner._build_mails
+    calls = {"n": 0}
+
+    def flaky(job, masters):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("build failed")
+        return real_build(job, masters)
+
+    monkeypatch.setattr(env.runner, "_build_mails", flaky)
+    assert env.runner.run_once()["retry"] == 1
+    assert env.job(jid).pdf_file_id == "F1"
+    env.clock.advance(minutes=5)
+    assert env.runner.run_once()["done"] == 1
+    assert env.renderer.count == 1 and len(env.storage.saved) == 1  # PDF は 1 回だけ
+    (m,) = env.mails(jid)
+    assert m.attachment_file_id == "F1" and m.sent
