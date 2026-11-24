@@ -196,6 +196,9 @@
   .control::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
   .control[readonly] { background: var(--surface-2); color: var(--muted); }
   textarea.control { resize: vertical; min-height: 84px; line-height: 1.6; }
+  /* iPhone の日付欄は既定の最小幅と中央寄せで枠からはみ出す。ほかの欄と同じ幅・左寄せにそろえる */
+  input[type="date"].control { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; text-align: left; }
+  input[type="date"].control::-webkit-date-and-time-value { text-align: left; }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 
