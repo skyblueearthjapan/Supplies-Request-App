@@ -681,7 +681,10 @@ function approveRequest(requestId, comment, kiosk, returnItems) {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
     // kiosk=全画面承認モードでの代理記録時は本人以外でも可（運用・物理管理に依存）。
-    if (!kiosk && !canApprove_(request, user)) {
+    // ただし申請の状態と段は必ず確かめる（取消済みの復活や段飛ばしを防ぐ）。
+    if (kiosk) {
+      assertKioskTarget_(request);
+    } else if (!canApprove_(request, user)) {
       throw new Error('現在の承認者のみ承認できます。');
     }
     // 購買(見積)は金額入力が必須のため confirmQuote 経由のみ許可する。
@@ -1100,7 +1103,12 @@ function returnRequest(requestId, comment, kiosk, discard) {
   try {
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
-    if (!kiosk && !canApprove_(request, user)) {
+    if (kiosk) {
+      assertKioskTarget_(request);
+      if (discard) {
+        throw new Error('全画面モードでは却下できません。');
+      }
+    } else if (!canApprove_(request, user)) {
       throw new Error('現在の承認者のみ差戻し・却下できます。');
     }
 
@@ -1436,6 +1444,10 @@ function recordPresidentDecision(requestId, decision, comment, kiosk, returnItem
     var user = getCurrentUser_();
     var request = requireRequest_(requestId);
     // kiosk=全画面承認モードでの代理記録時は本人以外でも可。代理は履歴に注記される。
+    // ただし社長承認待ちの申請に限る（総務部長の段を飛ばして社長決裁を記録させない）。
+    if (kiosk && !isPresidentPendingRow_(request)) {
+      throw new Error('社長決裁待ちの申請ではありません。画面を開き直してください。');
+    }
     if (!kiosk && !canPresident_(request, user)) {
       throw new Error('社長または管理者（総務部長）のみ社長決裁を記録できます。');
     }
@@ -1548,6 +1560,14 @@ function recordPresidentDecision(requestId, decision, comment, kiosk, returnItem
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
+  }
+}
+
+// 全画面承認モード（代理記録）で操作してよい申請か。画面がボタンを出す条件（Client.html の全画面ボタン）と同じ。
+function assertKioskTarget_(request) {
+  var kioskSteps = [STEPS.SUPERVISOR, STEPS.GENERAL_MANAGER, STEPS.PRESIDENT];
+  if (request.status !== STATUS.IN_REVIEW || kioskSteps.indexOf(request.currentStep) === -1) {
+    throw new Error('全画面モードで操作できる申請ではありません。画面を開き直してください。');
   }
 }
 
