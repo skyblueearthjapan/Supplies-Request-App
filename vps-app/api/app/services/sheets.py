@@ -6,12 +6,14 @@
   書き出しの前に、毎回 safety.assert_writable_spreadsheet で書き出し先を確かめる
   （staging では本番の ID に書かない）。
 
-DB には依存しない。書き出しは「表名 → dict のリスト」を受け取り、読み込みは同じ形を返す。
+export_all_tables / read_all_tables は DB には依存しない。書き出しは「表名 → dict のリスト」を受け取り、
+読み込みは同じ形を返す。worker の定期処理 run_scheduled_export だけが DB を読み、SyncRun に記録する。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import urllib.error
@@ -37,6 +39,8 @@ except ImportError:  # pragma: no cover - F の土台とまとめたら消える
             raise RuntimeError("旧 DB（アーカイブ）には書き込みません。")
         if os.environ.get("APP_ENV", "staging") != "production" and spreadsheet_id == codec.PRODUCTION_SPREADSHEET_ID:
             raise RuntimeError("APP_ENV が production ではないため、本番のスプレッドシートには書き込みません。")
+
+log = logging.getLogger(__name__)
 
 SCOPE_READONLY = "https://www.googleapis.com/auth/spreadsheets.readonly"
 SCOPE_READWRITE = "https://www.googleapis.com/auth/spreadsheets"
@@ -258,3 +262,73 @@ def export_all_tables(api: SheetsApi, spreadsheet_id: str, tables: dict,
         counts[table] = len(values)
     finished = (now or datetime.now(codec.JST)).astimezone(codec.JST).strftime("%Y-%m-%d %H:%M:%S")
     return ExportResult(spreadsheet_id, finished, counts)
+
+
+# ===== worker の定期処理（毎晩。戻せる期間は毎時） =====
+
+EXPORT_SYNC_KIND = "export"
+
+# シートに書く行の並び（sort_order / seq を持つ表は sheet_codec が並べ直す）
+_EXPORT_ORDER_BY = {
+    "requests": ("created_at", "request_id"),
+    "request_items": ("request_id", "line_no", "item_id"),
+    "history": ("happened_at", "seq"),
+    "settings": ("key",),
+}
+
+
+def read_db_tables(db) -> dict:
+    """DB の 8 表を「表名 → DB 用の dict（列名がキー）のリスト」で読む。"""
+    from sqlalchemy import select
+
+    from app import models  # noqa: F401 - すべての表を読み込む
+    from app.db import Base
+
+    result = {}
+    for table in codec.EXPORT_ORDER:
+        target = Base.metadata.tables[table]
+        keys = _EXPORT_ORDER_BY.get(table) or ("sort_order", "id")
+        query = select(target).order_by(*[target.c[k] for k in keys])
+        result[table] = [dict(row._mapping) for row in db.execute(query)]
+    return result
+
+
+def run_scheduled_export(session_factory) -> Optional[ExportResult]:
+    """DB の全表を safety.export_spreadsheet_id()（staging はステージング用、production は本番）へ書き出す。
+
+    全タブの差し替えなので、何度動いても同じ結果になる。SyncRun に kind=export で記録する。
+    委任がまだ無ければ失敗として記録して飛ばす。それ以外の失敗は記録した上で例外を上げる（worker がログに出す）。
+    """
+    from app import safety
+    from app.config import get_settings
+    from app.domain import admin
+    from app.google_delegate import DelegateNotAuthorized
+    from app.models import SyncRun
+    from app.timeutil import now_utc
+
+    settings = get_settings()
+    started = now_utc()
+    result: Optional[ExportResult] = None
+    failure: Optional[Exception] = None
+    message = ""
+    try:
+        target = safety.export_spreadsheet_id(settings)
+        with session_factory() as db:
+            api = admin._sheets_api(db, settings)
+            tables = read_db_tables(db)
+        result = export_all_tables(api, target, tables)
+        message = target + ": " + ", ".join(f"{t}={n}" for t, n in result.counts.items())
+    except DelegateNotAuthorized as error:
+        message = str(error)
+    except Exception as error:  # noqa: BLE001 - 記録してから上げ直す
+        failure = error
+        message = f"{type(error).__name__}: {error}"
+    with session_factory() as db:
+        db.add(SyncRun(kind=EXPORT_SYNC_KIND, started_at=started, finished_at=now_utc(), ok=result is not None,
+                       row_count=sum(result.counts.values()) if result else 0, message=message[:2000]))
+        db.commit()
+    if failure is not None:
+        raise failure
+    if result is None:
+        log.warning("scheduled export skipped: %s", message)
+    return result

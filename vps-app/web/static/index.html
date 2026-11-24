@@ -2149,11 +2149,14 @@
     if (ki >= 0 && ci >= 0 && ki >= ci && detail.request.status !== '完了') { return null; }
     const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === '承認' || x.action === '完了処理' || x.action === '差戻' || x.action === '金額確定' || x.action === '金額不要至急'));
     if (!h) { return null; }
-    // 購買（見積・手配）のハンコは承認者マスタの購買氏名（例: 五十嵐）で表示する。
-    let stampName = h.actorName;
-    if ((key === '購買見積' || key === '購買手配') && detail.purchasingStampName) {
+    // 押印は氏名（決定事項）: 押した人のメール → マスタの氏名（詳細の stampNames）。PDF と同じ。
+    // 無ければ、購買（見積・手配）は承認者マスタの購買氏名（例: 五十嵐）、それ以外は履歴の操作者名。
+    const names = detail.stampNames || {};
+    let stampName = names[String(h.actorEmail || '').trim().toLowerCase()] || '';
+    if (!stampName && (key === '購買見積' || key === '購買手配') && detail.purchasingStampName) {
       stampName = detail.purchasingStampName;
     }
+    if (!stampName) { stampName = h.actorName; }
     return { name: stampName, date: h.happenedAt, kind: h.action === '差戻' ? 'ng' : 'approve' };
   }
 
@@ -2411,7 +2414,7 @@
         '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
           field('社長決裁しきい値（税抜）', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この税抜金額以上の申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
           field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
-          field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
+          field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可。空欄でも全員を管理者にはしません（サーバー設定の管理者は常に管理者）') +
           field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
         '</div></div></div>' +
         // VPS 版で足したカード: Google への許可（委任）とテスト転送。

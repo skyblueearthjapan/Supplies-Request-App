@@ -406,3 +406,70 @@ def test_production_redirect_only_while_test_redirect_is_set(env, session_factor
     env.enqueue("sendReturnedEmail_", [snapshot(env), "c"])
     env.runner.run_once()
     assert env.transport.sent[1]["To"] == "imaizumi@lineworks-local.info"
+
+
+# ---------------------------------------------------------------------------
+# VPS 版で足した kind（担当 W が積む）: regeneratePdf・trashPdf
+# ---------------------------------------------------------------------------
+
+
+def test_regenerate_pdf_makes_pdf_records_history_and_sends_no_mail(env, session_factory):
+    env.set_request(status="完了", current_step="完了済", pdf_file_id="P0", pdf_url="https://old")
+    jid = env.enqueue("regeneratePdf", [RID, ACTOR])
+    assert (env.job(jid).guard_status, env.job(jid).guard_step) == ("完了", "完了済")
+    assert env.runner.run_once() == {"done": 1, "skipped": 0, "retry": 0, "failed": 0}
+    assert env.renderer.count == 1 and env.storage.trashed == ["P0"]  # 前の PDF はゴミ箱へ
+    assert env.mails(jid) == [] and env.transport.sent == []
+    with session_factory() as db:
+        row = db.get(models.Request, RID)
+        assert (row.pdf_file_id, row.pdf_url) == ("F1", "https://drive.google.com/file/d/F1/view")
+        hist = db.scalars(select(models.History).where(models.History.action == "PDF作成")).all()
+        assert [(h.actor_email, h.actor_name, h.comment) for h in hist] == [
+            ("sup1@lineworks-local.info", "sup1", "https://drive.google.com/file/d/F1/view")]
+
+
+def test_regenerate_pdf_is_guarded(env):
+    env.set_request(status="完了", current_step="完了済")
+    jid = env.enqueue("regeneratePdf", [RID, ACTOR])
+    env.set_request(status="取消")
+    assert env.runner.run_once()["skipped"] == 1
+    assert env.renderer.count == 0 and env.job(jid).state == "skipped"
+
+
+def test_trash_pdf_is_not_guarded_and_sends_no_mail(env):
+    jid = env.enqueue("trashPdf", ["P9", RID])  # guard を渡しても照合しない
+    assert (env.job(jid).request_id, env.job(jid).guard_status, env.job(jid).guard_step) == (RID, "", "")
+    env.set_request(status="取消", pdf_file_id="", pdf_url="")
+    assert env.runner.run_once()["done"] == 1
+    assert env.storage.trashed == ["P9"] and env.renderer.count == 0
+    assert env.mails(jid) == [] and env.transport.sent == []
+
+
+def test_trash_pdf_goes_through_safety_in_staging(env):
+    from test_worker_drive import make_storage
+
+    env.runner.storage, sess = make_storage({"PROD_PDF": ["PROD_DATE"], "PROD_DATE": ["prod-folder-id"],
+                                             "STG_PDF": ["STG_DATE"], "STG_DATE": ["staging-folder-id"]})
+    a = env.enqueue("trashPdf", ["PROD_PDF", RID])
+    b = env.enqueue("trashPdf", ["STG_PDF", RID])
+    env.runner.run_once()
+    env.runner.run_once()
+    assert env.job(a).state == "done" and env.job(b).state == "done"
+    # 本番の PDF（移したデータが指す）は消さない。staging の置き場の中だけゴミ箱へ。
+    assert [c[1].rsplit("/", 1)[1] for c in sess.calls if c[0] == "PATCH"] == ["STG_PDF"]
+
+
+def test_outbox_defer_uses_enqueue_for_new_kinds(env, session_factory):
+    from app.domain import outbox
+
+    with session_factory() as db:
+        req = db.get(models.Request, RID)
+        req.status, req.current_step = "完了", "完了済"
+        regen = outbox.defer(db, "regeneratePdf", [RID, ACTOR], guard=req)
+        trash = outbox.defer(db, "trashPdf", ["P9", RID], request_id=RID)
+        assert regen.id and trash.id  # flush 済み
+        db.commit()
+        assert (regen.request_id, regen.guard_status, regen.guard_step) == (RID, "完了", "完了済")
+        assert (trash.request_id, trash.guard_status, trash.guard_step) == (RID, "", "")
+        assert json.loads(trash.args_json) == ["P9", RID]
+    assert jobs.JOB_LABELS["regeneratePdf"] and jobs.JOB_LABELS["trashPdf"]

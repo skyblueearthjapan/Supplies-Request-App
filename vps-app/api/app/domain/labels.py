@@ -77,7 +77,7 @@ DEFAULT_SETTINGS = [
     {"key": "pdfFolderId", "value": "",
      "description": "完了PDFを保存するGoogle DriveフォルダID。空欄なら自動作成。"},
     {"key": "adminEmails", "value": "imaizumi@lineworks-local.info",
-     "description": "管理者メールアドレス。カンマ区切り。空欄の間は全員を初期管理者として扱う。"},
+     "description": "管理者メールアドレス。カンマ区切り。空欄でも全員を管理者にはしません（サーバー設定の管理者は常に管理者）。"},
     {"key": "enableEmailNotifications", "value": "true",
      "description": "承認依頼・差戻し・完了メールを送信する。"},
 ]

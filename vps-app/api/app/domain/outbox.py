@@ -1,16 +1,15 @@
 """後回しの仕事を積む（Jobs.gs の defer_ の代わり）。実行は担当 M の worker。
 
-- 状態の変更と同じトランザクションで models.Job を insert する（commit は rpc.py）。
+- 状態の変更と同じトランザクションで jobs.enqueue で models.Job を積む（commit は rpc.py）。
 - kind は GAS の関数名（DEFERRABLE_JOBS と同じ 10 種）と、VPS 版で足した regeneratePdf・trashPdf。
 - args_json は GAS 版の defer_ と同じ並びの引数（申請は serialize.request_row の camelCase の dict）。
 - guard_status / guard_step は積んだ時点（状態を書き換えた後）の申請の値。照合しない仕事は空。
 
-積むのは models.Job を直接 insert する（担当 M の jobs.enqueue は regeneratePdf・trashPdf をまだ受け付けないため）。
+積むのは担当 M の jobs.enqueue（regeneratePdf・trashPdf も受け付ける）。
 pending_count / list_failed / retry_failed は担当 M の app.jobs を使う。
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from sqlalchemy import select
@@ -61,24 +60,18 @@ def defer(
     guard: Request | None = None,
     request_id: str = "",
 ) -> Job:
-    """defer_(fnName, args, guardRequestId)。guard を渡すと、その時点の状態と段を記録する。"""
+    """defer_(fnName, args, guardRequestId)。guard を渡すと、その時点の状態と段を記録する
+    （照合しない kind では jobs.enqueue が空にする）。"""
     if kind not in DEFERRABLE_KINDS:
         raise ValueError("後回しにできない関数です: " + kind)
-    at = now_utc()
-    job = Job(
-        kind=kind,
-        args_json=json.dumps(args, ensure_ascii=False, separators=(",", ":")),
+    job = jobs.enqueue(
+        db,
+        kind,
+        args,
         request_id=(guard.request_id if guard is not None else request_id) or "",
-        guard_status=guard.status if guard is not None else "",
-        guard_step=guard.current_step if guard is not None else "",
-        state="pending",
-        attempts=0,
-        last_error="",
-        run_after=at,
-        created_at=at,
-        updated_at=at,
+        guard={"status": guard.status, "currentStep": guard.current_step} if guard is not None else None,
+        now=now_utc(),
     )
-    db.add(job)
     db.flush()
     return job
 

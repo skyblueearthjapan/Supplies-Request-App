@@ -1,11 +1,12 @@
 """後回しの仕事（outbox）: PDF 作成とメール送信。GAS 版 Jobs.gs と Workflow.gs の送信部分の移植。
 
 取り決め（担当 W と）:
-- W は状態の変更と同じトランザクションで `models.Job(kind=..., args_json=json.dumps(args), request_id=...,
-  guard_status=..., guard_step=...)` を insert する（enqueue() を使ってもよい）。
+- W は状態の変更と同じトランザクションで enqueue() で積む（domain/outbox.defer が呼ぶ）。
 - kind は GAS 版 DEFERRABLE_JOBS と同じ関数名、args は GAS 版 defer_ と同じ並び
   （申請行は serialize.request_row の dict、承認者は {email,name,title,notifyEmail}、user は {email,name}）。
-- guard は差戻し共有（sendReturnedBroadcast_）と分割通知（notifySplitReturned_）だけ空。
+  VPS 版で足した kind: regeneratePdf [requestId, {email,name}]（PDF だけ作り直す。メールなし）、
+  trashPdf [pdfFileId, requestId]（PDF をゴミ箱へ。照合なし。safety を通る）。
+- guard は差戻し共有（sendReturnedBroadcast_）・分割通知（notifySplitReturned_）・trashPdf だけ空。
 
 GAS 版からの変更（計画書 9-2・実装仕様 3 章）:
 - メールは mail_log に 1 通ずつ記録し、送れなかった分（sent=false）だけを 5 分・30 分・2 時間後に送り直す。
@@ -55,8 +56,11 @@ JOB_LABELS = {
     "dispatchApprovalNotifications_": "承認後の通知・PDF",
     "completeAndNotify_": "完了の通知・PDF",
     "regeneratePdfAfterSplit_": "分割後の PDF 作り直し",
+    # VPS 版で足したもの（担当 W が積む）
+    "regeneratePdf": "PDF再作成",  # [requestId, {email, name}]。手動の「PDF再作成」。メールは送らない
+    "trashPdf": "PDFをゴミ箱へ移す",  # [pdfFileId, requestId]。取消・却下した申請の PDF
 }
-UNGUARDED_KINDS = {"sendReturnedBroadcast_", "notifySplitReturned_"}
+UNGUARDED_KINDS = {"sendReturnedBroadcast_", "notifySplitReturned_", "trashPdf"}
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +84,8 @@ def enqueue(db: Session, kind: str, args: Sequence[Any], request_id: str = "",
 
 
 def _request_id_from_args(kind: str, args: Sequence[Any]) -> str:
+    if kind == "trashPdf":
+        return js_str(args[1]) if len(args) > 1 else ""
     first = args[0] if args else None
     if isinstance(first, Mapping):
         return js_str(first.get("requestId"))
@@ -363,7 +369,7 @@ class JobRunner:
     # --- ① PDF ------------------------------------------------------------
     def _needs_pdf(self, job: JobView) -> bool:
         a = job.args
-        if job.kind == "completeAndNotify_":
+        if job.kind in ("completeAndNotify_", "regeneratePdf"):
             return True
         if job.kind == "dispatchApprovalNotifications_":
             return _arg(a, 2) in (STEPS.DONE, STEPS.PURCHASING_QUOTE, STEPS.PURCHASING)
@@ -374,10 +380,15 @@ class JobRunner:
         return False
 
     def _actor(self, job: JobView) -> Mapping | None:
-        idx = {"dispatchApprovalNotifications_": 4, "completeAndNotify_": 1, "regeneratePdfAfterSplit_": 2}.get(job.kind)
+        idx = {"dispatchApprovalNotifications_": 4, "completeAndNotify_": 1, "regeneratePdfAfterSplit_": 2,
+               "regeneratePdf": 1}.get(job.kind)
         return _arg(job.args, idx) if idx is not None else None
 
     def _pdf_stage(self, job: JobView, masters: Masters) -> str:
+        if job.kind == "trashPdf":
+            # 照合なし。safety を通る（staging では staging の置き場の外＝本番の PDF は消さない）。
+            self.storage.trash(masters.settings, js_str(_arg(job.args, 0)))
+            return ""
         if not self._needs_pdf(job):
             return ""
         return self.make_pdf(job.request_id, self._actor(job), masters)
@@ -450,7 +461,7 @@ class JobRunner:
             return b.approval_requests_for_step(req, next_step, _arg(a, 3))
         if k == "completeAndNotify_":
             return b.arranged_and_completed(self._current(job))
-        if k == "regeneratePdfAfterSplit_":
+        if k in ("regeneratePdfAfterSplit_", "regeneratePdf", "trashPdf"):
             return []
         raise ValueError(f"unknown job kind: {k}")
 
