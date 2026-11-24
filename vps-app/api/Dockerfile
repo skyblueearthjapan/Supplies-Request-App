@@ -1,5 +1,6 @@
 # api と worker で共用するイメージ。PDF 用に Chromium（Playwright）と日本語フォントを入れる。
-FROM python:3.12-slim
+# bookworm に固定（trixie では playwright の --with-deps が ttf-unifont 等を入れられず失敗する）
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
