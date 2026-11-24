@@ -31,11 +31,58 @@ function getSpreadsheet_() {
   }
 
   if (!_schemaEnsured) {
-    ensureSchema_(spreadsheet);
+    // 見出し確認は8シート分のAPI呼び出しになり、毎リクエスト数秒かかっていた。
+    // 確認済みの印をスクリプトキャッシュに置き、シート構成が変わらない間は省略する。
+    if (!schemaMarkedOk_(spreadsheet.getId())) {
+      ensureSchema_(spreadsheet);
+      markSchemaOk_(spreadsheet.getId());
+    }
     _schemaEnsured = true;
   }
   _ssCache = spreadsheet;
   return spreadsheet;
+}
+
+var SCHEMA_CACHE_SECONDS = 21600; // CacheService の上限（6時間）
+
+// 見出し定義が変わったら（デプロイで列を追加したら）別キーになり、初回に必ず ensureSchema_ が走る。
+function schemaCacheKey_(spreadsheetId) {
+  var signature = [
+    REQUEST_HEADERS, ITEM_HEADERS, APPROVER_HEADERS, HISTORY_HEADERS, SETTING_HEADERS,
+    WORKER_CACHE_HEADERS, RECIPIENT_HEADERS, DEPT_SUPERVISOR_HEADERS
+  ].map(function(headers) {
+    return headers.join('|');
+  }).join('#') + '#' + DEFAULT_SETTINGS.map(function(setting) {
+    return setting.key;
+  }).join('|');
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, signature, Utilities.Charset.UTF_8);
+  return 'schemaOk:' + spreadsheetId + ':' + Utilities.base64EncodeWebSafe(digest);
+}
+
+// キャッシュは高速化のためだけに使う。読み書きに失敗しても業務の処理は止めない（読めなければ確認する）。
+function schemaMarkedOk_(spreadsheetId) {
+  try {
+    return !!CacheService.getScriptCache().get(schemaCacheKey_(spreadsheetId));
+  } catch (error) {
+    Logger.log('schema cache get failed: ' + error.message);
+    return false;
+  }
+}
+
+function markSchemaOk_(spreadsheetId) {
+  try {
+    CacheService.getScriptCache().put(schemaCacheKey_(spreadsheetId), '1', SCHEMA_CACHE_SECONDS);
+  } catch (error) {
+    Logger.log('schema cache put failed: ' + error.message);
+  }
+}
+
+// キャッシュ中に誰かがシートを手で消した・改名した場合の自己修復（従来は毎回 ensureSchema_ で直っていた）。
+function repairSchema_() {
+  var spreadsheet = _ssCache || getSpreadsheet_();
+  ensureSchema_(spreadsheet);
+  markSchemaOk_(spreadsheet.getId());
+  invalidateCache_();
 }
 
 function ensureSchema_(spreadsheet) {
@@ -117,7 +164,12 @@ function seedSettings_(spreadsheet) {
 }
 
 function getSheet_(sheetName) {
-  return getSpreadsheet_().getSheetByName(sheetName);
+  var sheet = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) {
+    repairSchema_();
+    sheet = getSpreadsheet_().getSheetByName(sheetName);
+  }
+  return sheet;
 }
 
 function readObjects_(sheetName, columns) {
@@ -218,7 +270,18 @@ function getSettings_() {
   if (_settingsCache) {
     return _settingsCache;
   }
-  _settingsCache = getSettingsFromSpreadsheet_(getSpreadsheet_());
+  var spreadsheet = getSpreadsheet_();
+  var settings = getSettingsFromSpreadsheet_(spreadsheet);
+  // 設定タブや設定行（特に adminEmails）が消えていると isAdmin_ が全員を管理者扱いするため、
+  // 既定の設定キーが欠けていたらその場で修復して読み直す（ensureSchema_ のキャッシュ中でも直す）。
+  var missing = DEFAULT_SETTINGS.some(function(setting) {
+    return !Object.prototype.hasOwnProperty.call(settings, setting.key);
+  });
+  if (missing) {
+    repairSchema_();
+    settings = getSettingsFromSpreadsheet_(spreadsheet);
+  }
+  _settingsCache = settings;
   return _settingsCache;
 }
 
