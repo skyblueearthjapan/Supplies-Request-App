@@ -1,8 +1,11 @@
 """作業員マスタ・部署別上席マスタの同期（MasterData.gs / DeptSupervisors.gs の移植）。
 
-外部のスプレッドシートは委任トークンで読むだけ。DB には依存しない。
-結果の rows（DB 用の dict のリスト）で表を丸ごと置き換えるのは呼ぶ側（worker・RPC）の仕事。
+外部のスプレッドシートは委任トークンで読むだけ。sync_* は DB には依存しない。
+結果の rows（DB 用の dict のリスト）で表を丸ごと置き換えるのは domain.admin.apply_sync_result（RPC と worker）。
 rows が None のときは「上書きしない」（元が空・有効な行がゼロ・読めない）。
+
+worker の定期処理（毎朝 8 時台）は run_scheduled_workers_sync / run_scheduled_dept_supervisors_sync。
+表の丸ごとの置き換えなので、何度動いても同じ結果になる（GAS 版のトリガーと同じ）。
 """
 
 from __future__ import annotations
@@ -181,3 +184,38 @@ def sync_dept_supervisors(api: SheetsApi, now: Optional[datetime] = None) -> Syn
     if not rows:
         return SyncResult(True, 0, stamp, skipped=True)
     return SyncResult(True, len(rows), stamp, rows=rows)
+
+
+# ===== worker の定期処理 =====
+
+def _run_scheduled(session_factory, kind: str, sync_fn) -> SyncResult:
+    """委任トークンで読み、表を置き換えて SyncRun に記録する。委任がまだ無ければ失敗として記録して飛ばす。"""
+    from app.config import get_settings
+    from app.domain import admin
+    from app.google_delegate import DelegateNotAuthorized
+    from app.timeutil import now_utc
+
+    started = now_utc()
+    try:
+        with session_factory() as db:
+            api = admin._sheets_api(db, get_settings())
+    except DelegateNotAuthorized as error:
+        result = SyncResult(False, 0, _now(None), error=str(error))
+    else:
+        result = sync_fn(api)  # 読めないときは例外にせず ok=False・rows=None で返る
+    with session_factory() as db:
+        admin.apply_sync_result(db, kind, result, started)
+        db.commit()
+    return result
+
+
+def run_scheduled_workers_sync(session_factory) -> SyncResult:
+    from app.domain.admin import SYNC_KIND_WORKERS
+
+    return _run_scheduled(session_factory, SYNC_KIND_WORKERS, sync_workers)
+
+
+def run_scheduled_dept_supervisors_sync(session_factory) -> SyncResult:
+    from app.domain.admin import SYNC_KIND_DEPT_SUPERVISORS
+
+    return _run_scheduled(session_factory, SYNC_KIND_DEPT_SUPERVISORS, sync_dept_supervisors)

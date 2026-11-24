@@ -76,7 +76,7 @@ sg docker -c "docker compose start api worker"
 
 ### GAS 版へ戻す（切り替えから 5 営業日の間）
 
-計画書 6-5 章と 9-3 章に従います。毎時の書き出しで、今のスプレッドシートは最大 1 時間前の状態です。GAS 版の「移転しました」を外し、トリガー 3 つ（`syncWorkersMaster`・`syncDeptSupervisorsMaster`・`runDeferredJobsSweep`）を再開します。詳しい手順は切り替えの前に書き足します。
+計画書 6-5 章と 9-3 章に従います。毎時の書き出し（`.env` の `EXPORT_HOURLY_UNTIL` に戻せる期間の終わりの日時を入れておく）で、今のスプレッドシートは最大 1 時間前の状態です。書き出しの結果は `sync_runs` 表に `kind=export` で残ります。GAS 版の「移転しました」を外し、トリガー 3 つ（`syncWorkersMaster`・`syncDeptSupervisorsMaster`・`runDeferredJobsSweep`）を再開します。詳しい手順は切り替えの前に書き足します。
 
 ## バックアップ
 

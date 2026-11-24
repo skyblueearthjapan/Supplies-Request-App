@@ -1,15 +1,16 @@
 """worker: 後回しの仕事（jobs）を回し、定期処理を呼ぶ。docker compose の worker サービスで `python -m app.worker`。
 
-定期処理（中身は担当 D の services/sync.py・services/sheets.py。ここは呼び出し口だけ）:
+定期処理（中身は services/sync.py・services/sheets.py。ここは予定表と呼び出し口だけ）:
 - 作業員マスタ・上席マスタの同期: 毎日 8 時台（日本時間）に 1 回（GAS 版のトリガーと同じ）
-- スプレッドシートへの書き出し: 毎晩 2 時台に 1 回。戻せる期間（SHEETS_EXPORT_HOURLY_UNTIL=yyyy-MM-dd まで）は毎時
+- スプレッドシートへの書き出し: 毎晩 2 時台に 1 回。戻せる期間（環境変数 EXPORT_HOURLY_UNTIL＝日本時間の
+  日時まで。空なら毎晩だけ）は毎時
+どれも表の丸ごとの置き換えなので、同じ枠で 2 回動いても（worker の再起動など）結果は同じ。
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
-import os
 import signal
 import time
 from dataclasses import dataclass, field
@@ -17,7 +18,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from app.services.mailpdf_common import to_jst
-from app.timeutil import now_utc
+from app.timeutil import now_utc, parse_jst_until
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ POLL_SECONDS = 2.0
 SYNC_HOUR = 8
 NIGHTLY_EXPORT_HOUR = 2
 
-# 担当 D に用意してもらう関数（引数は session_factory。中で委任トークン・SheetsApi・DB の置き換え・SyncRun の記録まで行う）
+# 定期処理の関数（引数は session_factory。中で委任トークン・SheetsApi・DB の置き換え・SyncRun の記録まで行う）
 SCHEDULED_HOOKS = {
     "sync_workers": ("app.services.sync", "run_scheduled_workers_sync"),
     "sync_dept_supervisors": ("app.services.sync", "run_scheduled_dept_supervisors_sync"),
@@ -34,8 +35,12 @@ SCHEDULED_HOOKS = {
 
 
 def due_tasks(now: datetime, last_slots: dict[str, str], hourly_export_until: str = "") -> list[str]:
-    """今の時刻で動かすべき定期処理の名前（同じ枠では 1 回だけ）。last_slots は更新する。"""
+    """今の時刻で動かすべき定期処理の名前（同じ枠では 1 回だけ）。last_slots は更新する。
+
+    hourly_export_until は EXPORT_HOURLY_UNTIL（日本時間の日時。日付だけならその日の終わりまで）。
+    """
     jst = to_jst(now)
+    until = parse_jst_until(hourly_export_until)
     due: list[str] = []
     if jst.hour == SYNC_HOUR:
         slot = jst.strftime("%Y-%m-%d")
@@ -43,7 +48,7 @@ def due_tasks(now: datetime, last_slots: dict[str, str], hourly_export_until: st
             if last_slots.get(name) != slot:
                 last_slots[name] = slot
                 due.append(name)
-    hourly = bool(hourly_export_until) and jst.strftime("%Y-%m-%d") <= hourly_export_until
+    hourly = until is not None and jst < until
     if hourly or jst.hour == NIGHTLY_EXPORT_HOUR:
         slot = jst.strftime("%Y-%m-%d %H") if hourly else jst.strftime("%Y-%m-%d")
         if last_slots.get("export_sheets") != slot:
@@ -129,8 +134,10 @@ def main() -> None:  # pragma: no cover - VPS で動かす
 
     sf = get_sessionmaker()
     runner = build_runner(sf)
+    from app.config import get_settings
+
     worker = Worker(run_jobs_once=runner.run_once, hooks=default_hooks(sf),
-                    hourly_export_until=os.environ.get("SHEETS_EXPORT_HOURLY_UNTIL", ""))
+                    hourly_export_until=get_settings().export_hourly_until)
     try:
         worker.run_forever()
     finally:

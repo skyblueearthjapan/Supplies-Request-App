@@ -12,6 +12,8 @@ from cryptography.fernet import Fernet
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.timeutil import parse_jst_until
+
 # 本番（GAS 版が今使っている）スプレッドシート。ステージングからは読むだけ。
 PROD_SPREADSHEET_ID_FIXED = "1VKbB13yhJPkyTYu7VYfHm-Zc3sl0nYp0npXUAxau4p4"
 
@@ -48,6 +50,9 @@ class Settings(BaseSettings):
     staging_spreadsheet_id: str = ""
     staging_pdf_folder_id: str = ""
 
+    # スプレッドシートの書き出し: この日時（日本時間 yyyy-MM-dd HH:mm）までは毎時、その後（空なら最初から）は毎晩だけ
+    export_hourly_until: str = ""
+
     @field_validator("public_origin")
     @classmethod
     def _origin(cls, v: str) -> str:
@@ -60,6 +65,12 @@ class Settings(BaseSettings):
     @classmethod
     def _lower(cls, v: str) -> str:
         return v.strip().lower()
+
+    @field_validator("export_hourly_until")
+    @classmethod
+    def _until(cls, v: str) -> str:
+        parse_jst_until(v)  # 形が違えば起動しない
+        return v.strip()
 
     @field_validator("fernet_key")
     @classmethod

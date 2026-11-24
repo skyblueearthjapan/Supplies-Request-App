@@ -44,6 +44,44 @@ def test_sheet_export_nightly_or_hourly_during_rollback_window():
     assert due_tasks(at(14, 0, day=29), hourly, "2026-11-28") == []  # 期間が過ぎたら毎晩だけ
 
 
+def test_export_hourly_until_is_jst_datetime_then_nightly():
+    until = "2026-11-28 12:00"  # EXPORT_HOURLY_UNTIL（日本時間）
+    slots: dict[str, str] = {}
+    assert due_tasks(at(11, 59, day=28), slots, until) == ["export_sheets"]
+    assert due_tasks(at(12, 0, day=28), slots, until) == []  # その時刻からは毎晩だけ
+    assert due_tasks(at(23, 0, day=28), slots, until) == []
+    assert due_tasks(at(2, 0, day=29), slots, until) == ["export_sheets"]
+    assert due_tasks(at(2, 30, day=29), slots, until) == []
+    assert due_tasks(at(3, 0, day=29), slots, until) == []
+    # UTC で渡しても日本時間で判定する（02:59 UTC = 11:59 JST）
+    assert due_tasks(datetime(2026, 11, 28, 2, 59, tzinfo=timezone.utc), {}, until) == ["export_sheets"]
+    # 空なら毎晩だけ
+    assert due_tasks(at(11, 0), {}, "") == []
+
+
+def test_export_hourly_until_setting_is_checked_at_startup():
+    from pydantic import ValidationError
+
+    assert make_settings().export_hourly_until == ""
+    assert make_settings(export_hourly_until=" 2026-12-11 18:00 ").export_hourly_until == "2026-12-11 18:00"
+    with pytest.raises(ValidationError):
+        make_settings(export_hourly_until="来週の金曜")
+
+
+def test_worker_runs_export_every_hour_until_setting():
+    calls = []
+    clock = {"t": at(9, 5, day=28)}
+    w = Worker(run_jobs_once=lambda: {}, hooks={"export_sheets": lambda: calls.append(clock["t"].hour)},
+               hourly_export_until="2026-11-28 11:00", now=lambda: clock["t"])
+    for h, m in [(9, 5), (9, 50), (10, 0), (10, 30), (11, 0), (12, 0)]:
+        clock["t"] = at(h, m, day=28)
+        w.tick()
+    clock["t"] = at(2, 1, day=29)
+    w.tick()
+    w.tick()
+    assert calls == [9, 10, 2]
+
+
 def test_worker_tick_calls_hooks_and_jobs_and_survives_errors():
     calls = []
 
