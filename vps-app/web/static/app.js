@@ -1524,7 +1524,7 @@ window.INITIAL_REQUEST_ID = new URLSearchParams(window.location.search).get('req
       const qr = qrcode(0, 'M');
       qr.addData(requestDetailUrl(requestId));
       qr.make();
-      return '<div class="qr" title="' + escapeAttr(requestDetailUrl(requestId)) + '">' + qr.createSvgTag({ cellSize: 2, margin: 0, scalable: true }) + '</div>';
+      return '<div class="qr" title="' + escapeAttr(requestDetailUrl(requestId)) + '">' + qr.createSvgTag({ cellSize: 2, margin: 4, scalable: true }) + '</div>';
     } catch (e) {
       return '<div class="qr"></div>';
     }

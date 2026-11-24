@@ -604,8 +604,8 @@
 
   .pdf-doc .doc-foot { position: absolute; left: 14mm; right: 14mm; bottom: 9mm; display: flex; align-items: flex-end; justify-content: space-between; }
   /* VPS 版: 飾りのバーコードを、申請の詳細 URL の QR コードに置き換えた（決定事項 Q6） */
-  .pdf-doc .qr { width: 64px; height: 64px; flex: none; }
-  .pdf-doc .qr svg { display: block; width: 100%; height: 100%; }
+  .pdf-doc .qr { width: 96px; height: 96px; flex: none; background: #fff; }
+  .pdf-doc .qr svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
   .pdf-doc .foot-meta { font-size: 7pt; color: var(--gray); text-align: right; line-height: 1.5; }
   .pdf-doc .foot-meta .fm-id { font-family: var(--mono); color: var(--ink-2); font-size: 7.6pt; }
 
