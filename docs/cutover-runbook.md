@@ -55,7 +55,7 @@ ssh lineworks-vps-user "hostname"
 2. ディレクターが許可の中身を確かめます。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT account_email, granted_at, scopes LIKE '%gmail.metadata%' AS has_metadata, scopes LIKE '%gmail.send%' AS has_send,
        scopes LIKE '%/auth/drive%' AS has_drive, scopes LIKE '%spreadsheets%' AS has_sheets
 FROM google_credentials;
@@ -82,11 +82,13 @@ SQL
 `main` に取り込んだ後に行います（安全装置の直しと送り直しの道具が入る）。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin && git pull && cd vps-app && TAG=$(git rev-parse --short HEAD) && sg docker -c "APP_IMAGE_TAG=$TAG docker compose build api" && sg docker -c "APP_IMAGE_TAG=$TAG docker compose up -d" && sg docker -c "docker compose ps"'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T web wget -qO- http://127.0.0.1/healthz"'
+# VPS の /opt/chozouhin は git のフォルダーではない。手元の main を git archive で送る（.env は上書きされない）
+git archive --format=tar HEAD vps-app | ssh lineworks-vps-user 'test "$(hostname)" = srv1508169 || exit 9; rm -rf /tmp/chz && mkdir -p /tmp/chz && tar -x -C /tmp/chz && cp -a /tmp/chz/vps-app/. /opt/chozouhin/ && rm -rf /tmp/chz && echo synced'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose build api" && sg docker -c "docker compose up -d" && sg docker -c "docker compose ps"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T web wget -qO- http://127.0.0.1/healthz"'
 ```
 
-- 確かめ: `{"ok":true,"env":"staging"}`。`git log -1` に送り直しの道具のコミットが入っていること。
+- 確かめ: `{"ok":true,"env":"staging"}`。`ls /opt/chozouhin/tools/resend_after_cutover.py` があること。
 - 前のイメージのタグを控えます（戻すとき用）: `ssh lineworks-vps-user 'sg docker -c "docker image ls chozouhin-app"'`
 - 失敗したら: RUNBOOK の「アプリの版を戻す」で前のタグに戻します。GAS 版には影響しません。
 
@@ -175,8 +177,8 @@ worker を起動すると本番のシートが DB の内容で上書きされる
 
 ```sh
 ssh lineworks-vps-user "hostname"   # srv1508169
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose stop api worker" && sg docker -c "docker compose ps"'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db pg_dump -U chozouhin -Fc chozouhin" > /opt/chozouhin/cutover/before-cutover-20261125.pgdump && ls -l /opt/chozouhin/cutover/before-cutover-20261125.pgdump'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose stop api worker" && sg docker -c "docker compose ps"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db pg_dump -U chozouhin -Fc chozouhin" > /opt/chozouhin/cutover/before-cutover-20261125.pgdump && ls -l /opt/chozouhin/cutover/before-cutover-20261125.pgdump'
 ```
 
 - 確かめ: api と worker が `exited`。db・web・cloudflared・backup は動いたまま。ダンプが 1KB より大きいこと。
@@ -188,7 +190,7 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compos
 `google_credentials`（委任）と `sessions`（ログイン）と `alembic_version` は残します。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin -v ON_ERROR_STOP=1"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin -v ON_ERROR_STOP=1"' <<'SQL'
 BEGIN;
 TRUNCATE requests, request_items, history, approver_rules, settings, workers, notification_recipients,
          dept_supervisors, jobs, mail_log, idempotency_keys, sync_runs RESTART IDENTITY;
@@ -206,7 +208,7 @@ SQL
 まず読むだけで確かめます。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/vps-app/tools:/app/tools:ro api python tools/migrate_from_sheets.py --source sheets --dry-run" | tee /opt/chozouhin/cutover/migrate-dryrun.json'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/tools:/app/tools:ro api python tools/migrate_from_sheets.py --source sheets --dry-run" | tee /opt/chozouhin/cutover/migrate-dryrun.json'
 ```
 
 - 確かめ: 「止めました」が出ないこと。`summary.counts.requests` が前回の 219 件以上で、`excludedRequestIds` が `SAMPLE-`・`TEST-EXP-` だけ。`warnings` を読んで、知らないものが無いこと。
@@ -214,7 +216,7 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compos
 続けて書き込みます。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/vps-app/tools:/app/tools:ro api python tools/migrate_from_sheets.py --source sheets" | tee /opt/chozouhin/cutover/migrate-result.json'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/tools:/app/tools:ro api python tools/migrate_from_sheets.py --source sheets" | tee /opt/chozouhin/cutover/migrate-result.json'
 ```
 
 - 確かめ: 最後の JSON の `verifyProblems` が `[]`、`droppedColumns` が `{}`。
@@ -223,7 +225,7 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compos
 ### B-8. 照合する（件数・金額・状態ごと）
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT (SELECT count(*) FROM requests) AS requests, (SELECT count(*) FROM request_items) AS items,
        (SELECT count(*) FROM history) AS history, (SELECT sum(total_amount) FROM requests) AS total_amount,
        (SELECT sum(amount) FROM request_items) AS item_amount;
@@ -231,7 +233,7 @@ SELECT status, count(*), sum(total_amount) FROM requests GROUP BY status ORDER B
 SELECT current_step, count(*) FROM requests WHERE status = '承認中' GROUP BY current_step ORDER BY current_step;
 SELECT key, value FROM settings WHERE key IN ('pdfFolderId', 'adminEmails', 'enableEmailNotifications', 'thresholdAmount') ORDER BY key;
 SQL
-ssh lineworks-vps-user 'grep -E "^PROD_PDF_FOLDER_ID=" /opt/chozouhin/vps-app/.env'
+ssh lineworks-vps-user 'grep -E "^PROD_PDF_FOLDER_ID=" /opt/chozouhin/.env'
 ```
 
 - 確かめ（`/opt/chozouhin/cutover/migrate-dryrun.json` の `summary` と比べる）:
@@ -245,7 +247,7 @@ ssh lineworks-vps-user 'grep -E "^PROD_PDF_FOLDER_ID=" /opt/chozouhin/vps-app/.e
 ### B-9. `.env` を本番の値にする
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && cp -p .env .env.before-cutover && sed -i -e "s/^APP_ENV=.*/APP_ENV=production/" -e "s/^EXPORT_HOURLY_UNTIL=.*/EXPORT_HOURLY_UNTIL=2026-12-02 23:59/" .env && grep -E "^(APP_ENV|EXPORT_HOURLY_UNTIL|PROD_PDF_FOLDER_ID|STAGING_SPREADSHEET_ID|STAGING_PDF_FOLDER_ID|MAIL_REDIRECT_TO)=" .env && ls -l .env'
+ssh lineworks-vps-user 'cd /opt/chozouhin && cp -p .env .env.before-cutover && sed -i -e "s/^APP_ENV=.*/APP_ENV=production/" -e "s/^EXPORT_HOURLY_UNTIL=.*/EXPORT_HOURLY_UNTIL=2026-12-02 23:59/" .env && grep -E "^(APP_ENV|EXPORT_HOURLY_UNTIL|PROD_PDF_FOLDER_ID|STAGING_SPREADSHEET_ID|STAGING_PDF_FOLDER_ID|MAIL_REDIRECT_TO)=" .env && ls -l .env'
 ```
 
 - 確かめ: `APP_ENV=production`、`EXPORT_HOURLY_UNTIL=2026-12-02 23:59`、`PROD_PDF_FOLDER_ID` が入っている。権限が `-rw-------`。
@@ -258,8 +260,8 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && cp -p .env .env.before-cuto
 worker はまだ起動しません（起動するとすぐ本番のシートへ書き出すため）。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose up -d api" && sg docker -c "docker compose ps" && sg docker -c "docker compose exec -T web wget -qO- http://127.0.0.1/healthz"'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T api python -"' <<'PY'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose up -d api" && sg docker -c "docker compose ps" && sg docker -c "docker compose exec -T web wget -qO- http://127.0.0.1/healthz"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T api python -"' <<'PY'
 from app import safety
 from app.config import get_settings
 from app.db import get_sessionmaker
@@ -297,8 +299,8 @@ PY
 ### B-11. worker を起動し、本番のシートへの書き出しを確かめる
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose up -d worker" && sleep 60 && sg docker -c "docker compose logs --tail=30 worker"'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose up -d worker" && sleep 60 && sg docker -c "docker compose logs --tail=30 worker"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT id, kind, started_at, ok, row_count, left(message, 200) AS message FROM sync_runs ORDER BY id DESC LIMIT 5;
 SQL
 ```
@@ -310,7 +312,7 @@ SQL
   - 注: 書き出しは DB の内容でタブを丸ごと置き換えるため、`SAMPLE-`・`TEST-EXP-` の行（申請・明細・履歴）は本番のシートから消えます。控えは B-4 のコピーに残ります。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT request_id, created_at FROM requests ORDER BY created_at DESC, request_id DESC LIMIT 1;
 SQL
 ```
@@ -318,7 +320,7 @@ SQL
 - 1 分で行が出ないときは、手でもう 1 回動かします。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T worker python -"' <<'PY'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T worker python -"' <<'PY'
 from app.db import get_sessionmaker
 from app.services.sheets import run_scheduled_export
 print(run_scheduled_export(get_sessionmaker()))
@@ -330,7 +332,7 @@ PY
 ### B-12. 進行中の申請へ依頼を送り直す（dry-run → 本番）
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/vps-app/tools:/app/tools:ro api python tools/resend_after_cutover.py --dry-run" | tee /opt/chozouhin/cutover/resend-dryrun.txt'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/tools:/app/tools:ro api python tools/resend_after_cutover.py --dry-run" | tee /opt/chozouhin/cutover/resend-dryrun.txt'
 ```
 
 - 確かめ:
@@ -340,8 +342,8 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compos
   - 一覧をオーナーに見せて、送ってよいか一声かけます。
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/vps-app/tools:/app/tools:ro api python tools/resend_after_cutover.py" | tee /opt/chozouhin/cutover/resend-result.txt'
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sleep 120 && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose run --rm --no-deps -T -e PYTHONPATH=/app -v /opt/chozouhin/tools:/app/tools:ro api python tools/resend_after_cutover.py" | tee /opt/chozouhin/cutover/resend-result.txt'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sleep 120 && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT state, count(*) FROM jobs GROUP BY state ORDER BY state;
 SELECT request_id, kind, sent, attachment_file_id <> '' AS with_pdf, left(to_addrs, 60) AS to_addrs, left(last_error, 80) AS err
 FROM mail_log ORDER BY id;
@@ -400,7 +402,7 @@ GAS 版の移転のページが新しい URL へ案内するので、ポータ�
 
 ```sh
 ssh lineworks-vps-user "hostname"   # srv1508169
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose stop api" && sg docker -c "docker compose ps"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose stop api" && sg docker -c "docker compose ps"'
 ```
 
 - VPS 版に読み取り専用の切り替えは無いため、api を止めます（画面は開けなくなります）。worker は最後の書き出しのために動かしたままにします。
@@ -408,16 +410,16 @@ ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compos
 ### C-2. 最後の書き出しを動かして確かめる
 
 ```sh
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T worker python -"' <<'PY'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T worker python -"' <<'PY'
 from app.db import get_sessionmaker
 from app.services.sheets import run_scheduled_export
 print(run_scheduled_export(get_sessionmaker()))
 PY
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose exec -T db psql -U chozouhin -d chozouhin"' <<'SQL'
 SELECT id, kind, started_at, ok, left(message, 200) AS message FROM sync_runs WHERE kind = 'export' ORDER BY id DESC LIMIT 3;
 SELECT id, kind, request_id, state, left(last_error, 80) AS err FROM jobs WHERE state IN ('pending', 'running', 'failed') ORDER BY id;
 SQL
-ssh lineworks-vps-user 'cd /opt/chozouhin/vps-app && sg docker -c "docker compose stop worker"'
+ssh lineworks-vps-user 'cd /opt/chozouhin && sg docker -c "docker compose stop worker"'
 ```
 
 - 確かめ: 一番新しい `export` が `ok=t` で、C-1 の後の時刻。本番のシートの「申請」タブの最終行が、VPS で最後に作られた申請と同じ。
