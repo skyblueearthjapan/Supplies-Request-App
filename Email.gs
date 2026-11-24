@@ -685,11 +685,15 @@ function sendEmail_(to, subject, body, cc) {
 }
 
 function getRequestUrl_(requestId) {
-  var baseUrl = '';
-  try {
-    baseUrl = ScriptApp.getService().getUrl();
-  } catch (error) {
-    baseUrl = '';
+  // 後回しの仕事（Jobs.gs）では、積んだとき（画面から操作したとき）の URL を使う。
+  // 見回りトリガーから実行すると getService().getUrl() が本番 /exec 以外を返すことがあるため。
+  var baseUrl = _requestBaseUrlOverride || '';
+  if (!baseUrl) {
+    try {
+      baseUrl = ScriptApp.getService().getUrl();
+    } catch (error) {
+      baseUrl = '';
+    }
   }
   return baseUrl ? baseUrl + '?requestId=' + encodeURIComponent(requestId) : 'WebアプリURLはデプロイ後に有効になります。';
 }

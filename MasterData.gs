@@ -61,7 +61,8 @@ function installSyncTriggers() {
   try {
     return {
       workers: ensureMasterSyncTrigger_(),
-      deptSupervisors: ensureDeptSupervisorSyncTrigger_()
+      deptSupervisors: ensureDeptSupervisorSyncTrigger_(),
+      deferredJobs: ensureDeferredJobTrigger_()
     };
   } finally {
     lock.releaseLock();

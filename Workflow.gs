@@ -93,10 +93,10 @@ function createRequest(payload) {
     var request = getRequestById_(requestId);
     if (firstStep === STEPS.SUPERVISOR) {
       supervisors.forEach(function(s) {
-        sendApprovalRequestEmail_(request, s);
+        defer_('sendApprovalRequestEmail_', [request, s], requestId);
       });
     } else {
-      sendApprovalRequestEmail_(request, firstApprover);
+      defer_('sendApprovalRequestEmail_', [request, firstApprover], requestId);
     }
     return getRequestDetail(requestId);
   } finally {
@@ -200,7 +200,7 @@ function updateRequestInReview(requestId, payload) {
     });
 
     // 変更後の最新行で現承認者（上席ステップは全上席）へ通知する。編集者自身は宛先から除外する。
-    sendRequestUpdatedEmail_(getRequestById_(requestId), summary, user.name, user.email);
+    defer_('sendRequestUpdatedEmail_', [getRequestById_(requestId), summary, user.name, user.email], requestId);
 
     return getRequestDetail(requestId);
   } finally {
@@ -261,10 +261,10 @@ function resubmitRequest(requestId) {
     var updated = getRequestById_(requestId);
     if (firstStep === STEPS.SUPERVISOR) {
       supervisors.forEach(function(s) {
-        sendApprovalRequestEmail_(updated, s);
+        defer_('sendApprovalRequestEmail_', [updated, s], requestId);
       });
     } else {
-      sendApprovalRequestEmail_(updated, firstApprover);
+      defer_('sendApprovalRequestEmail_', [updated, firstApprover], requestId);
     }
     return getRequestDetail(requestId);
   } finally {
@@ -401,7 +401,9 @@ function getRequestDetail(requestId) {
       canSplitItems: canSplitItems_(request, user, items.length)
     },
     stepTitles: resolveStepTitles_(request, history),
-    purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name)
+    purchasingStampName: stripRoleParen_(roleNameTitle_(request.applicantEmail, request.department, STEPS.PURCHASING).name),
+    // 書き込み処理が後回しにした通知・PDF（Jobs.gs）。画面が受け取ったらすぐ runDeferredJobs で実行する。
+    deferredJobs: _deferredJobIds.slice()
   };
 }
 
@@ -656,7 +658,7 @@ function splitItemsOnApproval_(request, returnItems, cleanComment, user, kiosk) 
   });
 
   addSplitOutHistory_(request, selection.moved, newId, cleanComment, user);
-  notifySplitReturned_(newId, request.currentStep, cleanComment, user.name);
+  defer_('notifySplitReturned_', [newId, request.currentStep, cleanComment, user.name]); // 出来事の共有なので状態照合なし
   return newId;
 }
 
@@ -755,9 +757,9 @@ function approveRequest(requestId, comment, kiosk, returnItems) {
     });
 
     var updated = getRequestById_(requestId);
-    dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover, user);
+    defer_('dispatchApprovalNotifications_', [updated, curKey, nextStep, nextApprover, user], requestId);
     if (splitHappened) {
-      regeneratePdfAfterSplit_(updated, nextStep, user);
+      defer_('regeneratePdfAfterSplit_', [updated, nextStep, user], requestId);
     }
 
     return getRequestDetail(requestId);
@@ -777,6 +779,9 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
   if (nextStep === STEPS.PURCHASING_QUOTE) {
     // 上席承認後、購買(見積)ステップへ。押印済PDFを生成し購買へ見積依頼を送付。
     var quoteFile = createRequestPdfInternal_(updated.requestId, user);
+    if (!quoteFile) {
+      return; // PDF作成中に取消された
+    }
     updated = getRequestById_(updated.requestId);
     sendQuoteRequestEmail_(updated, quoteFile);
     return;
@@ -785,6 +790,9 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
   if (nextStep === STEPS.PURCHASING) {
     // 購買(手配)ステップに入った（総務部長または社長の承認後）。押印済PDFを生成し購買へ送付。
     var purchasingFile = createRequestPdfInternal_(updated.requestId, user);
+    if (!purchasingFile) {
+      return; // PDF作成中に取消された
+    }
     updated = getRequestById_(updated.requestId);
     sendPurchasingPdfEmail_(updated, purchasingFile);
     return;
@@ -811,6 +819,9 @@ function dispatchApprovalNotifications_(updated, curKey, nextStep, nextApprover,
 // dispatchApprovalNotifications_ の DONE 分岐と arrangeComplete の完了分岐で共用する。
 function completeAndNotify_(updated, user) {
   var doneFile = createRequestPdfInternal_(updated.requestId, user);
+  if (!doneFile) {
+    return; // PDF作成中に取消された
+  }
   updated = getRequestById_(updated.requestId);
   var doneBody = buildGeneralAffairsBody_(updated, '貯蔵品購入申請の手配が完了しました。');
   notifyGeneralAffairs_(updated, '[貯蔵品購入申請] 手配完了 ' + updated.requestId, doneBody, doneFile);
@@ -953,13 +964,13 @@ function confirmQuote(requestId, items, comment, returnItems) {
     var gaHeading = over
       ? overBanner + '\n\n購買が見積金額 ' + amountSummary + ' を確定しました。'
       : '購買が見積金額 ' + amountSummary + ' を確定しました。総務部長承認をお願いします。';
-    notifyGeneralAffairs_(updated, gaSubject, buildGeneralAffairsBody_(updated, gaHeading), null);
-    sendApprovalRequestEmail_(updated, gm, over ? overBanner : '');
+    defer_('notifyGeneralAffairs_', [updated, gaSubject, buildGeneralAffairsBody_(updated, gaHeading), null], requestId);
+    defer_('sendApprovalRequestEmail_', [updated, gm, over ? overBanner : ''], requestId);
     // 見積確定の遷移先は常に総務部長で、この経路ではPDFが生成されない。
     // 分割で明細が変わった以上、既にPDFがある申請は必ず作り直す。
     if (selection) {
-      regeneratePdfAfterSplit_(updated, STEPS.GENERAL_MANAGER, user);
-      notifySplitReturned_(splitRequestId, STEPS.PURCHASING_QUOTE, cleanComment, user.name);
+      defer_('regeneratePdfAfterSplit_', [updated, STEPS.GENERAL_MANAGER, user], requestId);
+      defer_('notifySplitReturned_', [splitRequestId, STEPS.PURCHASING_QUOTE, cleanComment, user.name]); // 出来事の共有なので状態照合なし
     }
     return getRequestDetail(requestId);
   } finally {
@@ -1021,13 +1032,13 @@ function confirmExpedited(requestId, comment) {
     ].join('\n');
     var gaHeading = expediteBanner + '\n\n購買より、金額確定不要・至急手配の申請です。' +
       (cleanComment ? '\n備考: ' + cleanComment : '');
-    notifyGeneralAffairs_(
+    defer_('notifyGeneralAffairs_', [
       updated,
       '【⚡至急承認・金額確定不要⚡】[貯蔵品購入申請] ' + updated.requestId,
       buildGeneralAffairsBody_(updated, gaHeading),
       null
-    );
-    sendApprovalRequestEmail_(updated, gm, expediteBanner, '【⚡至急承認・金額確定不要⚡】');
+    ], requestId);
+    defer_('sendApprovalRequestEmail_', [updated, gm, expediteBanner, '【⚡至急承認・金額確定不要⚡】'], requestId);
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
@@ -1073,7 +1084,7 @@ function arrangeComplete(requestId, comment) {
     });
 
     var updated = getRequestById_(requestId);
-    completeAndNotify_(updated, user);
+    defer_('completeAndNotify_', [updated, user], requestId);
     return getRequestDetail(requestId);
   } finally {
     lock.releaseLock();
@@ -1135,7 +1146,7 @@ function returnRequest(requestId, comment, kiosk, discard) {
       var rejected = getRequestById_(requestId);
       // メール送信の失敗が却下自体（DB更新済み）を巻き戻さないよう握りつぶす。
       try {
-        sendRejectedEmail_(rejected, cleanComment);
+        defer_('sendRejectedEmail_', [rejected, cleanComment], requestId);
       } catch (mailError) {
         Logger.log('sendRejectedEmail_ failed: ' + mailError.message);
       }
@@ -1162,12 +1173,12 @@ function returnRequest(requestId, comment, kiosk, discard) {
     });
 
     var updated = getRequestById_(requestId);
-    sendReturnedEmail_(updated, cleanComment);
+    defer_('sendReturnedEmail_', [updated, cleanComment], requestId);
     // 通知宛先マスタの全宛先へ、差戻しになった旨を明細付きで一斉共有する。
     // 差戻し段階は「申請者へ戻す前の」currentStep（＝request.currentStep）を渡す。
     // 一斉送信の失敗が差戻し自体（DB更新済み）を巻き戻さないよう握りつぶす。
     try {
-      sendReturnedBroadcast_(request, request.currentStep, cleanComment, actName);
+      defer_('sendReturnedBroadcast_', [request, request.currentStep, cleanComment, actName]); // 出来事の共有なので状態照合なし
     } catch (broadcastError) {
       Logger.log('sendReturnedBroadcast_ failed: ' + broadcastError.message);
     }
@@ -1238,7 +1249,7 @@ function recallStep(requestId, comment) {
     // 戻し先ステップの承認者（複数登録に対応）へ再承認依頼を送る。
     var updated = getRequestById_(requestId);
     resolved.members.forEach(function(member) {
-      sendApprovalRequestEmail_(updated, member);
+      defer_('sendApprovalRequestEmail_', [updated, member], requestId);
     });
 
     return getRequestDetail(requestId);
@@ -1463,10 +1474,10 @@ function recordPresidentDecision(requestId, decision, comment, kiosk, returnItem
         comment: [cleanComment, operatorNote].filter(Boolean).join(' ')
       });
       var returned = getRequestById_(requestId);
-      sendReturnedEmail_(returned, cleanComment);
+      defer_('sendReturnedEmail_', [returned, cleanComment], requestId);
       // 社長決裁段階での差戻しも、通知宛先マスタの全宛先へ一斉共有する。
       try {
-        sendReturnedBroadcast_(request, STEPS.PRESIDENT, cleanComment, presidentName);
+        defer_('sendReturnedBroadcast_', [request, STEPS.PRESIDENT, cleanComment, presidentName]); // 出来事の共有なので状態照合なし
       } catch (broadcastError) {
         Logger.log('sendReturnedBroadcast_ failed: ' + broadcastError.message);
       }
@@ -1529,9 +1540,9 @@ function recordPresidentDecision(requestId, decision, comment, kiosk, returnItem
     });
 
     var updated = getRequestById_(requestId);
-    dispatchApprovalNotifications_(updated, STEPS.PRESIDENT, nextStep, nextApprover, user);
+    defer_('dispatchApprovalNotifications_', [updated, STEPS.PRESIDENT, nextStep, nextApprover, user], requestId);
     if (splitHappened) {
-      regeneratePdfAfterSplit_(updated, nextStep, user);
+      defer_('regeneratePdfAfterSplit_', [updated, nextStep, user], requestId);
     }
 
     return getRequestDetail(requestId);

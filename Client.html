@@ -1964,10 +1964,47 @@
     const args = Array.prototype.slice.call(arguments, 1);
     return new Promise((resolve, reject) => {
       const runner = google.script.run
-        .withSuccessHandler(resolve)
+        .withSuccessHandler(result => {
+          runDeferredJobs(result);
+          resolve(result);
+        })
         .withFailureHandler(err => reject(err && err.message ? err.message : err));
       runner[name].apply(runner, args);
     });
+  }
+
+  // 承認などで後回しにした通知メール・PDF作成（サーバの Jobs.gs）を、画面を待たせずに裏で実行する。
+  // 画面を閉じても、サーバ側の5分ごとの見回りが残りを実行する。
+  function runDeferredJobs(result) {
+    const ids = result && Array.isArray(result.deferredJobs) ? result.deferredJobs : [];
+    if (ids.length === 0) return;
+    const requestId = result.request && result.request.requestId;
+    google.script.run
+      .withSuccessHandler(r => {
+        if (r && r.failed > 0) toast('通知メール・PDFの一部が失敗しました。管理者へメールで知らせました。', 'err');
+        if (r && r.ok > 0) refreshDetailIfIdle(requestId);
+      })
+      .withFailureHandler(err => console.warn('runDeferredJobs failed', err))
+      .runDeferredJobs(ids);
+  }
+
+  // 後処理で作り直したPDFのリンクを反映するため、同じ申請の詳細を開いたままなら取り直す。
+  // 入力の途中（コメント欄など）に描き直すと入力が消えるので、そのときは何もしない。
+  function refreshDetailIfIdle(requestId) {
+    if (!requestId || state.view !== 'detailView' || !state.currentDetail ||
+        state.currentDetail.request.requestId !== requestId) return;
+    const active = document.activeElement;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    google.script.run
+      .withSuccessHandler(detail => {
+        if (state.view === 'detailView' && state.currentDetail &&
+            state.currentDetail.request.requestId === requestId) {
+          state.currentDetail = detail;
+          renderDetail(detail);
+        }
+      })
+      .withFailureHandler(err => console.warn('refreshDetailIfIdle failed', err))
+      .getRequestDetail(requestId);
   }
 
   function toast(msg, kind) {

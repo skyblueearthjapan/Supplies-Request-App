@@ -125,7 +125,44 @@ function createRequestPdfInternal_(requestId, actor) {
   // 既存PDFフォルダの中に、申請日ごとのサブフォルダを作って保管する。
   var file = getPdfFolderForDate_(detail.request.requestDate).createFile(blob);
 
-  updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
+  // 後回しの仕事（Jobs.gs）から呼ばれたときはロックを持っていない。行全体を読み→書きするので、
+  // 書き込みの間だけロックを取り、ほかの更新と混ざらないよう最新の行を読み直す。
+  // （同期の経路は呼び出し元がすでにロックを持っているので取らない。）
+  var lock = LockService.getScriptLock();
+  var ownLock = _inDeferredJob;
+  if (ownLock) {
+    lock.waitLock(30000);
+    invalidateCache_();
+  }
+  try {
+    return writePdfResult_(requestId, file, actor, detail);
+  } finally {
+    if (ownLock) {
+      lock.releaseLock();
+    }
+  }
+}
+
+function writePdfResult_(requestId, file, actor, detail) {
+  if (_inDeferredJob) {
+    // 後回しの経路は、PDFを作っている間にほかの操作が入りうる。ロックの中で読み直して確かめる。
+    var current = getRequestById_(requestId);
+    if (!current || current.status === STATUS.CANCELLED) {
+      // 取消済み（却下など）の申請には申請書を残さない。
+      file.setTrashed(true);
+      Logger.log('writePdfResult_: request cancelled meanwhile, discarded PDF ' + requestId);
+      return null; // 呼び出し元はメールを送らずに終える
+    }
+    // その間に別のPDF（手動の再作成など）が書かれていたら、上書きで孤立しないようゴミ箱へ移す。
+    if (current.pdfFileId && current.pdfFileId !== detail.request.pdfFileId && current.pdfFileId !== file.getId()) {
+      try {
+        DriveApp.getFileById(current.pdfFileId).setTrashed(true);
+      } catch (trashError) {
+        // 既に削除済みなどは無視
+      }
+    }
+  }
+  var merged = updateObjectById_(SHEETS.REQUESTS, REQUEST_COLUMNS, 'requestId', requestId, {
     updatedAt: nowString_(),
     pdfFileId: file.getId(),
     pdfUrl: file.getUrl()
@@ -136,10 +173,10 @@ function createRequestPdfInternal_(requestId, actor) {
     actorEmail: actor ? actor.email : '',
     actorName: actor ? actor.name : '',
     action: ACTION.PDF_GENERATE,
-    fromStatus: detail.request.status,
-    toStatus: detail.request.status,
-    fromStep: detail.request.currentStep,
-    toStep: detail.request.currentStep,
+    fromStatus: merged.status,
+    toStatus: merged.status,
+    fromStep: merged.currentStep,
+    toStep: merged.currentStep,
     comment: file.getUrl()
   });
 
