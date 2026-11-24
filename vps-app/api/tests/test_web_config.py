@@ -47,8 +47,8 @@ def test_compose_pins_cloudflared_and_limits_forwarded_ips():
     compose = read(VPS_DIR / "docker-compose.yml")
     image = re.search(r"cloudflare/cloudflared:(\S+)", compose).group(1)
     assert re.fullmatch(r"\d{4}\.\d+\.\d+", image)  # latest などでなく版を固定
-    assert "FORWARDED_ALLOW_IPS: ${CHOZOUHIN_WEB_IP:-172.29.77.10}" in compose
-    assert "ipv4_address: ${CHOZOUHIN_WEB_IP:-172.29.77.10}" in compose
+    assert "FORWARDED_ALLOW_IPS: ${CHOZOUHIN_WEB_IP:-10.91.0.10}" in compose
+    assert "ipv4_address: ${CHOZOUHIN_WEB_IP:-10.91.0.10}" in compose
     dockerfile = read(VPS_DIR / "api" / "Dockerfile")
     assert "--forwarded-allow-ips='*'" not in dockerfile
 
