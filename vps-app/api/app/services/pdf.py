@@ -175,7 +175,7 @@ def _qr_svg(url: str) -> Markup:
     import segno
 
     qr = segno.make_qr(url, error="m")
-    return Markup(qr.svg_inline(scale=2, border=0, dark="#0e0e0e"))  # 中身は segno が作る SVG（利用者の入力は URL のみ）
+    return Markup(qr.svg_inline(scale=1, border=4, omitsize=True, dark="#0e0e0e", light="#ffffff"))  # 中身は segno が作る SVG（利用者の入力は URL のみ）
 
 
 def build_pdf_view(request: Mapping[str, Any], items: Sequence[Mapping[str, Any]], history: Sequence[Mapping[str, Any]],
