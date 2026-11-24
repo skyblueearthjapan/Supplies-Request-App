@@ -711,42 +711,17 @@ class MailBuilder:
     def quote_confirmed(self, request: Mapping, gm: Mapping, amount_summary: str, total: Any, threshold: Any,
                         over: bool) -> list[OutgoingMail]:
         """総務部への金額確定の通知 ＋ 総務部長（代表 1 人）への承認依頼。"""
-        rid = js_str(request.get("requestId"))
-        over_banner = "\n".join([
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "🚨🚨🚨  要・社長決裁  🚨🚨🚨",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "確定金額（税抜）" + format_currency(total) + " は社長決裁しきい値（税抜 " + format_currency(threshold) + "）以上です。",
-            "総務部長の承認後、必ず【社長の承認】が必要です。至急ご対応ください。",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-        ])
-        if over:
-            subject = "【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 " + rid + "（税抜10万円以上）"
-            heading = over_banner + "\n\n購買が見積金額 " + amount_summary + " を確定しました。"
-        else:
-            subject = "[貯蔵品購入申請] 金額確定 " + rid
-            heading = "購買が見積金額 " + amount_summary + " を確定しました。総務部長承認をお願いします。"
+        t = quote_confirmed_texts(js_str(request.get("requestId")), amount_summary, total, threshold, over)
         kind = MailKind.GA_QUOTE_CONFIRMED_OVER if over else MailKind.GA_QUOTE_CONFIRMED
-        return (self.general_affairs(kind, request, subject, self.general_affairs_body(request, heading))
-                + self.approval_request(request, gm, over_banner if over else ""))
+        return (self.general_affairs(kind, request, t["gaSubject"], self.general_affairs_body(request, t["gaHeading"]))
+                + self.approval_request(request, gm, t["extraNote"]))
 
     def expedited(self, request: Mapping, gm: Mapping, comment: str) -> list[OutgoingMail]:
         """総務部への至急承認の通知 ＋ 総務部長（代表 1 人）への至急の承認依頼。"""
-        rid = js_str(request.get("requestId"))
-        banner = "\n".join([
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "⚡⚡⚡ 至急承認のお願い（金額確定不要）⚡⚡⚡",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "この申請は金額確定が不要な標準品（価格は商社と確定済み）です。",
-            "生産を止めないため、購買にて至急手配を開始したい案件です。",
-            "金額確定は行いません。総務部長の至急承認をお願いします。",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-        ])
-        clean = sanitize_text(comment, 1000)
-        heading = banner + "\n\n購買より、金額確定不要・至急手配の申請です。" + ("\n備考: " + clean if clean else "")
-        return (self.general_affairs(MailKind.GA_EXPEDITED, request, "【⚡至急承認・金額確定不要⚡】[貯蔵品購入申請] " + rid,
-                                     self.general_affairs_body(request, heading))
-                + self.approval_request(request, gm, banner, "【⚡至急承認・金額確定不要⚡】"))
+        t = expedited_texts(js_str(request.get("requestId")), comment)
+        return (self.general_affairs(MailKind.GA_EXPEDITED, request, t["gaSubject"],
+                                     self.general_affairs_body(request, t["gaHeading"]))
+                + self.approval_request(request, gm, t["extraNote"], t["subjectPrefix"]))
 
     # --- 手配完了（completeAndNotify_ の送信部分。PDF 作成の後に呼ぶ） ------
     def arranged_and_completed(self, request: Mapping) -> list[OutgoingMail]:
@@ -754,6 +729,56 @@ class MailBuilder:
         body = self.general_affairs_body(request, "貯蔵品購入申請の手配が完了しました。")
         return (self.general_affairs(MailKind.GA_ARRANGED, request, "[貯蔵品購入申請] 手配完了 " + rid, body, attach_pdf=True)
                 + self.completed(request))
+
+
+RULE = "━━━━━━━━━━━━━━━━━━━━━━"
+
+
+def quote_confirmed_texts(request_id: str, amount_summary: str, total: Any, threshold: Any, over: bool) -> dict[str, str]:
+    """confirmQuote の送信の文（W が notifyGeneralAffairs_ / sendApprovalRequestEmail_ の引数を作るのに使う）。
+
+    W は defer_('notifyGeneralAffairs_', [updated, gaSubject, general_affairs_body(updated, gaHeading), None]) と
+    defer_('sendApprovalRequestEmail_', [updated, gm, extraNote]) を積む（GAS 版と同じ）。
+    """
+    over_banner = "\n".join([
+        RULE,
+        "🚨🚨🚨  要・社長決裁  🚨🚨🚨",
+        RULE,
+        "確定金額（税抜）" + format_currency(total) + " は社長決裁しきい値（税抜 " + format_currency(threshold) + "）以上です。",
+        "総務部長の承認後、必ず【社長の承認】が必要です。至急ご対応ください。",
+        RULE,
+    ])
+    if over:
+        return {"gaSubject": "【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 " + request_id + "（税抜10万円以上）",
+                "gaHeading": over_banner + "\n\n購買が見積金額 " + amount_summary + " を確定しました。",
+                "extraNote": over_banner}
+    return {"gaSubject": "[貯蔵品購入申請] 金額確定 " + request_id,
+            "gaHeading": "購買が見積金額 " + amount_summary + " を確定しました。総務部長承認をお願いします。",
+            "extraNote": ""}
+
+
+def expedited_texts(request_id: str, comment: Any) -> dict[str, str]:
+    """confirmExpedited の送信の文。W は notifyGeneralAffairs_ と
+    sendApprovalRequestEmail_ [updated, gm, extraNote, subjectPrefix] を積む。"""
+    banner = "\n".join([
+        RULE,
+        "⚡⚡⚡ 至急承認のお願い（金額確定不要）⚡⚡⚡",
+        RULE,
+        "この申請は金額確定が不要な標準品（価格は商社と確定済み）です。",
+        "生産を止めないため、購買にて至急手配を開始したい案件です。",
+        "金額確定は行いません。総務部長の至急承認をお願いします。",
+        RULE,
+    ])
+    clean = sanitize_text(comment, 1000)
+    return {"gaSubject": "【⚡至急承認・金額確定不要⚡】[貯蔵品購入申請] " + request_id,
+            "gaHeading": banner + "\n\n購買より、金額確定不要・至急手配の申請です。" + ("\n備考: " + clean if clean else ""),
+            "extraNote": banner,
+            "subjectPrefix": "【⚡至急承認・金額確定不要⚡】"}
+
+
+def general_affairs_body(masters: Masters, public_origin: str, request: Mapping, heading: str) -> str:
+    """buildGeneralAffairsBody_（W が notifyGeneralAffairs_ の本文を作るとき用）。"""
+    return MailBuilder(masters, public_origin).general_affairs_body(request, heading)
 
 
 def job_failure_admin_mail(settings: Mapping[str, Any], fn: str, request_id: str, message: str,

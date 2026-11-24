@@ -7,15 +7,17 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import signal
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable
+from datetime import datetime
+from typing import Any, Callable
 
-from .services.mailpdf_common import to_jst
+from app.services.mailpdf_common import to_jst
+from app.timeutil import now_utc
 
 log = logging.getLogger(__name__)
 
@@ -23,9 +25,12 @@ POLL_SECONDS = 2.0
 SYNC_HOUR = 8
 NIGHTLY_EXPORT_HOUR = 2
 
-
-def _hourly_export_active(now_jst: datetime, until: str) -> bool:
-    return bool(until) and now_jst.strftime("%Y-%m-%d") <= until
+# 担当 D に用意してもらう関数（引数は session_factory。中で委任トークン・SheetsApi・DB の置き換え・SyncRun の記録まで行う）
+SCHEDULED_HOOKS = {
+    "sync_workers": ("app.services.sync", "run_scheduled_workers_sync"),
+    "sync_dept_supervisors": ("app.services.sync", "run_scheduled_dept_supervisors_sync"),
+    "export_sheets": ("app.services.sheets", "run_scheduled_export"),
+}
 
 
 def due_tasks(now: datetime, last_slots: dict[str, str], hourly_export_until: str = "") -> list[str]:
@@ -38,48 +43,35 @@ def due_tasks(now: datetime, last_slots: dict[str, str], hourly_export_until: st
             if last_slots.get(name) != slot:
                 last_slots[name] = slot
                 due.append(name)
-    if _hourly_export_active(jst, hourly_export_until):
-        slot = jst.strftime("%Y-%m-%d %H")
-        if last_slots.get("export_sheets") != slot:
-            last_slots["export_sheets"] = slot
-            due.append("export_sheets")
-    elif jst.hour == NIGHTLY_EXPORT_HOUR:
-        slot = jst.strftime("%Y-%m-%d")
+    hourly = bool(hourly_export_until) and jst.strftime("%Y-%m-%d") <= hourly_export_until
+    if hourly or jst.hour == NIGHTLY_EXPORT_HOUR:
+        slot = jst.strftime("%Y-%m-%d %H") if hourly else jst.strftime("%Y-%m-%d")
         if last_slots.get("export_sheets") != slot:
             last_slots["export_sheets"] = slot
             due.append("export_sheets")
     return due
 
 
-def default_hooks() -> dict[str, Callable[[], object]]:
-    """担当 D の関数を呼ぶ口。名前が決まったらここを合わせる（無ければ記録だけして飛ばす）。"""
-
+def default_hooks(session_factory: Any) -> dict[str, Callable[[], object]]:
     def call(module: str, fn: str) -> Callable[[], object]:
         def run() -> object:
-            import importlib
-
-            mod = importlib.import_module(module)
-            target = getattr(mod, fn, None)
+            target = getattr(importlib.import_module(module), fn, None)
             if target is None:
                 log.warning("scheduled hook not implemented yet: %s.%s", module, fn)
                 return None
-            return target()
+            return target(session_factory)
 
         return run
 
-    return {
-        "sync_workers": call("app.services.sync", "sync_workers_master"),
-        "sync_dept_supervisors": call("app.services.sync", "sync_dept_supervisors_master"),
-        "export_sheets": call("app.services.sheets", "export_all"),
-    }
+    return {name: call(mod, fn) for name, (mod, fn) in SCHEDULED_HOOKS.items()}
 
 
 @dataclass
 class Worker:
     run_jobs_once: Callable[[], dict]  # JobRunner.run_once
-    hooks: dict[str, Callable[[], object]] = field(default_factory=default_hooks)
+    hooks: dict[str, Callable[[], object]] = field(default_factory=dict)
     hourly_export_until: str = ""
-    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    now: Callable[[], datetime] = now_utc
     last_slots: dict[str, str] = field(default_factory=dict)
     stopping: bool = False
 
@@ -102,36 +94,47 @@ class Worker:
             time.sleep(POLL_SECONDS)
 
 
-def main() -> None:  # pragma: no cover - VPS で動かす
-    """組み立て。F の db・google_delegate、W の gateway ができたらここをつなぐ。"""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    from .jobs import JobRunner, SqlJobStore
-    from .services.drive import DriveClient, PdfStorage
-    from .services.mail import GmailApiTransport
-    from .services.mailpdf_common import MailPdfConfig
-    from .services.pdf import PdfRenderer
+def build_runner(session_factory: Any = None, app_settings: Any = None, renderer: Any = None):
+    """本番の部品で JobRunner を組み立てる（worker と、W の generateRequestPdf・取消のゴミ箱でも使う）。"""
+    from app.config import get_settings
+    from app.db import get_sessionmaker
+    from app.google_delegate import get_delegate_credentials
+    from app.jobs import DbRequestGateway, JobRunner, JobStore
+    from app.services.drive import DriveClient, PdfStorage
+    from app.services.mail import GmailApiTransport
+    from app.services.mailpdf_common import MailPdfConfig
+    from app.services.pdf import PdfRenderer
 
-    from . import db, models  # type: ignore  # 担当 F
-    from .google_delegate import get_delegate_credentials  # type: ignore  # 担当 F
-    from .domain.job_gateway import DbRequestGateway  # type: ignore  # 担当 W（RequestGateway の実装）
+    s = app_settings or get_settings()
+    sf = session_factory or get_sessionmaker()
 
-    config = MailPdfConfig.from_env()
-    store = SqlJobStore(db.SessionLocal, models.Job, models.MailLog)
-    renderer = PdfRenderer()
-    runner = JobRunner(
-        store=store,
-        gateway=DbRequestGateway(db.SessionLocal),
-        transport=GmailApiTransport(get_delegate_credentials),
-        storage=PdfStorage(DriveClient(get_delegate_credentials), config),
-        renderer=renderer,
-        config=config,
-        extra_admins=[e.strip() for e in (os.environ.get("BOOTSTRAP_ADMINS") or "").split(",") if e.strip()],
+    def credentials():
+        with sf() as db:
+            return get_delegate_credentials(db, s)
+
+    return JobRunner(
+        store=JobStore(sf),
+        gateway=DbRequestGateway(sf),
+        transport=GmailApiTransport(credentials),
+        storage=PdfStorage(DriveClient(credentials), s),
+        renderer=renderer or PdfRenderer(),
+        config=MailPdfConfig.from_settings(s),
+        extra_admins=s.bootstrap_admin_list,
     )
-    worker = Worker(run_jobs_once=runner.run_once, hourly_export_until=os.environ.get("SHEETS_EXPORT_HOURLY_UNTIL", ""))
+
+
+def main() -> None:  # pragma: no cover - VPS で動かす
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from app.db import get_sessionmaker
+
+    sf = get_sessionmaker()
+    runner = build_runner(sf)
+    worker = Worker(run_jobs_once=runner.run_once, hooks=default_hooks(sf),
+                    hourly_export_until=os.environ.get("SHEETS_EXPORT_HOURLY_UNTIL", ""))
     try:
         worker.run_forever()
     finally:
-        renderer.close()
+        runner.renderer.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

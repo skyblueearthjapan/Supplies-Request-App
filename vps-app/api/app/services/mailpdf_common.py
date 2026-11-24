@@ -8,7 +8,6 @@ DB や設定には依存しない（引数で受け取る）。
 from __future__ import annotations
 
 import math
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -382,24 +381,17 @@ class MailPdfConfig:
     public_origin: str = "https://supplies.lineworks-local.net"
     mail_from: str = "imaizumi@lineworks-local.info"
     mail_from_name: str = APP_NAME
-    mail_redirect_to: str = ""  # staging では必須
-    staging_pdf_folder_id: str = ""  # staging の PDF 置き場（本番フォルダに書かないため）
+    mail_redirect_to: str = ""  # staging では必須（safety.forced_mail_redirect と同じ値）
 
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 
     @classmethod
-    def from_env(cls, environ: Mapping[str, str] | None = None) -> "MailPdfConfig":
-        env = environ if environ is not None else os.environ
-        return cls(
-            app_env=(env.get("APP_ENV") or "staging").strip().lower(),
-            public_origin=env.get("PUBLIC_ORIGIN") or cls.public_origin,
-            mail_from=env.get("MAIL_FROM") or cls.mail_from,
-            mail_from_name=env.get("MAIL_FROM_NAME") or APP_NAME,
-            mail_redirect_to=env.get("MAIL_REDIRECT_TO") or "",
-            staging_pdf_folder_id=env.get("STAGING_PDF_FOLDER_ID") or "",
-        )
+    def from_settings(cls, s: Any) -> "MailPdfConfig":
+        """app.config.Settings から作る。差出人は委任アカウント（imaizumi@）。"""
+        return cls(app_env=s.app_env, public_origin=s.public_origin, mail_from=s.delegate_email,
+                   mail_from_name=APP_NAME, mail_redirect_to=s.mail_redirect_to)
 
 
 def unique(values: Iterable[str]) -> list[str]:

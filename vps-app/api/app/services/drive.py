@@ -2,11 +2,11 @@
 
 - 置き場: 設定 pdfFolderId のフォルダの中に、申請日（yyyy-MM-dd）のサブフォルダ（無ければ作る）。今と同じ。
 - 作り直したら古い PDF はゴミ箱へ。取消・却下でもゴミ箱へ（30 日は戻せる）。
-- staging は本番のフォルダに書かない:
-  * 置き場は環境変数 STAGING_PDF_FOLDER_ID（設定の pdfFolderId は本番から移したものなので使わない）。
-  * 書く前に safety.assert_writable_drive_folder() で本番のフォルダでないことを確かめる。
-  * ゴミ箱へ移すのも、staging の置き場の中にあるファイルだけ（移したデータの pdfFileId は本番の PDF を指すため）。
-- GAS 版はフォルダ ID が空なら新しく作っていたが、VPS 版は作らずに止める（行き先の分からない書き込みをしない）。
+- staging は本番のフォルダに書かない（app.safety）:
+  * 置き場は safety.pdf_root_folder_id()（staging は STAGING_PDF_FOLDER_ID。設定の pdfFolderId は本番から移した値なので使わない）。
+  * フォルダの作成・アップロードの直前に safety.assert_writable_drive_folder() を祖先つきで呼ぶ。
+  * ゴミ箱へ移すのも、staging の置き場の中のファイルだけ（移したデータの pdfFileId は本番の PDF を指すため）。
+- GAS 版はフォルダ ID が空なら新しく作っていたが、VPS 版は作らずに止める（safety が UnsafeWriteError）。
 """
 
 from __future__ import annotations
@@ -17,32 +17,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .mailpdf_common import MailPdfConfig, sanitize_text, today_jst
+from app import safety
+from app.services.mailpdf_common import sanitize_text, today_jst
 
 log = logging.getLogger(__name__)
-
-try:  # 担当 F の安全装置。まだ無いときは同じ名前の仮の関数を使う。
-    from app.safety import assert_writable_drive_folder  # type: ignore
-except Exception:  # pragma: no cover - F の成果が入れば使われない
-    import os
-
-    def assert_writable_drive_folder(folder_id: str) -> None:  # type: ignore[no-redef]
-        """仮の安全装置（担当 F の app.safety ができたら置き換わる）。
-
-        staging では、書き込み先が STAGING_PDF_FOLDER_ID と同じで、本番の PDF フォルダ（PRODUCTION_PDF_FOLDER_ID）
-        でないことを確かめる。違えば例外で止める。
-        """
-        env = (os.environ.get("APP_ENV") or "staging").strip().lower()
-        prod = (os.environ.get("PRODUCTION_PDF_FOLDER_ID") or "").strip()
-        if not folder_id:
-            raise RuntimeError("PDF の保存先フォルダが決まっていません。")
-        if env != "production":
-            if prod and folder_id == prod:
-                raise RuntimeError("staging から本番の PDF フォルダへは書き込めません。")
-            staging = (os.environ.get("STAGING_PDF_FOLDER_ID") or "").strip()
-            if not staging or folder_id != staging:
-                raise RuntimeError("staging の PDF の保存先は STAGING_PDF_FOLDER_ID だけです。")
-
 
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files"
@@ -59,14 +37,6 @@ class DriveFile:
     url: str
 
 
-def pdf_root_folder_id(config: MailPdfConfig, settings: dict[str, Any]) -> str:
-    """PDF の置き場（親フォルダ）。staging は STAGING_PDF_FOLDER_ID、production は設定の pdfFolderId。"""
-    folder_id = config.staging_pdf_folder_id if not config.is_production else sanitize_text(settings.get("pdfFolderId"), 256)
-    if not folder_id:
-        raise DriveError("PDF の保存先フォルダ（pdfFolderId / STAGING_PDF_FOLDER_ID）が設定されていません。")
-    return folder_id
-
-
 def date_folder_name(date_str: Any) -> str:
     """申請日ごとのサブフォルダ名。形が違えば今日（日本時間）。"""
     name = sanitize_text(date_str)[:10]
@@ -76,7 +46,7 @@ def date_folder_name(date_str: Any) -> str:
 
 
 class DriveClient:
-    """Drive API の最小限の操作。credentials は google_delegate.get_delegate_credentials() の戻り値。"""
+    """Drive API の最小限の操作。credentials_provider は委任の Credentials を返す関数。"""
 
     def __init__(self, credentials_provider: Callable[[], Any], timeout: float = 60.0,
                  session_factory: Callable[[Any], Any] | None = None):
@@ -99,9 +69,8 @@ class DriveClient:
         return resp
 
     def find_or_create_folder(self, parent_id: str, name: str) -> str:
-        assert_writable_drive_folder(parent_id)
         s = self._session()
-        q = (f"'{parent_id}' in parents and name = '{name}' and mimeType = '{FOLDER_MIME}' and trashed = false")
+        q = f"'{parent_id}' in parents and name = '{name}' and mimeType = '{FOLDER_MIME}' and trashed = false"
         resp = self._check(s.get(f"{DRIVE_API}/files", params={"q": q, "fields": "files(id,name)", "pageSize": 10,
                                                                "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"},
                                  timeout=self._timeout), "フォルダの検索")
@@ -114,7 +83,6 @@ class DriveClient:
         return resp.json()["id"]
 
     def upload_pdf(self, folder_id: str, name: str, data: bytes) -> DriveFile:
-        assert_writable_drive_folder_tree(folder_id, self)
         boundary = "chozouhin-pdf-boundary"
         meta = json.dumps({"name": name, "parents": [folder_id], "mimeType": "application/pdf"}, ensure_ascii=False)
         body = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n"
@@ -149,41 +117,32 @@ class DriveClient:
         return resp.content
 
 
-def assert_writable_drive_folder_tree(folder_id: str, client: DriveClient) -> None:
-    """日付のサブフォルダに書く前に、その親（置き場）も安全装置に通す。"""
-    parents = client.parents(folder_id)
-    if not parents:
-        assert_writable_drive_folder(folder_id)
-        return
-    for p in parents:
-        assert_writable_drive_folder(p)
-
-
 class PdfStorage:
-    """申請の PDF の保存・ゴミ箱。jobs から使う。"""
+    """申請の PDF の保存・ゴミ箱。jobs から使う。app_settings は app.config.Settings（None なら get_settings()）。"""
 
-    def __init__(self, client: DriveClient, config: MailPdfConfig):
+    def __init__(self, client: DriveClient, app_settings: Any = None):
         self.client = client
-        self.config = config
+        self.app_settings = app_settings
 
     def save(self, settings: dict[str, Any], request_date: Any, file_name: str, data: bytes) -> DriveFile:
-        root = pdf_root_folder_id(self.config, settings)
-        assert_writable_drive_folder(root)
+        root = safety.pdf_root_folder_id(sanitize_text(settings.get("pdfFolderId"), 256), self.app_settings)
         folder = self.client.find_or_create_folder(root, date_folder_name(request_date))
+        safety.assert_writable_drive_folder(folder, ancestor_ids=[root], settings=self.app_settings)
         return self.client.upload_pdf(folder, file_name, data)
 
     def trash(self, settings: dict[str, Any], file_id: str) -> bool:
-        """ゴミ箱へ。staging では staging の置き場の中のファイルだけ（それ以外は記録して飛ばす）。失敗は記録して False。"""
+        """ゴミ箱へ。staging では staging の置き場の中（親か祖父母）のファイルだけ。失敗は記録して False。"""
         if not file_id:
             return False
         try:
-            if not self.config.is_production:
-                root = pdf_root_folder_id(self.config, settings)
-                parents = self.client.parents(file_id)
-                grand = [gp for p in parents for gp in self.client.parents(p)]
-                if root not in parents and root not in grand:
-                    log.warning("drive.trash skipped on staging (not under staging folder): %s", file_id)
-                    return False
+            parents = self.client.parents(file_id)
+            grand = [gp for p in parents for gp in self.client.parents(p)]
+            try:
+                for p in parents or [""]:
+                    safety.assert_writable_drive_folder(p, ancestor_ids=grand, settings=self.app_settings)
+            except safety.UnsafeWriteError as unsafe:
+                log.warning("drive.trash skipped (%s): %s", unsafe, file_id)
+                return False
             return self.client.trash(file_id)
         except Exception as error:  # GAS 版と同じく、消せなくても本体の処理は止めない
             log.warning("drive.trash failed: %s: %s", file_id, error)
