@@ -7,9 +7,153 @@ var _readCache = {};        // sheetName -> 行オブジェクト配列
 var _settingsCache = null;  // 設定（key->value）
 
 // 書き込み後はキャッシュを破棄して、同一実行内の後続読込が最新を見るようにする。
+// あわせてデータ版数を進め、リクエストをまたぐ共有キャッシュ（下記）を無効にする。
 function invalidateCache_() {
   _readCache = {};
   _settingsCache = null;
+  _wroteInThisExecution = true;
+  _sharedCacheContext = null;
+  // 溜め置きされた書き込みをシートへ確定させてから版数を進める（逆だと、新しい版数で古いシートを読まれうる）。
+  SpreadsheetApp.flush();
+  bumpDataVersion_();
+}
+
+// シートを手で直したとき・Migration.gs の道具を使った後に、GASエディタから実行する。
+// 共有キャッシュを捨てて、次の表示からシートの最新を読ませる。
+function clearSharedCache() {
+  assertAdmin_(getCurrentUser_());
+  bumpDataVersion_();
+  Logger.log('shared cache cleared');
+}
+
+// ===== リクエストをまたぐ共有キャッシュ（画面表示用の読み取りに限って使う） =====
+// スプレッドシートは1回読むだけで0.15〜1.5秒かかるため、読み取り結果を CacheService に置く。
+// - 使うのは useSharedReadCache_() を呼んだ読み取り専用の公開関数（一覧・件数・詳細・初期表示）だけ。
+//   書き込みを伴う処理は、行番号のずれや古い値の書き戻しを避けるため必ずシートを直接読む。
+// - アプリが書き込むたびに invalidateCache_ がデータ版数を進めるので、アプリ経由の変更は即座に反映される。
+// - シートを手で直接編集した場合だけ、最大 SHARED_CACHE_SECONDS の間は古い表示が残る。
+var SHARED_CACHE_SECONDS = 300;
+var SHARED_CACHE_CHUNK = 90000; // CacheService の1値上限（100KB）未満に分割
+var SHARED_CACHE_MAX_CHUNKS = 20;
+var PROP_DATA_VERSION = 'DATA_VERSION';
+var _sharedCacheEnabled = false;
+var _wroteInThisExecution = false;
+var _sharedCacheContext = null; // { spreadsheetId, version }
+
+// 読み取り専用の公開関数の先頭で呼ぶ。書き込み処理の中から呼ばれた場合（末尾の return getRequestDetail など）は、
+// 書き込み済みなら _wroteInThisExecution により共有キャッシュは使われない。
+// 実行の入口（まだ何も読み書きしていない状態）でしか有効にしない。書き込み処理の途中で呼ばれても、
+// その後の読み取りが共有キャッシュに切り替わって古い行番号で書き戻す、という事故を防ぐ。
+function useSharedReadCache_() {
+  if (!_wroteInThisExecution && Object.keys(_readCache).length === 0 && !_settingsCache) {
+    _sharedCacheEnabled = true;
+  }
+}
+
+function sharedCacheContext_() {
+  if (!_sharedCacheEnabled || _wroteInThisExecution) {
+    return null;
+  }
+  if (_sharedCacheContext) {
+    return _sharedCacheContext;
+  }
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties();
+    var spreadsheetId = props[APP.PROP_SPREADSHEET_ID];
+    if (!spreadsheetId) {
+      return null; // 初回セットアップ前は使わない
+    }
+    var version = props[PROP_DATA_VERSION];
+    if (!version) {
+      version = newDataVersion_();
+      PropertiesService.getScriptProperties().setProperty(PROP_DATA_VERSION, version);
+    }
+    _sharedCacheContext = { spreadsheetId: spreadsheetId, version: version };
+    return _sharedCacheContext;
+  } catch (error) {
+    Logger.log('shared cache context failed: ' + error.message);
+    return null;
+  }
+}
+
+function newDataVersion_() {
+  return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+}
+
+function bumpDataVersion_() {
+  try {
+    PropertiesService.getScriptProperties().setProperty(PROP_DATA_VERSION, newDataVersion_());
+  } catch (error) {
+    // 失敗しても共有キャッシュは SHARED_CACHE_SECONDS で消えるので、業務の処理は止めない。
+    Logger.log('bumpDataVersion_ failed: ' + error.message);
+  }
+}
+
+// 列の並びや既定設定キーが違うコード（別バージョンの配備）とキャッシュを共有しないよう、
+// 見出し定義の要約（schemaCacheKey_ と同じもの）もキーに入れる。
+function sharedCacheKey_(context, name) {
+  if (!context.schemaKey) {
+    context.schemaKey = schemaCacheKey_(context.spreadsheetId);
+  }
+  return 'rows:' + context.schemaKey + ':' + context.version + ':' +
+    Utilities.base64EncodeWebSafe(name, Utilities.Charset.UTF_8);
+}
+
+function readSharedCache_(name) {
+  var context = sharedCacheContext_();
+  if (!context) {
+    return null;
+  }
+  try {
+    var cache = CacheService.getScriptCache();
+    var base = sharedCacheKey_(context, name);
+    var count = Number(cache.get(base));
+    if (!count) {
+      return null;
+    }
+    var keys = [];
+    for (var i = 0; i < count; i++) {
+      keys.push(base + ':' + i);
+    }
+    var parts = cache.getAll(keys);
+    var packed = '';
+    for (var j = 0; j < keys.length; j++) {
+      if (!parts[keys[j]]) {
+        return null; // 一部だけ追い出された
+      }
+      packed += parts[keys[j]];
+    }
+    var json = Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(packed), 'application/x-gzip'))
+      .getDataAsString('UTF-8');
+    return JSON.parse(json);
+  } catch (error) {
+    Logger.log('readSharedCache_ failed (' + name + '): ' + error.message);
+    return null;
+  }
+}
+
+function writeSharedCache_(name, value) {
+  var context = sharedCacheContext_();
+  if (!context) {
+    return;
+  }
+  try {
+    var packed = Utilities.base64Encode(
+      Utilities.gzip(Utilities.newBlob(JSON.stringify(value), 'application/json')).getBytes());
+    var chunkCount = Math.ceil(packed.length / SHARED_CACHE_CHUNK) || 1;
+    if (chunkCount > SHARED_CACHE_MAX_CHUNKS) {
+      return; // 大きすぎるものはキャッシュしない（毎回シートから読む）
+    }
+    var base = sharedCacheKey_(context, name);
+    var entries = {};
+    for (var i = 0; i < chunkCount; i++) {
+      entries[base + ':' + i] = packed.slice(i * SHARED_CACHE_CHUNK, (i + 1) * SHARED_CACHE_CHUNK);
+    }
+    entries[base] = String(chunkCount);
+    CacheService.getScriptCache().putAll(entries, SHARED_CACHE_SECONDS);
+  } catch (error) {
+    Logger.log('writeSharedCache_ failed (' + name + '): ' + error.message);
+  }
 }
 
 function getSpreadsheet_() {
@@ -176,17 +320,25 @@ function readObjects_(sheetName, columns) {
   if (Object.prototype.hasOwnProperty.call(_readCache, sheetName)) {
     return _readCache[sheetName];
   }
-  var sheet = getSheet_(sheetName);
-  var lastRow = sheet.getLastRow();
+  var cacheName = 'sheet:' + sheetName + ':' + columns.length;
+  var values = readSharedCache_(cacheName);
+  if (!values) {
+    var sheet = getSheet_(sheetName);
+    var lastRow = sheet.getLastRow();
+    values = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, columns.length).getValues()
+      .map(function(row) {
+        return row.map(normalizeCellValue_);
+      });
+    writeSharedCache_(cacheName, values);
+  }
   var result;
-  if (lastRow < 2) {
+  if (values.length === 0) {
     result = [];
   } else {
-    var values = sheet.getRange(2, 1, lastRow - 1, columns.length).getValues();
     result = values.map(function(row, index) {
       var object = { _rowNumber: index + 2 };
       columns.forEach(function(column, columnIndex) {
-        object[column] = normalizeCellValue_(row[columnIndex]);
+        object[column] = row[columnIndex];
       });
       return object;
     });
@@ -270,6 +422,11 @@ function getSettings_() {
   if (_settingsCache) {
     return _settingsCache;
   }
+  var shared = readSharedCache_('settings');
+  if (shared) {
+    _settingsCache = shared;
+    return _settingsCache;
+  }
   var spreadsheet = getSpreadsheet_();
   var settings = getSettingsFromSpreadsheet_(spreadsheet);
   // 設定タブや設定行（特に adminEmails）が消えていると isAdmin_ が全員を管理者扱いするため、
@@ -281,6 +438,7 @@ function getSettings_() {
     repairSchema_();
     settings = getSettingsFromSpreadsheet_(spreadsheet);
   }
+  writeSharedCache_('settings', settings);
   _settingsCache = settings;
   return _settingsCache;
 }

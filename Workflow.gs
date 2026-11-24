@@ -1,4 +1,5 @@
 function getBootstrap() {
+  useSharedReadCache_();
   var user = getCurrentUser_();
   var settings = getSettings_();
   var approvers = readObjects_(SHEETS.APPROVERS, APPROVER_COLUMNS).map(toClientApprover_);
@@ -272,6 +273,7 @@ function resubmitRequest(requestId) {
 }
 
 function getRequests(filter) {
+  useSharedReadCache_();
   var user = getCurrentUser_();
   var input = filter || {};
   var mode = input.mode || 'mine';
@@ -349,6 +351,7 @@ function getRequests(filter) {
 }
 
 function getRequestDetail(requestId) {
+  useSharedReadCache_();
   var user = getCurrentUser_();
   var request = requireRequest_(requestId);
   assertReadable_(request, user);
@@ -1364,6 +1367,7 @@ function canDelete_(request, user) {
 }
 
 function getTabCounts() {
+  useSharedReadCache_();
   var user = getCurrentUser_();
   var admin = isAdmin_(user.email);
   var pending = 0;
