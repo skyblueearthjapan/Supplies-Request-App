@@ -47,6 +47,7 @@ from app.domain.labels import (
     STEP_LABELS,
 )
 from app.domain.masters import Masters
+from app.services.recipients import expedited_texts, quote_confirmed_texts
 from app.models import History, Request, RequestItem
 from app.rpc import RpcContext, RpcError
 from app.serialize import history_row, item_row, request_row
@@ -946,6 +947,25 @@ def approve_request(
     return _detail(op, request.request_id)
 
 
+def _general_affairs_body(op: Op, snapshot: dict[str, Any], heading: str) -> str:
+    """buildGeneralAffairsBody_（担当 M の文面）。GAS 版と同じく、積む時点で本文を作って引数に入れる。"""
+    from app.models import ApproverRule, DeptSupervisor, NotificationRecipient, Setting
+    from app.serialize import approver_row, dept_supervisor_row, recipient_row, settings_map
+    from app.services.mailpdf_common import Masters as MailMasters
+    from app.services.recipients import general_affairs_body
+
+    def ordered(model):
+        return op.db.execute(select(model).order_by(model.sort_order, model.id)).scalars().all()
+
+    masters = MailMasters(
+        approver_rules=[approver_row(r) for r in ordered(ApproverRule)],
+        dept_supervisors=[dept_supervisor_row(r) for r in ordered(DeptSupervisor)],
+        recipients=[recipient_row(r) for r in ordered(NotificationRecipient)],
+        settings=settings_map(op.db.execute(select(Setting)).scalars().all()),
+    )
+    return general_affairs_body(masters, op.ctx.settings.public_origin, snapshot, heading)
+
+
 def confirm_quote(
     ctx: RpcContext, requestId: Any = None, items: Any = None, comment: Any = "", returnItems: Any = None,  # noqa: N803
 ) -> dict[str, Any]:
@@ -1016,30 +1036,15 @@ def confirm_quote(
     )
 
     snapshot = _snapshot(request)
-    over_banner = "\n".join([
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        "🚨🚨🚨  要・社長決裁  🚨🚨🚨",
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        f"確定金額（税抜）{format_currency(total)} は社長決裁しきい値（税抜 {format_currency(threshold)}）以上です。",
-        "総務部長の承認後、必ず【社長の承認】が必要です。至急ご対応ください。",
-        "━━━━━━━━━━━━━━━━━━━━━━",
-    ])
-    if over:
-        ga_subject = f"【🚨至急・要社長決裁🚨】[貯蔵品購入申請] 金額確定 {request.request_id}（税抜10万円以上）"
-        ga_heading = over_banner + "\n\n購買が見積金額 " + amount_summary + " を確定しました。"
-    else:
-        ga_subject = f"[貯蔵品購入申請] 金額確定 {request.request_id}"
-        ga_heading = "購買が見積金額 " + amount_summary + " を確定しました。総務部長承認をお願いします。"
-    outbox.defer(op.db, "notifyGeneralAffairs_", [snapshot, ga_subject, {"heading": ga_heading}, None], guard=request)
-    outbox.defer(op.db, "sendApprovalRequestEmail_", [snapshot, gm, over_banner if over else ""], guard=request)
+    texts = quote_confirmed_texts(request.request_id, amount_summary, total, threshold, over)
+    ga_body = _general_affairs_body(op, snapshot, texts["gaHeading"])
+    outbox.defer(op.db, "notifyGeneralAffairs_", [snapshot, texts["gaSubject"], ga_body, None], guard=request)
+    outbox.defer(op.db, "sendApprovalRequestEmail_", [snapshot, gm, texts["extraNote"]], guard=request)
     if selection:
         outbox.defer(op.db, "regeneratePdfAfterSplit_", [snapshot, STEPS.GENERAL_MANAGER, op.user], guard=request)
         outbox.defer(op.db, "notifySplitReturned_",
                      [split_request_id, STEPS.PURCHASING_QUOTE, clean_comment, op.name], request_id=split_request_id)
     return _detail(op, request.request_id)
-
-
-EXPEDITE_PREFIX = "【⚡至急承認・金額確定不要⚡】"
 
 
 def confirm_expedited(ctx: RpcContext, requestId: Any = None, comment: Any = "") -> dict[str, Any]:  # noqa: N803
@@ -1066,20 +1071,11 @@ def confirm_expedited(ctx: RpcContext, requestId: Any = None, comment: Any = "")
         comment=" ".join(p for p in ("金額確定不要・至急手配を依頼", clean_comment) if p),
     )
     snapshot = _snapshot(request)
-    banner = "\n".join([
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        "⚡⚡⚡ 至急承認のお願い（金額確定不要）⚡⚡⚡",
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        "この申請は金額確定が不要な標準品（価格は商社と確定済み）です。",
-        "生産を止めないため、購買にて至急手配を開始したい案件です。",
-        "金額確定は行いません。総務部長の至急承認をお願いします。",
-        "━━━━━━━━━━━━━━━━━━━━━━",
-    ])
-    heading = banner + "\n\n購買より、金額確定不要・至急手配の申請です。" + (("\n備考: " + clean_comment) if clean_comment else "")
-    outbox.defer(op.db, "notifyGeneralAffairs_",
-                 [snapshot, EXPEDITE_PREFIX + "[貯蔵品購入申請] " + request.request_id, {"heading": heading}, None],
+    texts = expedited_texts(request.request_id, clean_comment)
+    ga_body = _general_affairs_body(op, snapshot, texts["gaHeading"])
+    outbox.defer(op.db, "notifyGeneralAffairs_", [snapshot, texts["gaSubject"], ga_body, None], guard=request)
+    outbox.defer(op.db, "sendApprovalRequestEmail_", [snapshot, gm, texts["extraNote"], texts["subjectPrefix"]],
                  guard=request)
-    outbox.defer(op.db, "sendApprovalRequestEmail_", [snapshot, gm, banner, EXPEDITE_PREFIX], guard=request)
     return _detail(op, request.request_id)
 
 

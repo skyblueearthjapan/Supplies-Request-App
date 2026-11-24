@@ -5,20 +5,20 @@
 - args_json は GAS 版の defer_ と同じ並びの引数（申請は serialize.request_row の camelCase の dict）。
 - guard_status / guard_step は積んだ時点（状態を書き換えた後）の申請の値。照合しない仕事は空。
 
-pending_count / list_failed / retry_failed は、担当 M の jobs.py が同じ名前で用意する予定のもの。
-まだ無いので、ここで models を直接使って作っている（まとめるときに M の方へ寄せてよい）。
+積むのは models.Job を直接 insert する（担当 M の jobs.enqueue は regeneratePdf・trashPdf をまだ受け付けないため）。
+pending_count / list_failed / retry_failed は担当 M の app.jobs を使う。
 """
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import jobs
 from app.models import Job, Request
 from app.rpc import RpcError
-from app.serialize import fmt_datetime
 from app.timeutil import now_utc
 
 # GAS 版 Jobs.gs の DEFERRABLE_JOBS と同じ 10 種 ＋ VPS 版で足したもの
@@ -52,8 +52,6 @@ KIND_LABELS = {
     "trashPdf": "PDFをゴミ箱へ移す",
 }
 
-OPEN_STATES = ("pending", "running")
-
 
 def defer(
     db: Session,
@@ -86,45 +84,28 @@ def defer(
 
 
 def pending_count(db: Session, request_id: str) -> int:
-    """その申請のまだ終わっていない仕事の数（詳細の pendingJobs）。"""
-    return int(
-        db.execute(
-            select(func.count()).select_from(Job).where(Job.request_id == request_id, Job.state.in_(OPEN_STATES))
-        ).scalar_one()
-    )
+    """その申請のまだ終わっていない仕事の数（詳細の pendingJobs）。担当 M の jobs.pending_count。"""
+    return int(jobs.pending_count(db, request_id))
 
 
 def list_failed(db: Session) -> list[dict[str, Any]]:
-    """管理画面の「失敗した後処理」。新しい順。"""
-    rows = db.execute(select(Job).where(Job.state == "failed").order_by(Job.updated_at.desc(), Job.id.desc())).scalars()
-    return [
-        {
-            "jobId": str(job.id),
-            "kind": job.kind,
-            "label": KIND_LABELS.get(job.kind, job.kind),
-            "requestId": job.request_id,
-            "attempts": job.attempts,
-            "error": (job.last_error or "")[:500],
-            "failedAt": fmt_datetime(job.finished_at or job.updated_at),
-        }
-        for job in rows
-    ]
+    """管理画面の「失敗した後処理」。担当 M の jobs.list_failed（jobId は画面で文字として扱うので文字にする）。"""
+    rows = jobs.list_failed(db)
+    for row in rows:
+        row["jobId"] = str(row["jobId"])
+        if not row.get("label") or row.get("label") == row.get("kind"):
+            row["label"] = KIND_LABELS.get(row.get("kind", ""), row.get("kind", ""))
+    return rows
 
 
 def retry_failed(db: Session, job_id: Any) -> dict[str, Any]:
-    """失敗した仕事をもう一度積む（state を pending に戻す）。メールは未送信の分だけ送る（M の mail_log で判定）。"""
+    """失敗した仕事をもう一度積む。担当 M の jobs.retry_failed（未送信のメールだけ送る）。"""
     try:
         jid = int(str(job_id).strip())
     except (TypeError, ValueError):
         raise RpcError("やり直せる後処理が見つかりません。") from None
-    job = db.execute(select(Job).where(Job.id == jid).with_for_update()).scalar_one_or_none()
-    if job is None or job.state != "failed":
+    db.execute(select(Job).where(Job.id == jid).with_for_update()).scalar_one_or_none()
+    if not jobs.retry_failed(db, jid):
         raise RpcError("やり直せる後処理が見つかりません。")
-    at = now_utc()
-    job.state = "pending"
-    job.attempts = 0  # 自動の再試行の回数を数え直す（last_error は残す）
-    job.run_after = at
-    job.updated_at = at
-    job.finished_at = None
     db.flush()
-    return {"jobId": str(job.id), "state": job.state}
+    return {"jobId": str(jid), "state": "pending"}

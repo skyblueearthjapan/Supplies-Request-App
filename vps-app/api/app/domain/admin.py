@@ -72,10 +72,9 @@ def get_mail_redirect(db: Session, settings) -> dict[str, Any]:
 def set_mail_redirect(ctx: RpcContext, minutes: Any = None) -> dict[str, Any]:
     op = Op(ctx)
     assert_admin(op)
-    mins = parse_number(minutes)
-    mins = mins if mins > 0 else MAIL_REDIRECT_DEFAULT_MINUTES
-    until_ms = int(time.time() * 1000 + mins * 60 * 1000)
-    store.save_raw_setting(op.db, MAIL_REDIRECT_KEY, f"{op.email}|{until_ms}", MAIL_REDIRECT_DESCRIPTION)
+    from app.services.mail import format_mail_redirect
+
+    store.save_raw_setting(op.db, MAIL_REDIRECT_KEY, format_mail_redirect(op.email, minutes), MAIL_REDIRECT_DESCRIPTION)
     return get_mail_redirect(op.db, ctx.settings)
 
 

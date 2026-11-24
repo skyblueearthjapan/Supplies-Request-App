@@ -14,7 +14,10 @@ def logged_in(client, login_as):
 
 
 def test_exactly_22_functions_are_public():
-    assert len(rpc.RPC_FUNCTIONS) == 22
+    # GAS 版の 22 関数 ＋ VPS 版の管理画面の 5 関数（担当 U の依頼）
+    assert len(rpc.RPC_FUNCTIONS[: rpc.GAS_RPC_COUNT]) == 22
+    assert rpc.RPC_FUNCTIONS[rpc.GAS_RPC_COUNT:] == (
+        "saveAdminAll", "setMailRedirect", "clearMailRedirect", "listFailedJobs", "retryFailedJob")
     assert "runDeferredJobs" not in rpc.RPC_FUNCTIONS
     with pytest.raises(ValueError):
         rpc.register("runDeferredJobs", lambda ctx: None)

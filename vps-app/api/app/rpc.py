@@ -63,8 +63,15 @@ RPC_FUNCTIONS: tuple[str, ...] = (
     "saveApproverMaster",
     "saveNotificationRecipients",
     "saveSettings",
+    # VPS 版で足した管理画面の操作（管理者のみ。担当 W の domain/admin.py）
+    "saveAdminAll",
+    "setMailRedirect",
+    "clearMailRedirect",
+    "listFailedJobs",
+    "retryFailedJob",
 )
-READ_ONLY_FUNCTIONS = frozenset({"getBootstrap", "getTabCounts", "getRequests", "getRequestDetail"})
+GAS_RPC_COUNT = 22  # GAS 版から引き継いだ関数の数（先頭の 22 個）
+READ_ONLY_FUNCTIONS = frozenset({"getBootstrap", "getTabCounts", "getRequests", "getRequestDetail", "listFailedJobs"})
 
 IDEMPOTENCY_HEADER = "X-Idempotency-Key"
 _IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")

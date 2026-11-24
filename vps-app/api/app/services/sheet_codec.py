@@ -147,7 +147,8 @@ TABLES: dict = {
         "request_items", "申請明細", ITEM_COLUMNS, ITEM_HEADERS,
         {
             "lineNo": "int", "quantity": "number", "unitPrice": "number", "amount": "number",
-            "desiredDeliveryDate": "date_text",
+            # 希望納期は DB の Date 型に合わせる（担当 W）。日付でない文字は移行で止める（CodecError）。
+            "desiredDeliveryDate": "date",
         },
     ),
     "approver_rules": TableSpec(
