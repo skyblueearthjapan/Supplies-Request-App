@@ -381,22 +381,12 @@ B-2 のログに `JOBFAILED_*` があれば、その申請番号を新しいア�
 
 GAS 版の移転のページが新しい URL へ案内するので、ポータルのリンクを今日差し替えなくても利用者は迷いません。差し替える前に、オーナーへ声をかけます。
 
-ポータルは GAS のウェブアプリ（`https://script.google.com/a/macros/lineworks-local.info/s/AKfycbx2eyJMOYP9o--GPBuhY-pj071IIR6Kqb_0xALwwNzdLQZux0dIAlL3P9EoCucnzXA/exec`。このアプリの「社内ポータルへ移動」のリンク先）です。ポータルの GAS プロジェクトは次の順で探します。
+**仕組み（2026-11-24 調査済み）:** ポータル（`.../s/AKfycbx2eyJMOYP9o--GPBuhY-pj071IIR6Kqb_0xALwwNzdLQZux0dIAlL3P9EoCucnzXA/exec`、版 @18）は、スプレッドシート「社内ダッシュボード」（`1DdhbJuz-zyS_2pKcM8y6Xf2pHofuzwNDgoW9eWcB0yg`、imaizumi@ の持ち物）に付いた GAS（scriptId `14cIfzsfoEb2Fn-VfjfsXU4zsiWJglHeLkxCKGhKLVlweVJAytemiMxaY`）です。開くたびに **APP_MASTER シート**（3 行目が見出し、4 行目から中身）を読み、`enabled=TRUE` かつ `status=OK` の行をボタンにします。キャッシュも再デプロイも要りません。
 
-1. このアプリの本番の deploymentId を控えます（手元の PC、`D:\projects\chozouhin-shinsei-app` で `npx clasp list-deployments`。`AKfycbx_ZlT…` で始まる本番のもの）。
-2. 作業用の空のフォルダー（scratchpad）で `npx clasp list` を実行し、ポータルらしい名前のプロジェクトの scriptId を探します。
-3. 候補ごとに、作業用のフォルダーで `npx clasp clone <scriptId>` → `npx clasp list-deployments` を実行し、deploymentId に `AKfycbx2eyJMOYP9o--GPBuhY-pj071IIR6Kqb_0xALwwNzdLQZux0dIAlL3P9EoCucnzXA` があるものがポータルです。
-4. そのプロジェクトのコードで、1 で控えた deploymentId（または「貯蔵品購入部品申請」）を検索し、リンク先を `https://supplies.lineworks-local.net/` に書き換えます。
-5. `npx clasp push` → `npx clasp create-version "supplies link"` → `npx clasp update-deployment <ポータルの deploymentId> --versionNumber <版> --description "supplies link"`。
-6. ポータルを開き、「貯蔵品購入部品申請」から新しいアプリが開くことを確かめます。
+**差し替え:** APP_MASTER の **15 行目**（label「貯蔵品購入部品申請」、key「Supplies Request App」）の **F 列（url）** を、`https://script.google.com/a/macros/lineworks-local.info/s/AKfycbx_ZlT-k9DiaZA6RvRhDcaXGiKzPoikO-OhorWBybzfyP3J5-QKv_A0UXg02YfoB3X61g/exec` から `https://supplies.lineworks-local.net/` に書き換えるだけです。行の位置がずれていることがあるので、label で探してから書き換えます。
 
-ポータルが imaizumi@ の持ち物でないときは `npx clasp list` に出ません。そのときは持ち主をオーナーに確かめます。
-
----
-
-## C. 戻す手順（切り替えから 5 営業日以内）
-
-戻すと決めるのはオーナーです。最大 1 時間分のデータ（最後の書き出しの後に VPS で増えた分）を失うことがあります。
+- 確かめ: ポータルを開き直し、「貯蔵品購入部品申請」の行き先が `https://supplies.lineworks-local.net/` になっていること。
+- 戻すとき: F 列を元の GAS の `/exec` に戻す。
 
 ### C-1. VPS の書き込みを止める
 
