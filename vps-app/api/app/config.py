@@ -90,6 +90,8 @@ class Settings(BaseSettings):
             raise ValueError("BOOTSTRAP_ADMINS が空です")
         if not self.delegate_email.endswith("@" + self.allowed_domain):
             raise ValueError("DELEGATE_EMAIL は社内ドメインのアドレスにしてください")
+        if self.app_env == "production" and not self.prod_pdf_folder_id.strip():
+            raise ValueError("本番に必要な値がありません: PROD_PDF_FOLDER_ID（PDF を書いてよいフォルダーの照合に使う）")
         if self.app_env == "staging":
             missing = [
                 name

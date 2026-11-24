@@ -41,6 +41,11 @@ function parseBoolean_(value) {
 }
 
 function getCurrentUser_() {
+  assertNotMigrated_(); // 移転モード（Cutover.gs）なら画面からの呼び出しを止める
+  return getCurrentUserUnchecked_();
+}
+
+function getCurrentUserUnchecked_() {
   var activeEmail = '';
   try {
     activeEmail = Session.getActiveUser().getEmail();

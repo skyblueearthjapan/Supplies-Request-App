@@ -106,6 +106,9 @@ function syncDeptSupervisorsNow() {
 // 想定列: 部署 / 承認者メール（カンマ区切り可）/ 氏名（任意）/ 有効フラグ（任意）。
 // ヘッダ名で列を判定し、無ければ位置（A=部署, B=メール, C=氏名）で読む。
 function syncDeptSupervisorsMaster() {
+  if (skipBecauseMigrated_('syncDeptSupervisorsMaster')) {
+    return { count: 0, skipped: true, migrated: true };
+  }
   var sheet = getDeptApproverSheet_();
   if (!sheet) {
     Logger.log('syncDeptSupervisorsMaster: source sheet not found (' + DEPT_APPROVER_SHEET_NAME + ')');

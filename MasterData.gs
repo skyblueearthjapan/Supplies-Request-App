@@ -2,6 +2,9 @@
 // EXTERNAL_MASTER_SPREADSHEET_ID の指定gidシートを WorkersCache へ複製する。
 
 function syncWorkersMaster() {
+  if (skipBecauseMigrated_('syncWorkersMaster')) {
+    return { count: 0, skipped: true, migrated: true };
+  }
   var src = getMasterSheetByGid_(MASTER_WORKER_GID);
   if (!src) {
     Logger.log('syncWorkersMaster: source sheet not found (gid=' + MASTER_WORKER_GID + ')');

@@ -1,4 +1,8 @@
 function doGet(e) {
+  var migratedTo = getMigratedToUrl_();
+  if (migratedTo) {
+    return renderMigratedPage_(migratedTo, e && e.parameter ? String(e.parameter.requestId || '') : '');
+  }
   var template = HtmlService.createTemplateFromFile('Index');
   template.initialRequestId = e && e.parameter ? e.parameter.requestId || '' : '';
   return template

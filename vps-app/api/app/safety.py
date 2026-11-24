@@ -56,16 +56,22 @@ def assert_writable_drive_folder(
 
     日付のサブフォルダーは ID が別になるため、親（たどれる限りの祖先）の ID も ancestor_ids に渡す。
     ステージングでは、自分か祖先が本番の PDF フォルダーなら、またはステージングのフォルダーの中でなければ
+    UnsafeWriteError。本番では、自分か祖先が PROD_PDF_FOLDER_ID でなければ（またはステージングのフォルダーなら）
     UnsafeWriteError。
     """
     s = _settings(settings)
     fid = (folder_id or "").strip()
     if not fid:
         raise UnsafeWriteError("書き込み先のフォルダー ID が空です")
-    if not s.is_staging:
-        return fid
     chain = [fid] + [a.strip() for a in ancestor_ids if a and a.strip()]
     prod = s.prod_pdf_folder_id.strip()
+    if not s.is_staging:
+        # 本番は本番の PDF フォルダー（PROD_PDF_FOLDER_ID）の中にだけ書く（設定 pdfFolderId の取り違えで別の場所に書かない）
+        if s.staging_pdf_folder_id.strip() and s.staging_pdf_folder_id.strip() in chain:
+            raise UnsafeWriteError("本番からステージング用の PDF フォルダーへは書き込めません")
+        if prod not in chain:
+            raise UnsafeWriteError("本番では本番の PDF フォルダー（PROD_PDF_FOLDER_ID）の中にだけ書き込めます")
+        return fid
     if prod and prod in chain:
         raise UnsafeWriteError("ステージングから本番の PDF フォルダーへは書き込めません")
     if s.staging_pdf_folder_id.strip() not in chain:

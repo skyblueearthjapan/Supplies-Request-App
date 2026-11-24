@@ -84,6 +84,9 @@ function runDeferredJobs(ids) {
 
 // 5分ごとのトリガーから呼ばれる。取り残された仕事を拾って実行する。
 function runDeferredJobsSweep() {
+  if (skipBecauseMigrated_('runDeferredJobsSweep')) {
+    return { ok: 0, failed: 0, skipped: 0, migrated: true };
+  }
   var now = Date.now();
   var props = PropertiesService.getScriptProperties().getProperties();
   var ids = Object.keys(props).filter(function(key) {

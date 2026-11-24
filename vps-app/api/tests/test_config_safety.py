@@ -45,6 +45,21 @@ def test_production_does_not_need_staging_values():
     assert not s.is_staging
 
 
+def test_production_needs_prod_pdf_folder():
+    with pytest.raises(ValidationError):
+        make_settings(app_env="production", prod_pdf_folder_id="")
+
+
+def test_production_writes_only_inside_prod_pdf_folder():
+    p = make_settings(app_env="production")
+    assert safety.assert_writable_drive_folder("prod-folder-id", settings=p) == "prod-folder-id"
+    assert safety.assert_writable_drive_folder("date-sub", ancestor_ids=["prod-folder-id"], settings=p) == "date-sub"
+    with pytest.raises(UnsafeWriteError):
+        safety.pdf_root_folder_id("some-other-folder", p)  # 設定 pdfFolderId の取り違え
+    with pytest.raises(UnsafeWriteError):
+        safety.assert_writable_drive_folder("staging-folder-id", ancestor_ids=["prod-folder-id"], settings=p)
+
+
 def test_staging_blocks_prod_spreadsheet():
     s = make_settings()
     with pytest.raises(UnsafeWriteError):
