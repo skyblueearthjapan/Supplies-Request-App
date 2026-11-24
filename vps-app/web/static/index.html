@@ -1,0 +1,3061 @@
+<!doctype html>
+<html lang="ja" data-theme="B">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>貯蔵品購入申請</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Serif+JP:wght@500;600;700&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  /* ===== 貯蔵品購入申請 リデザイン — B案「ゆとり」（藍ベース） ===== */
+  :root {
+    --bg: #f4f5fb;
+    --surface: #ffffff;
+    --surface-2: #f7f8fd;
+    --ink: #1b2138;
+    --ink-soft: #3a4263;
+    --muted: #727a98;
+    --line: #e4e7f2;
+    --line-soft: #eef0f7;
+    --primary: #4250d6;
+    --primary-strong: #3540ad;
+    --primary-tint: #ebedfc;
+    --accent: #c2497f;
+    --header-bg: #ffffff;
+    --header-ink: #1b2138;
+    --header-sub: #727a98;
+    --ok: #1f9d57;
+    --ok-tint: #e6f6ec;
+    --warn: #d08214;
+    --warn-tint: #fcefd9;
+    --info: #4250d6;
+    --info-tint: #ebedfc;
+    --radius: 12px;
+    --radius-lg: 18px;
+    --shadow: 0 1px 2px rgba(40, 46, 90, .05);
+    --shadow-card: 0 6px 24px -12px rgba(40, 46, 90, .22);
+    --font-head: 'Noto Sans JP', system-ui, sans-serif;
+    --font-body: 'Noto Sans JP', system-ui, sans-serif;
+    --font-num: 'Roboto Mono', ui-monospace, monospace;
+    --head-weight: 700;
+    --pad: 28px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { background-color: var(--bg); }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 { margin: 0; font-family: var(--font-head); line-height: 1.28; font-weight: var(--head-weight); letter-spacing: .01em; }
+  button { font: inherit; cursor: pointer; }
+  input, select, textarea { font: inherit; }
+  a { color: inherit; }
+
+  .num { font-family: var(--font-num); font-feature-settings: "tnum"; }
+
+  /* ---------- App shell ---------- */
+  .shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* トップバー＋タブを上部に固定し、スクロールはその下から */
+  .appbar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg);
+    box-shadow: 0 8px 18px -14px rgba(40, 46, 90, .35);
+  }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    padding: 0 28px; height: 64px;
+    background: var(--header-bg); color: var(--header-ink);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-family: var(--font-head); font-weight: 800; font-size: 17px;
+    background: var(--primary); color: #fff;
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+  .brand-text .co { font-size: 11px; letter-spacing: .14em; color: var(--header-sub); }
+  .brand-text .ti { font-size: 16px; font-weight: 700; font-family: var(--font-head); }
+
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  /* 社内ポータルへ戻る（参照リポジトリと同仕様の緑ボタン） */
+  .portal-link {
+    font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--ok); background: var(--ok); color: #fff;
+    text-decoration: none; white-space: nowrap; line-height: 1; transition: background .15s;
+  }
+  .portal-link:hover { background: #177a43; border-color: #177a43; color: #fff; }
+  .userbox { display: flex; align-items: center; gap: 10px; }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center;
+    font-weight: 700; font-size: 13px; color: #fff; background: var(--accent);
+  }
+  .userbox .meta { display: flex; flex-direction: column; line-height: 1.2; text-align: right; }
+  .userbox .meta .n { font-weight: 700; font-size: 13px; }
+  .userbox .meta .e { font-size: 11px; color: var(--header-sub); }
+
+  /* ---------- Tabs ---------- */
+  .tabs {
+    display: flex; flex-wrap: nowrap; gap: 6px; padding: 8px 24px 0; background: transparent;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .tab {
+    position: relative; border: 0; background: transparent; color: var(--muted);
+    padding: 14px 16px; font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    border-radius: 10px 10px 0 0;
+    white-space: nowrap; flex: 0 0 auto;
+  }
+  .tab .count {
+    display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 999px; font-size: 11px; font-family: var(--font-num);
+    background: var(--line-soft); color: var(--muted);
+  }
+  .tab:hover { color: var(--ink-soft); }
+  .tab.on { color: var(--primary); background: var(--surface); }
+  .tab.on .count { background: var(--primary-tint); color: var(--primary); }
+  .tab.on::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2.5px;
+    background: var(--primary); border-radius: 3px 3px 0 0;
+  }
+  /* 新規申請を主役に（左・塗りボタン）／承認・処理系は右寄せ・淡色で副次 */
+  .tab-spacer { flex: 1 1 auto; min-width: 12px; }
+  .tab-grouplabel { align-self: center; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--muted); padding: 0 8px 8px 12px; border-left: 1px solid var(--line); }
+  .tab.tab-primary { background: var(--primary); color: #fff; border-radius: 10px; padding: 9px 18px; margin: 6px 6px 8px 0; }
+  .tab.tab-primary:hover { color: #fff; filter: brightness(1.08); }
+  .tab.tab-primary.on::after { display: none; }
+  .tab.tab-sub { font-size: 12.5px; padding: 14px 12px; opacity: .92; }
+  .tab.tab-sub:not(.on) { color: var(--muted); }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; width: min(1320px, calc(100vw - 40px)); margin: 0 auto; padding: 26px 0 60px; }
+
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+  /* 管理画面: タイトル＋保存を appbar 直下に固定（top は JS で appbar の高さに合わせる） */
+  /* 上の固定バー直下に密着させ、スクロール開始時から完全固定（margin-top で .main の上余白26pxを相殺） */
+  .admin-sticky-head { position: sticky; top: 0; z-index: 50; background: var(--bg); padding: 18px 0 14px; margin: -26px 0 6px; border-bottom: 1px solid var(--line-soft); }
+  .admin-sticky-head .page-head { margin-bottom: 0; }
+  .page-head .title-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .page-head .eyebrow { font-size: 11px; letter-spacing: .16em; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+  .page-head h2 { font-size: 23px; }
+  .page-head .sub { color: var(--muted); font-size: 13px; }
+  .head-actions { display: flex; gap: 10px; }
+
+  /* ---------- Card ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+  }
+  .card + .card { margin-top: 18px; }
+  .card-pad { padding: var(--pad); }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 16px var(--pad); border-bottom: 1px solid var(--line-soft);
+  }
+  .card-head h3 { font-size: 15px; }
+  .card-head .hint { font-size: 12px; color: var(--muted); }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; justify-content: center;
+    min-height: 38px; padding: 0 16px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+    font-weight: 700; font-size: 13px; transition: all .16s ease; white-space: nowrap; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--muted); color: var(--ink); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover { background: var(--primary-strong); border-color: var(--primary-strong); color: #fff; }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .btn.danger:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .btn.sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
+  .btn.lg { min-height: 46px; padding: 0 22px; font-size: 14.5px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ---------- Fields ---------- */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > .lbl { font-size: 12px; font-weight: 700; color: var(--ink-soft); display: flex; gap: 6px; align-items: center; }
+  .field .req { color: var(--accent); font-size: 11px; }
+  .field .hint { font-size: 11px; color: var(--muted); }
+  .control {
+    width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 9px 11px; background: var(--surface); color: var(--ink); transition: border-color .15s, box-shadow .15s;
+  }
+  .control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-tint); }
+  .control::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
+  .control[readonly] { background: var(--surface-2); color: var(--muted); }
+  textarea.control { resize: vertical; min-height: 84px; line-height: 1.6; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+  /* ---------- Badges ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+    border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.IN_REVIEW { background: var(--info-tint); color: var(--info); }
+  .badge.RETURNED { background: var(--warn-tint); color: var(--warn); }
+  .badge.COMPLETED { background: var(--ok-tint); color: var(--ok); }
+  .badge.CANCELLED { background: var(--surface-2); color: var(--muted); }
+  .badge.soft { background: var(--surface-2); color: var(--muted); }
+
+  /* ---------- Tables (一覧) ---------- */
+  .table-wrap { width: 100%; overflow-x: auto; }
+  table.tbl { width: 100%; border-collapse: collapse; }
+  table.tbl th {
+    text-align: left; font-size: 11px; letter-spacing: .04em; color: var(--muted); font-weight: 700;
+    padding: 12px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; background: transparent;
+  }
+  table.tbl td { padding: 14px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  table.tbl tr:last-child td { border-bottom: 0; }
+  table.tbl tbody tr.click { cursor: pointer; transition: background .14s; }
+  table.tbl tbody tr.click:hover { background: var(--surface-2); }
+  .reqid { font-family: var(--font-num); font-weight: 700; font-size: 13px; color: var(--primary); }
+  .cell-amt { font-family: var(--font-num); font-weight: 700; text-align: right; }
+  th.r, td.r { text-align: right; }
+  .empty { padding: 48px; text-align: center; color: var(--muted); }
+
+  /* who cell */
+  .who { display: flex; align-items: center; gap: 9px; }
+  .who .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; flex: none; }
+  .who .nm { font-weight: 600; font-size: 13px; }
+  .who .dp { font-size: 11px; color: var(--muted); }
+
+  /* ---------- 明細テーブル（B案：行カード） ---------- */
+  .items-section { margin-top: 4px; }
+  .icards { display: flex; flex-direction: column; gap: 12px; }
+  .icard { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--surface-2); }
+  .icard-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .icard-no { width: 26px; height: 26px; border-radius: 8px; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; font-family: var(--font-num); font-weight: 700; font-size: 12px; flex: none; }
+  .icard-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+  .icard-grid .sub { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; grid-column: 1 / -1; }
+  .icard .mini-lbl { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 4px; display: block; }
+  .icard .line-amt-b { margin-left: auto; font-family: var(--font-num); font-weight: 800; font-size: 16px; }
+  .control.num { text-align: right; font-family: var(--font-num); }
+  /* 明細カードの単位（「その他」選択時の自由入力欄はセレクトの直下に出す） */
+  .icard .unit-free { margin-top: 6px; }
+  /* 見積パネル：単価入力の右に単位を添え、何あたりの単価かを購買に明示する */
+  .q-unit-wrap { display: flex; align-items: center; gap: 6px; }
+  .q-unit-wrap .q-unit { flex: 1; min-width: 0; }
+  .q-unit-suffix { font-size: 12px; color: var(--muted); white-space: nowrap; font-weight: 600; }
+  .row-del { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); display: grid; place-items: center; flex: none; }
+  .row-del:hover { color: var(--accent); border-color: var(--accent); }
+
+  .items-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; margin-top: 8px; border-top: 2px solid var(--line); flex-wrap: wrap; }
+  .total-box { display: flex; align-items: baseline; gap: 12px; }
+  .total-box .tl { font-size: 12px; color: var(--muted); font-weight: 700; }
+  .total-box .tv { font-family: var(--font-num); font-weight: 800; font-size: 26px; color: var(--primary); }
+  .threshold-note { font-size: 12px; color: var(--muted); }
+  .threshold-note.over { color: var(--accent); font-weight: 700; }
+
+  /* reasons */
+  .reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .reason {
+    display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line);
+    border-radius: var(--radius); cursor: pointer; transition: all .14s; background: var(--surface);
+  }
+  .reason:hover { border-color: var(--muted); }
+  .reason.on { border-color: var(--primary); background: var(--primary-tint); }
+  .reason .rc { width: 24px; height: 24px; border-radius: 7px; flex: none; display: grid; place-items: center; font-family: var(--font-head); font-weight: 800; font-size: 13px; background: var(--surface-2); color: var(--ink-soft); }
+  .reason.on .rc { background: var(--primary); color: #fff; }
+  .reason .rl { font-size: 12.5px; line-height: 1.5; }
+
+  /* ---------- 品目区分セグメント ---------- */
+  .cat-seg { display: flex; gap: 10px; flex-wrap: wrap; }
+  .cat-opt {
+    flex: 1 1 0; min-width: 120px; padding: 12px 16px; border: 1px solid var(--line);
+    border-radius: var(--radius); cursor: pointer; transition: all .14s; background: var(--surface);
+    font-family: var(--font-head); font-weight: 700; font-size: 14px; color: var(--ink-soft); text-align: center;
+  }
+  .cat-opt:hover { border-color: var(--muted); }
+  .cat-opt.on { border-color: var(--primary); background: var(--primary-tint); color: var(--primary); }
+
+  /* 一覧・詳細で品目区分を一目で示すバッジ */
+  .cat-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1.7; border: 1px solid transparent; white-space: nowrap; }
+  .cat-chip.MECH { color: #1d4ed8; background: rgba(37,99,235,.12); border-color: rgba(37,99,235,.32); }
+  .cat-chip.ELEC { color: #b45309; background: rgba(208,130,20,.16); border-color: rgba(208,130,20,.42); }
+  .cat-chip.GENERAL { color: var(--muted); background: var(--surface-2); border-color: var(--line); }
+
+  /* ---------- Stepper（B案：縦タイムライン） ---------- */
+  .stepper-card { padding: var(--pad); }
+  .step-t { display: flex; flex-direction: column; }
+  .step-t .trow { display: flex; gap: 14px; }
+  .step-t .rail { display: flex; flex-direction: column; align-items: center; flex: none; }
+  .step-t .av { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; background: var(--muted); flex: none; }
+  .step-t .trow.done .av { background: var(--primary); }
+  .step-t .trow.current .av { background: var(--primary); box-shadow: 0 0 0 4px var(--primary-tint); }
+  .step-t .trow.pending .av { background: var(--surface-2); color: var(--muted); border: 2px solid var(--line); }
+  .step-t .bar { width: 2px; flex: 1; min-height: 22px; background: var(--line); }
+  .step-t .bar.done { background: var(--primary); }
+  .step-t .tbody { padding-bottom: 18px; }
+  .step-t .trow:last-child .tbody { padding-bottom: 0; }
+  .step-t .t-lbl { font-weight: 700; font-size: 13.5px; }
+  .step-t .t-name { font-size: 12px; color: var(--muted); }
+  .step-t .t-tag { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 8px; }
+  .step-t .trow.current .t-tag { background: var(--primary-tint); color: var(--primary); }
+  .step-t .trow.done .t-tag { background: var(--ok-tint); color: var(--ok); }
+
+  /* ---------- Detail ---------- */
+  .detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: var(--radius); overflow: hidden; }
+  .dcell { background: var(--surface); padding: 14px 16px; }
+  .dcell .dl { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
+  .dcell .dv { font-size: 14px; font-weight: 600; }
+  .dcell .dv.big { font-family: var(--font-num); font-size: 18px; font-weight: 800; }
+
+  .approve-panel { margin-top: 18px; padding: var(--pad); border: 1px solid var(--primary); border-radius: var(--radius-lg); background: var(--primary-tint); }
+  .approve-panel .ap-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .approve-panel .ap-head .pill { font-size: 12px; font-weight: 700; color: var(--primary); }
+
+  /* 差し戻し時の注記 */
+  .return-notice { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--warn); background: var(--warn-tint); border-radius: var(--radius); }
+  .return-notice .rn-ic { font-size: 16px; line-height: 1.5; flex: none; }
+  .return-notice .rn-body { font-size: 12.5px; line-height: 1.7; color: #7a5510; }
+  .return-notice .rn-body b { display: block; margin-bottom: 2px; color: var(--warn); font-size: 12px; letter-spacing: .04em; }
+  .psheet-notice { font-size: 12px; line-height: 1.6; color: #7a5510; background: var(--warn-tint); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; text-align: left; }
+
+  /* 承認時の注意事項（責任・代理押印禁止） */
+  .approver-notice { margin: 4px 0 14px; padding: 12px 14px; border: 1.5px solid var(--warn); background: var(--warn-tint); border-radius: var(--radius); }
+  .approver-notice .an-head { font-weight: 800; color: var(--warn); font-size: 13px; margin-bottom: 6px; letter-spacing: .02em; }
+  .approver-notice .an-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; color: #7a5510; }
+  .approver-notice .an-list li { margin: 2px 0; }
+
+  /* ---------- 明細の部分差戻し（申請の分割） ---------- */
+  /* 承認パネル内に置くため、パネル地（primary-tint）から浮かせて「操作対象の一覧」と分かるようにする */
+  .split-select { margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); }
+  .split-select .ss-head { font-weight: 800; font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+  .split-select .ss-note { font-weight: 600; font-size: 11.5px; color: var(--muted); margin-left: 6px; }
+  .ss-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  .ss-row:hover { background: var(--surface-2); }
+  .ss-row input { width: 17px; height: 17px; flex: none; }
+  .ss-row .ss-no { flex: none; min-width: 22px; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .ss-row .ss-nm { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+  .ss-row .ss-model { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+  .ss-row .ss-qty { font-size: 12.5px; color: var(--ink-soft); white-space: nowrap; }
+  /* バッジは常に場所を確保しておき、チェック操作で行の幅が跳ねないようにする */
+  .ss-row .ss-tag { visibility: hidden; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--warn-tint); color: var(--warn); white-space: nowrap; }
+  .ss-row.off { background: var(--surface-2); }
+  .ss-row.off .ss-no, .ss-row.off .ss-nm, .ss-row.off .ss-qty { color: var(--muted); text-decoration: line-through; }
+  .ss-row.off .ss-tag { visibility: visible; }
+  .ss-warn { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--warn); }
+
+  /* 見積パネル：選択列と、選択を外した行 */
+  th.q-chk, td.q-chk { width: 52px; text-align: center; }
+  td.q-chk input { width: 17px; height: 17px; }
+  table.tbl tbody tr.off td { background: var(--surface-2); color: var(--muted); }
+  table.tbl tbody tr.off .q-unit, table.tbl tbody tr.off .q-unit-suffix { opacity: .5; }
+
+  /* 分離で作られた申請から、元申請へ辿るリンク */
+  .split-from { margin: 4px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+  .split-from .link-req { padding: 0; border: 0; background: none; font-family: var(--font-num); font-weight: 700; color: var(--primary); text-decoration: underline; }
+
+  .history { display: flex; flex-direction: column; }
+  .hrow { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+  .hrow:last-child { border-bottom: 0; }
+  .hicon { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 13px; color: #fff; font-weight: 700; }
+  .hicon.SUBMIT, .hicon.RESUBMIT { background: var(--info); }
+  .hicon.APPROVE { background: var(--ok); }
+  .hicon.RETURN { background: var(--warn); }
+  .hicon.COMPLETE { background: var(--primary); }
+  .hicon.UPDATE, .hicon.PDF_GENERATE { background: var(--muted); }
+  .hicon.ESCALATE { background: var(--accent); }
+  .hbody { flex: 1; }
+  .hbody .ht { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hbody .ha { font-weight: 700; font-size: 13.5px; }
+  .hbody .hw { font-size: 12px; color: var(--muted); }
+  .hbody .htime { font-size: 11px; color: var(--muted); font-family: var(--font-num); margin-left: auto; }
+  .hbody .hflow { font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+  .hbody .hcomment { margin-top: 6px; padding: 9px 12px; background: var(--surface-2); border-radius: var(--radius); font-size: 12.5px; line-height: 1.55; border-left: 3px solid var(--line); white-space: pre-wrap; }
+
+  /* ---------- Filters ---------- */
+  .filters { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .filters .field { min-width: 160px; }
+  .seg-filter { display: flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: var(--radius); border: 1px solid var(--line); flex-wrap: wrap; }
+  .seg-filter button { border: 0; background: transparent; padding: 7px 13px; border-radius: calc(var(--radius) - 2px); font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .seg-filter button.on { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+
+  /* ---------- Toast ---------- */
+  .toast-wrap { position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 300; }
+  .toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: var(--radius); background: var(--ink); color: #fff; box-shadow: 0 12px 32px -8px rgba(0,0,0,.4); font-size: 13px; font-weight: 600; animation: tin .25s ease; max-width: 360px; }
+  .toast.ok { background: var(--ok); }
+  .toast.err { background: var(--accent); }
+  .toast .tdot { width: 8px; height: 8px; border-radius: 50%; background: #fff; flex: none; }
+  @keyframes tin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- Stat tiles (一覧上部) ---------- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: var(--shadow-card); }
+  .stat .sl { font-size: 11.5px; color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+  .stat .sv { font-family: var(--font-num); font-size: 26px; font-weight: 800; line-height: 1; }
+  .stat .su { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .stat .sv.accent { color: var(--primary); }
+
+  /* admin */
+  .approver-tbl { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 880px; }
+  .approver-tbl th { font-size: 11px; color: var(--muted); font-weight: 700; text-align: left; padding: 8px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .approver-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--line-soft); }
+  .approver-tbl .iinput { width: 100%; min-width: 96px; min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface); color: var(--ink); }
+  .approver-tbl .iinput:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-tint); }
+
+  /* transform を使うと中の position:sticky の基準がズレて固定がガタつくため、opacity のみでフェード */
+  .fade-in { animation: fadein .3s ease both; }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ---------- PDFプレビュー（詳細画面内） ---------- */
+  .pdf-preview-card { padding: 0; overflow: hidden; }
+  .pdf-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px var(--pad); border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
+  .pdf-preview-head .lhs { display: flex; align-items: center; gap: 12px; }
+  .pdf-preview-head .doc-ic { width: 38px; height: 48px; border-radius: 4px; border: 1.5px solid var(--ink-soft); position: relative; flex: none; background: var(--surface); }
+  .pdf-preview-head .doc-ic::before { content: ''; position: absolute; top: 0; right: 0; width: 12px; height: 12px; background: var(--surface-2); border-left: 1.5px solid var(--ink-soft); border-bottom: 1.5px solid var(--ink-soft); }
+  .pdf-preview-head .doc-ic::after { content: 'PDF'; position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 8px; font-weight: 800; font-family: var(--font-num); color: var(--ink-soft); }
+  .pdf-preview-head h3 { font-size: 15px; }
+  .pdf-preview-head .sub { font-size: 12px; color: var(--muted); }
+  .pdf-preview-body { background: #e9eaef; padding: 22px; display: flex; justify-content: center; max-height: 560px; overflow: auto; }
+  .pdf-scaler { transform-origin: top center; }
+  .pdf-preview-body .pdf-doc { box-shadow: 0 10px 40px -10px rgba(20,24,50,.35); }
+
+  /* ---------- 社長決裁モード ---------- */
+  .president-cta { margin-top: 18px; padding: var(--pad); border-radius: var(--radius-lg); border: 1.5px solid var(--primary); background: linear-gradient(180deg, var(--primary-tint), var(--surface)); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .president-cta .pc-l { display: flex; align-items: center; gap: 14px; }
+  .president-cta .pc-ic { width: 46px; height: 46px; border-radius: 12px; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 20px; flex: none; }
+  .president-cta .pc-t b { font-size: 15px; } .president-cta .pc-t div { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+  .pmode { position: fixed; inset: 0; z-index: 200; background: #20242f; display: flex; flex-direction: column; animation: fadein .25s ease both; }
+  .pmode-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; background: #161922; color: #fff; flex: none; }
+  .pmode-bar-l { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .pmode-kicker { font-size: 12px; font-weight: 800; letter-spacing: .14em; padding: 5px 12px; border-radius: 999px; background: var(--primary); color: #fff; }
+  .pmode-id { font-size: 16px; font-weight: 700; }
+  .pmode-meta { font-size: 13px; color: #b9bdca; }
+  .pmode-bar-r { display: flex; align-items: center; gap: 18px; }
+  .pmode-amt { display: flex; align-items: baseline; gap: 8px; }
+  .pmode-amt .pa-l { font-size: 12px; color: #b9bdca; }
+  .pmode-amt .pa-v { font-size: 20px; font-weight: 800; }
+  .pmode-close { border: 1px solid #3a3f4d; background: transparent; color: #fff; padding: 9px 16px; border-radius: 10px; font-weight: 700; font-size: 13px; }
+  .pmode-close:hover { background: #2a2f3b; }
+
+  .pmode-stage { flex: 1; overflow: auto; padding: 24px 28px; display: flex; justify-content: center; align-items: flex-start; min-height: 0; }
+  .pmode-paper { position: relative; box-shadow: 0 24px 70px -18px rgba(0,0,0,.6); border-radius: 2px; flex: none; }
+  .pmode-paper-inner { transform-origin: top left; width: 793.7px; height: 1122.5px; position: absolute; top: 0; left: 0; }
+
+  .pmode-actions { flex: none; background: rgba(22,25,34,.96); border-top: 1px solid #2a2f3b; padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  /* 画面の高さ基準(vmin)で小さめに。小型ノートでも画面を覆わない。 */
+  .pmode-notice { flex-basis: 100%; width: 100%; color: #ffe3b8; background: rgba(208,130,20,.20); border: 1px solid var(--warn); border-radius: 8px; padding: 9px 13px; font-size: clamp(14px, 1.9vmin, 24px); line-height: 1.4; font-weight: 600; max-height: 26vh; overflow: auto; }
+  .pmode-notice b { color: #ffd27a; }
+  .pmode-prompt { color: #fff; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .pmode-prompt .pp-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 35%, transparent); }
+  .pmode-btns { display: flex; gap: 14px; }
+  .pbtn { display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 0 30px; border-radius: 14px; border: 0; font-family: var(--font-body); cursor: pointer; transition: transform .12s, filter .12s; }
+  .pbtn:active { transform: scale(.97); }
+  .pbtn .pbtn-ic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; font-weight: 800; flex: none; }
+  .pbtn span:not(.pbtn-ic) { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; white-space: nowrap; }
+  .pbtn b { font-size: 18px; } .pbtn small { font-size: 11px; opacity: .8; }
+  .pbtn.ok { background: var(--primary); color: #fff; } .pbtn.ok:hover { filter: brightness(1.08); }
+  .pbtn.ok .pbtn-ic { background: rgba(255,255,255,.22); }
+  .pbtn.ng { background: #fff; color: #c2334d; border: 1.5px solid #f0c2cb; } .pbtn.ng:hover { background: #fff5f6; }
+  .pbtn.ng .pbtn-ic { background: #fde6ea; color: #c2334d; }
+
+  .pmode-sheet { position: fixed; inset: 0; background: rgba(16,18,26,.62); display: grid; place-items: center; padding: 24px; animation: fadein .2s ease both; z-index: 10; }
+  .psheet-card { width: min(460px, 92vw); background: var(--surface); border-radius: 20px; padding: 30px 28px; text-align: center; box-shadow: 0 30px 80px -20px rgba(0,0,0,.5); }
+  .psheet-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 16px; font-size: 30px; font-weight: 800; color: #fff; }
+  .psheet-icon.ok { background: var(--primary); } .psheet-icon.ng { background: #c2334d; }
+  .psheet-card h3 { font-size: 21px; margin-bottom: 8px; }
+  .psheet-sub { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+  .psheet-input { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-bottom: 14px; background: var(--surface); color: var(--ink); resize: vertical; font-family: var(--font-body); }
+  .psheet-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-tint); }
+  .psheet-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 14px; }
+  .pchip { border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft); padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .pchip.on { background: #fde6ea; border-color: #f0c2cb; color: #c2334d; }
+  .psheet-btns { display: flex; gap: 12px; }
+  .pbtn2 { flex: 1; min-height: 52px; border-radius: 13px; border: 0; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
+  .pbtn2.ok { background: var(--primary); color: #fff; } .pbtn2.ng { background: #c2334d; color: #fff; }
+  .pbtn2.ghost { background: var(--surface-2); color: var(--ink-soft); border: 1px solid var(--line); }
+
+  /* ---------- Loading ---------- */
+  .loading { position: fixed; inset: auto 24px 24px auto; z-index: 320; border-radius: 10px; padding: 11px 16px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; box-shadow: 0 12px 32px -8px rgba(0,0,0,.4); }
+
+  .admin-only { display: none; }
+  body.is-admin .admin-only { display: inline-flex; }
+
+  @media (max-width: 1000px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .detail-grid { grid-template-columns: repeat(2, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 12px; }
+    .main { width: calc(100vw - 24px); }
+    .grid-3, .grid-2, .reasons, .icard-grid, .icard-grid .sub { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .tabs { overflow-x: auto; }
+  }
+
+  /* ===== 貯蔵品購入申請書 — モノクロ A4 フォーマット（.pdf-doc 配下にスコープ） ===== */
+  .pdf-doc {
+    --ink: #0e0e0e;
+    --ink-2: #3a3a3a;
+    --gray: #6b6b6b;
+    --hair: #c4c4c4;
+    --hair-2: #9a9a9a;
+    --fill: #f1f1ef;
+    --fill-2: #e6e6e3;
+    --paper: #ffffff;
+    --seal: #c0392b;
+    --sans: 'Noto Sans JP', system-ui, sans-serif;
+    --serif: 'Noto Serif JP', serif;
+    --mono: 'Roboto Mono', ui-monospace, monospace;
+    width: 210mm;
+    min-height: 287mm;
+    margin: 0 auto;
+    padding: 12mm 14mm 8mm;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 9.6pt;
+    line-height: 1.42;
+    box-sizing: border-box;
+    position: relative;
+  }
+  .pdf-doc * { box-sizing: border-box; }
+  .pdf-doc.pdf-doc--decision { min-height: 287mm; }
+  .pdf-doc .mono { font-family: var(--mono); font-feature-settings: "tnum"; }
+
+  .pdf-doc .masthead { display: flex; align-items: stretch; justify-content: space-between; gap: 16px; }
+  .pdf-doc .mh-left { display: flex; flex-direction: column; justify-content: center; }
+  .pdf-doc .mh-co { font-size: 8.2pt; letter-spacing: .28em; color: var(--gray); margin-bottom: 5px; }
+  .pdf-doc .mh-title { font-family: var(--serif); font-weight: 700; font-size: 23pt; letter-spacing: .14em; line-height: 1; }
+  .pdf-doc .mh-en { font-size: 7.4pt; letter-spacing: .32em; color: var(--gray); margin-top: 7px; text-transform: uppercase; }
+  .pdf-doc .mh-right { text-align: right; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .pdf-doc .mh-no { font-family: var(--mono); font-size: 13pt; font-weight: 700; letter-spacing: .04em; }
+  .pdf-doc .mh-date { font-size: 8.4pt; color: var(--ink-2); }
+  .pdf-doc .mh-date b { font-family: var(--mono); }
+  .pdf-doc .rule-heavy { height: 2.4pt; background: var(--ink); margin: 9px 0 0; }
+  .pdf-doc .rule-thin { height: .6pt; background: var(--ink); margin: 1.6pt 0 0; }
+
+  .pdf-doc .kessai { margin-top: 8px; }
+  .pdf-doc .kessai-lbl { font-size: 7.6pt; letter-spacing: .22em; color: var(--gray); margin-bottom: 4px; }
+  .pdf-doc .stamps { display: flex; gap: 0; border: .8pt solid var(--ink); }
+  .pdf-doc .stamp { flex: 1; text-align: center; padding: 5px 4px 7px; position: relative; border-right: .6pt solid var(--hair-2); }
+  .pdf-doc .stamp:last-child { border-right: 0; }
+  .pdf-doc .stamp .s-role { font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding-bottom: 4px; border-bottom: .5pt solid var(--hair); margin-bottom: 6px; }
+  /* データネーム印（朱色・単一円・氏名/令X.M.D/役職・微傾き） */
+  .pdf-doc .stamp .dnstamp { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: 1.5pt solid var(--seal); color: var(--seal); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; transform: rotate(-2.5deg); overflow: hidden; line-height: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdf-doc .stamp .dn-name { font-family: var(--serif); font-weight: 700; line-height: 1; white-space: nowrap; }
+  .pdf-doc .stamp .dn-date { font-family: var(--sans); font-size: 5.2pt; font-weight: 700; letter-spacing: .02em; padding: 1.2px 0; margin: 1.6px 0; width: 82%; text-align: center; border-top: .5pt solid var(--seal); border-bottom: .5pt solid var(--seal); }
+  .pdf-doc .stamp .dn-role { font-family: var(--sans); font-size: 5pt; font-weight: 600; line-height: 1; }
+  .pdf-doc .stamp.acted.ng .dnstamp { border-style: dashed; }
+  .pdf-doc .stamp .s-empty { width: 46px; height: 46px; margin: 0 auto 2px; border-radius: 50%; border: .8pt dashed var(--hair-2); }
+  .pdf-doc .stamp .s-pending { font-size: 6.8pt; color: var(--hair-2); letter-spacing: .1em; }
+
+  .pdf-doc .meta { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 9px; border: .8pt solid var(--ink); }
+  .pdf-doc .mcell { padding: 5px 9px; border-right: .6pt solid var(--hair); border-bottom: .6pt solid var(--hair); }
+  .pdf-doc .mcell.wide { grid-column: span 2; }
+  /* 各行の右端セルは個別に style="border-right:0" を付ける（wideセルでDOM順と列がずれるため一律ルールは使わない）。 */
+  .pdf-doc .mcell .mk { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
+  .pdf-doc .mcell .mv { font-size: 10pt; font-weight: 500; }
+  .pdf-doc .mcell .mv.amt { font-family: var(--mono); font-weight: 700; font-size: 12pt; }
+
+  .pdf-doc .sec-head { display: flex; align-items: center; gap: 8px; margin: 9px 0 5px; }
+  .pdf-doc .sec-head .sq { width: 8px; height: 8px; background: var(--ink); flex: none; }
+  .pdf-doc .sec-head h2 { font-family: var(--serif); font-size: 10.5pt; font-weight: 700; letter-spacing: .1em; margin: 0; white-space: nowrap; flex: none; }
+  .pdf-doc .sec-head .sline { flex: 1; height: .5pt; background: var(--hair); }
+  .pdf-doc .sec-head .scount { font-size: 7.6pt; color: var(--gray); font-family: var(--mono); }
+
+  .pdf-doc table.items { width: 100%; border-collapse: collapse; }
+  .pdf-doc table.items thead th { background: var(--ink); color: #fff; font-size: 7.8pt; font-weight: 700; letter-spacing: .04em; padding: 5px 7px; text-align: left; border-right: .5pt solid #444; }
+  .pdf-doc table.items thead th:last-child { border-right: 0; }
+  .pdf-doc table.items thead th.r { text-align: right; }
+  .pdf-doc table.items tbody td { padding: 4px 7px; border-bottom: .6pt solid var(--hair); border-right: .5pt solid var(--fill-2); font-size: 9pt; }
+  .pdf-doc table.items tbody td:last-child { border-right: 0; }
+  .pdf-doc table.items tbody tr:nth-child(even) td { background: var(--fill); }
+  .pdf-doc table.items td.r { text-align: right; font-family: var(--mono); }
+  .pdf-doc table.items td.no { text-align: center; font-family: var(--mono); color: var(--gray); font-size: 8pt; }
+  .pdf-doc table.items td .nm { font-weight: 600; }
+  .pdf-doc table.items td .sub { color: var(--gray); font-size: 7.6pt; }
+  /* 数量セルの単位（列は増やさず2段表示。長い自由入力の単位も折り返して収める） */
+  .pdf-doc table.items td .unit { color: var(--gray); font-size: 7.4pt; font-family: var(--sans); line-height: 1.25; word-break: break-all; }
+  .pdf-doc table.items tfoot td { padding: 7px; border-top: 1.6pt solid var(--ink); font-weight: 700; }
+  .pdf-doc table.items tfoot .tl { text-align: right; letter-spacing: .1em; font-size: 9pt; }
+  .pdf-doc table.items tfoot .tv { text-align: right; font-family: var(--mono); font-size: 13pt; }
+
+  .pdf-doc .reasons-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; border: .8pt solid var(--ink); padding: 8px 10px; }
+  .pdf-doc .rz { display: flex; gap: 7px; align-items: flex-start; font-size: 8.6pt; line-height: 1.4; color: var(--ink-2); }
+  .pdf-doc .rz .chk { width: 12px; height: 12px; border: .8pt solid var(--ink); flex: none; margin-top: 1px; display: grid; place-items: center; font-size: 8pt; }
+  .pdf-doc .rz.on { color: var(--ink); font-weight: 700; }
+  .pdf-doc .rz.on .chk { background: var(--ink); color: #fff; }
+  .pdf-doc .reason-detail { border: .8pt solid var(--ink); border-top: 0; padding: 7px 10px; min-height: 34px; font-size: 8.8pt; }
+  .pdf-doc .reason-detail .rd-k { font-size: 7pt; letter-spacing: .12em; color: var(--gray); margin-bottom: 2px; }
+
+  .pdf-doc table.hist { width: 100%; border-collapse: collapse; }
+  .pdf-doc table.hist th { font-size: 7.2pt; letter-spacing: .06em; color: var(--gray); text-align: left; padding: 4px 7px; border-bottom: .8pt solid var(--ink); }
+  .pdf-doc table.hist td { font-size: 8pt; padding: 2.8px 7px; border-bottom: .5pt solid var(--hair); }
+  .pdf-doc table.hist td.mono { font-family: var(--mono); color: var(--ink-2); }
+
+  .pdf-doc .doc-foot { position: absolute; left: 14mm; right: 14mm; bottom: 9mm; display: flex; align-items: flex-end; justify-content: space-between; }
+  /* VPS 版: 飾りのバーコードを、申請の詳細 URL の QR コードに置き換えた（決定事項 Q6） */
+  .pdf-doc .qr { width: 64px; height: 64px; flex: none; }
+  .pdf-doc .qr svg { display: block; width: 100%; height: 100%; }
+  .pdf-doc .foot-meta { font-size: 7pt; color: var(--gray); text-align: right; line-height: 1.5; }
+  .pdf-doc .foot-meta .fm-id { font-family: var(--mono); color: var(--ink-2); font-size: 7.6pt; }
+
+  .pdf-doc .wm { position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%) rotate(-16deg); font-family: var(--serif); font-weight: 700; font-size: 64pt; letter-spacing: .2em; color: rgba(14,14,14,.045); pointer-events: none; white-space: nowrap; z-index: 0; }
+  .pdf-doc > * { position: relative; z-index: 1; }
+  .pdf-doc .wm { z-index: 0; }
+
+  /* ===== VPS 版で足したもの（一覧のページ送り・管理画面の状態表示） ===== */
+  .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px var(--pad); border-top: 1px solid var(--line-soft); }
+  .pager .pg-info { font-size: 12px; color: var(--muted); font-family: var(--font-num); }
+  .admin-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+  .admin-status .st-ok { color: var(--ok); font-weight: 700; }
+  .admin-status .st-ng { color: var(--accent); font-weight: 700; }
+  .sync-status { display: block; margin-top: 6px; font-size: 12px; color: var(--ink-soft); }
+</style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="appbar">
+        <header class="topbar">
+          <div class="brand">
+            <div class="brand-mark">購</div>
+            <div class="brand-text">
+              <span class="co">STORAGE SUPPLIES REQUEST</span>
+              <span class="ti">貯蔵品購入申請</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <a class="portal-link" href="https://script.google.com/a/macros/lineworks-local.info/s/AKfycbx2eyJMOYP9o--GPBuhY-pj071IIR6Kqb_0xALwwNzdLQZux0dIAlL3P9EoCucnzXA/exec" target="_top">社内ポータルへ移動</a>
+            <div class="userbox">
+              <div class="meta">
+                <span class="n" id="userName">読み込み中</span>
+                <span class="e" id="userRole"></span>
+              </div>
+              <span class="avatar" id="userAvatar">…</span>
+            </div>
+          </div>
+        </header>
+
+        <nav class="tabs" id="tabs" aria-label="画面切替"></nav>
+      </div>
+
+      <main class="main" id="main"></main>
+    </div>
+
+    <div class="toast-wrap" id="toasts"></div>
+    <div id="pmodeRoot"></div>
+    <div id="loading" class="loading" hidden>処理中…</div>
+
+    <script src="/vendor/qrcode-generator-1.4.4.js"></script>
+    <script>
+      // GAS 版はサーバーがテンプレートに埋めていた。VPS 版は URL の ?requestId= から読む。
+      window.INITIAL_REQUEST_ID = new URLSearchParams(window.location.search).get('requestId') || '';
+    </script>
+    <script>
+  /* ===== 貯蔵品購入申請 リデザイン（B案「ゆとり」）クライアント ===== */
+
+  const state = {
+    bootstrap: null,
+    counts: { pending: 0, president: 0, quote: 0, supervisor: 0, gm: 0, arrange: 0 },
+    view: 'formView',
+    listMode: 'supervisor',
+    listPage: 1,
+    currentDetail: null,
+    // 書きかけの入力の判定用（VPS 版）。画面を描いた直後の入力内容、分割チェック・見積単価を触ったか。
+    dirtyBaseline: '',
+    splitTouched: false,
+    priceTouched: false
+  };
+  const LIST_PAGE_SIZE = 50;
+
+  const STEP_DESC = {
+    '申請者': '申請内容の作成',
+    '上席': '上席確認',
+    '購買見積': '見積・金額入力',
+    '総務部長': '部門承認',
+    '社長': '社長決裁',
+    '購買手配': '発注手配'
+  };
+  const HIST_GLYPH = { '申請': '➤', '再申請': '➤', '承認': '✓', '差戻': '‹', '完了処理': '✓', '更新': '✎', 'PDF作成': '⤓', '社長決裁へ': '⤴', '金額確定': '¥', '金額不要至急': '⚡', '前段戻し': '↩', '明細分離': '⑃' };
+
+  // セル格納コード（日本語）→ CSSクラス（英語ASCII・Styles.html はそのまま）への対応表。
+  const STATUS_CLASS = { '承認中': 'IN_REVIEW', '差戻し': 'RETURNED', '完了': 'COMPLETED', '取消': 'CANCELLED' };
+  const CAT_CLASS = { 'メカ': 'MECH', '電気': 'ELEC', '一般不明': 'GENERAL' };
+  const ACTION_CLASS = { '申請': 'SUBMIT', '再申請': 'RESUBMIT', '承認': 'APPROVE', '差戻': 'RETURN', '完了処理': 'COMPLETE', '更新': 'UPDATE', 'PDF作成': 'PDF_GENERATE', '社長決裁へ': 'ESCALATE', '前段戻し': 'RETURN', '明細分離': 'RETURN' };
+
+  // 確定金額（税込）の表示。totalAmount は税抜のため税込に換算して表示する。
+  // 金額未入力でも「金額不要／至急承認」案件は明示する。
+  function amountLabel(r) {
+    if (r.totalAmount > 0) { return yen(grossOf(r.totalAmount)); }
+    if (r.amountWaived) { return '金額不要（至急）'; }
+    return '未確定';
+  }
+  // 明細テーブル（8列）の合計行。確定済みは 小計(税抜)・消費税・合計(税込) の3段、
+  // 未確定／金額不要は従来どおり1行（合計にラベル表示）。
+  function detailTotalRows(r) {
+    const net = Number(r.totalAmount) || 0;
+    const lbl = 'class="r" style="font-weight:700;letter-spacing:.08em"';
+    const val = 'class="cell-amt" style="font-size:15px"';
+    if (net > 0) {
+      return '<tr><td colspan="5" class="r">小計（税抜）</td><td class="cell-amt">' + escapeHtml(yen(net)) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="5" class="r">消費税（10%）</td><td class="cell-amt">' + escapeHtml(yen(taxOf(net))) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="5" ' + lbl + '>合計（税込）</td><td ' + val + '>' + escapeHtml(yen(grossOf(net))) + '</td><td colspan="2"></td></tr>';
+    }
+    return '<tr><td colspan="5" ' + lbl + '>合計</td><td ' + val + '>' + escapeHtml(amountLabel(r)) + '</td><td colspan="2"></td></tr>';
+  }
+  // 申請書プレビュー明細（7列）の合計行。確定済みは3段、未確定／金額不要は1行。
+  function previewTotalRows(r) {
+    const net = Number(r.totalAmount) || 0;
+    if (net > 0) {
+      return '<tr><td colspan="4" class="tl">小計（税抜）</td><td class="tv">' + escapeHtml(yen(net)) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="4" class="tl">消費税（10%）</td><td class="tv">' + escapeHtml(yen(taxOf(net))) + '</td><td colspan="2"></td></tr>' +
+        '<tr><td colspan="4" class="tl">合計金額（税込）</td><td class="tv">' + escapeHtml(yen(grossOf(net))) + '</td><td colspan="2"></td></tr>';
+    }
+    return '<tr><td colspan="4" class="tl">合計金額（税込）</td><td class="tv">' + escapeHtml(amountLabel(r)) + '</td><td colspan="2"></td></tr>';
+  }
+  const NG_REASONS = ['金額が過大', '用途・必要性が不明確', '見積書の添付が必要', '時期尚早・要再検討', '他部署と要調整'];
+
+  // 差し戻し時の運用ルール（注記）。各差し戻し操作の直前に表示する。
+  const RETURN_NOTICE_TEXT = '差し戻しの際は、差し戻し理由を明確に記載すること。そのうえで、申請者または上席者にこの申請書PDF（またはタブレットの全画面PDF表示）を提示し、直接、承認者へ説明を行うこと。';
+  function returnNoticeHtml() {
+    return '<div class="return-notice">' +
+      '<span class="rn-ic">⚠</span>' +
+      '<div class="rn-body"><b>差し戻し時の注記</b><div>' + escapeHtml(RETURN_NOTICE_TEXT) + '</div></div>' +
+      '</div>';
+  }
+
+  // 承認時の注意事項（上席・総務部長の承認パネル／全画面モードに表示）。
+  const APPROVER_NOTICE_LINES = [
+    '内容を確認せずに承認しないでください。確認不十分な承認の責任は承認者が負います。',
+    '本人不在時の代理押印（ハンコの代用）は固く禁止します。承認は必ずご本人が行ってください。'
+  ];
+  // 全画面モードのバナー用（画面を覆わないよう短縮版）。
+  const APPROVER_NOTICE_SHORT = '内容を必ず確認のうえ承認を。確認不十分な承認の責任は承認者が負います。本人不在時の代理押印（ハンコ代用）は禁止です。';
+  function isApproverNoticeStep(step) {
+    return step === '上席' || step === '総務部長';
+  }
+  function approverNoticeHtml() {
+    return '<div class="approver-notice"><div class="an-head">⚠ 承認は責任を伴います</div>' +
+      '<ul class="an-list"><li>' + APPROVER_NOTICE_LINES.map(escapeHtml).join('</li><li>') + '</li></ul></div>';
+  }
+
+  /* ---------- 明細の部分差戻し（申請の分割） ---------- */
+  // チェックを外した明細だけが新しい申請として差戻しプールへ分離される。
+  // 既定を全チェックにすることで、従来どおりの「全体承認」が無操作のまま行える。
+  const SPLIT_ALL_OFF_TEXT = 'すべて差し戻す場合は「‹ 差戻し（プールへ）」（申請全体の差戻し）をお使いください。';
+
+  function splitSelectHtml(items) {
+    return '<div class="split-select">' +
+      '<div class="ss-head">承認する明細を選んでください' +
+        '<span class="ss-note">（既定は全件承認。外した明細は新しい申請として差戻しプールへ移ります）</span></div>' +
+      items.map((it, i) =>
+        '<label class="ss-row" data-srow="' + i + '">' +
+          '<input type="checkbox" class="split-chk" data-sidx="' + i + '" checked>' +
+          '<span class="ss-no num">' + (i + 1) + '.</span>' +
+          '<span class="ss-nm">' + escapeHtml(it.name) +
+            (it.model ? '<span class="ss-model">' + escapeHtml(it.model) + '</span>' : '') + '</span>' +
+          // qtyText はエスケープ済みの文字列を返すため、ここで再エスケープしない。
+          '<span class="ss-qty num">' + qtyText(it.quantity, it.unit) + '</span>' +
+          '<span class="ss-tag">差戻し</span>' +
+        '</label>'
+      ).join('') +
+      '<div class="ss-warn" id="splitAllWarn" hidden>' + escapeHtml(SPLIT_ALL_OFF_TEXT) + '</div>' +
+      '</div>';
+  }
+
+  // 画面上のチェック状態を読み取る。チェックボックスが無い（分割非対応）ときは全件選択とみなす。
+  // returnItems はサーバが itemId+lineNo+name の3点で照合するため、表示中の値をそのまま渡す。
+  function splitSelection(detail) {
+    const items = detail.items || [];
+    const keep = [], drop = [];
+    items.forEach((it, i) => {
+      const box = document.querySelector('.split-chk[data-sidx="' + i + '"]');
+      if (!box || box.checked) { keep.push(i); } else { drop.push(i); }
+    });
+    return {
+      keep: keep,
+      drop: drop,
+      returnItems: drop.map(i => ({ itemId: items[i].itemId, lineNo: items[i].lineNo, name: items[i].name }))
+    };
+  }
+
+  // 選択を外した行のグレーアウト。承認パネルのリストと見積パネルの表を同じ規則で扱う。
+  function markSplitRows(sel) {
+    document.querySelectorAll('.ss-row').forEach(row => {
+      row.classList.toggle('off', sel.drop.indexOf(Number(row.dataset.srow)) >= 0);
+    });
+    document.querySelectorAll('tr[data-qrow]').forEach(row => {
+      row.classList.toggle('off', sel.drop.indexOf(Number(row.dataset.qrow)) >= 0);
+    });
+  }
+
+  // 実行ボタンの文言と活性をチェック状態に追従させる。
+  // 全解除は明細0件の申請になり不正なため、ボタンを止めて申請全体の差戻しへ誘導する。
+  function applySplitButtonState(sel, btn, fullLabel, splitLabel) {
+    const warn = document.getElementById('splitAllWarn');
+    if (warn) { warn.hidden = sel.keep.length > 0; }
+    if (!btn) { return; }
+    btn.disabled = sel.keep.length === 0;
+    btn.textContent = sel.drop.length > 0 && sel.keep.length > 0
+      ? splitLabel(sel.keep.length, sel.drop.length)
+      : fullLabel;
+  }
+
+  // 分離対象を明示した確認文。件数と代表の品名を出して誤操作を防ぐ。
+  function splitConfirmText(detail, sel, tailText) {
+    const names = sel.drop.map(i => detail.items[i].name);
+    return '明細「' + names[0] + '」' + (names.length > 1 ? 'ほか' : '') + '計' + names.length + '件' +
+      'を新しい申請として差戻しプールへ移し、残り' + sel.keep.length + '件を' + tailText + '。よろしいですか？';
+  }
+
+  const TAB_DEFS = [
+    { key: 'form', view: 'formView', label: '新規申請' },
+    { key: 'returned', view: 'listView', mode: 'returned', label: '差戻しプール', countKey: 'returned' },
+    { key: 'supervisor', view: 'listView', mode: 'supervisor', label: '上席承認待ち', countKey: 'supervisor' },
+    { key: 'quote', view: 'listView', mode: 'quote', label: '金額入力待ち', countKey: 'quote' },
+    { key: 'gm', view: 'listView', mode: 'gm', label: '総務部長承認待ち', countKey: 'gm' },
+    { key: 'president', view: 'listView', mode: 'president', label: '社長承認待ち', countKey: 'president' },
+    { key: 'arrange', view: 'listView', mode: 'arrange', label: '手配待ち', countKey: 'arrange' },
+    { key: 'all', view: 'listView', mode: 'all', label: '全申請' },
+    { key: 'admin', view: 'adminView', label: '管理', admin: true }
+  ];
+
+  const formState = { editingId: '', requestDate: '', applicantName: '', department: '', category: '', reasonCode: '', reasonDetail: '', items: [] };
+
+  // 品目区分（メール送付先の振り分けに使用）。メカ購買は一般兼用のため一般・不明はメカ購買宛。
+  const CATEGORY_OPTIONS = [['メカ', 'メカ'], ['電気', '電気'], ['一般不明', '一般・不明']];
+  function categoryLabel(code) {
+    const found = CATEGORY_OPTIONS.find(c => c[0] === code);
+    return found ? found[1] : '一般・不明';
+  }
+  // 一覧・詳細用の品目区分バッジ。色で電気/メカ/一般を一目で区別する。
+  // 格納コードは日本語だが、色分けCSSクラスは英語ASCII（Styles.html）のまま維持する。
+  function categoryChip(r) {
+    const code = (r && (r.category || '')) || '一般不明';
+    const key = ['メカ', '電気', '一般不明'].indexOf(code) >= 0 ? code : '一般不明';
+    const label = (r && r.categoryLabel) || categoryLabel(key);
+    return '<span class="cat-chip ' + (CAT_CLASS[key] || 'GENERAL') + '">' + escapeHtml(label) + '</span>';
+  }
+
+  /* ---------- 明細の単位 ---------- */
+  // 候補は bootstrap 経由でサーバ（Constants.gs の UNIT_OPTIONS）から受け取る。
+  // 候補に無い単位（自由入力）と空（単位列より前に作られた旧明細）は「その他」扱いにする。
+  function unitOptions() { return (state.bootstrap && state.bootstrap.unitOptions) || ['個']; }
+  function unitOtherValue() { return (state.bootstrap && state.bootstrap.unitOther) || '__other__'; }
+  function defaultUnit() { return (state.bootstrap && state.bootstrap.defaultUnit) || '個'; }
+  function isFreeUnit(unit) { return unitOptions().indexOf(String(unit || '')) === -1; }
+
+  function unitSelectOptions(unit) {
+    const free = isFreeUnit(unit);
+    return unitOptions().map(u =>
+      '<option value="' + escapeAttr(u) + '"' + (!free && u === unit ? ' selected' : '') + '>' + escapeHtml(u) + '</option>'
+    ).join('') +
+      '<option value="' + escapeAttr(unitOtherValue()) + '"' + (free ? ' selected' : '') + '>その他（自由入力）</option>';
+  }
+
+  // 数量と単位の連結表示（例「3 ケース」）。単位が空の旧明細は数量のみ。
+  function qtyText(quantity, unit) {
+    const q = escapeHtml(quantity);
+    const u = String(unit || '').trim();
+    return u ? q + ' ' + escapeHtml(u) : q;
+  }
+
+  // 入力済みの明細行に単位が無ければエラーメッセージを返す（無ければ空文字）。
+  // 「その他」を選んで自由入力が空のまま、および旧明細（単位なし）の保存を防ぐ。
+  function findUnitError(items) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const filled = it.name || it.model || it.maker || it.quantity || it.note;
+      if (filled && !String(it.unit || '').trim()) {
+        return '明細' + (i + 1) + '行目の単位を入力してください';
+      }
+    }
+    return '';
+  }
+
+  document.addEventListener('DOMContentLoaded', initialize);
+
+  async function initialize() {
+    setBusy(true);
+    try {
+      state.bootstrap = await gas('getBootstrap');
+      renderTopbar();
+      await refreshCounts();
+      renderTabs();
+      showView('formView');
+      window.addEventListener('popstate', onPopState);
+      window.addEventListener('beforeunload', e => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+      if (window.INITIAL_REQUEST_ID) {
+        // メールのリンクなどで詳細を直接開いたときも、ブラウザの「戻る」で一覧へ戻れるように、
+        // 今の履歴を申請番号なしの URL に置き換えてから詳細を積む。
+        setUrl(window.location.pathname, true);
+        await openDetail(window.INITIAL_REQUEST_ID);
+      }
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- Topbar / Tabs ---------- */
+  function renderTopbar() {
+    const user = state.bootstrap.user;
+    document.body.classList.toggle('is-admin', !!state.bootstrap.isAdmin);
+    document.getElementById('userName').textContent = user.name;
+    document.getElementById('userRole').textContent = state.bootstrap.isAdmin ? '管理者' : '申請者';
+    const av = document.getElementById('userAvatar');
+    av.textContent = initials(user.name);
+    av.style.background = avColor(user.name);
+    av.title = user.email;
+  }
+
+  async function refreshCounts() {
+    try { state.counts = await gas('getTabCounts'); } catch (e) { /* counts are best-effort */ }
+  }
+
+  function renderTabs() {
+    const admin = !!state.bootstrap.isAdmin;
+    const tabs = document.getElementById('tabs');
+    tabs.innerHTML = '';
+    let subStarted = false;
+    TAB_DEFS.filter(t => !t.admin || admin).forEach(t => {
+      // 新規申請は左で主役。それ以外（承認・処理系）は右へ寄せ、区切りラベルを挟んで淡色表示。
+      if (t.key !== 'form' && !subStarted) {
+        subStarted = true;
+        const spacer = document.createElement('div');
+        spacer.className = 'tab-spacer';
+        tabs.appendChild(spacer);
+        const label = document.createElement('span');
+        label.className = 'tab-grouplabel';
+        label.textContent = '承認・処理';
+        tabs.appendChild(label);
+      }
+      const active = t.view === 'listView' ? (state.view === 'listView' && state.listMode === t.mode) : (state.view === t.view);
+      const btn = document.createElement('button');
+      btn.className = 'tab' + (t.key === 'form' ? ' tab-primary' : ' tab-sub') + (active ? ' on' : '');
+      const count = t.countKey ? state.counts[t.countKey] : null;
+      btn.innerHTML = escapeHtml(t.label) + (typeof count === 'number' ? ' <span class="count">' + count + '</span>' : '');
+      btn.addEventListener('click', () => {
+        if (!confirmDiscard()) { return; }
+        if (t.view === 'listView') { state.listMode = t.mode; state.listPage = 1; }
+        showView(t.view);
+      });
+      tabs.appendChild(btn);
+    });
+  }
+
+  function showView(view, opts) {
+    state.view = view;
+    state.dirtyBaseline = '';
+    state.splitTouched = false;
+    state.priceTouched = false;
+    stopPendingPoll();
+    // 詳細画面だけ URL に申請番号を付ける。詳細から離れるときは番号なしの URL を積む（「戻る」で詳細へ）。
+    if (!(opts && opts.fromPop) && urlRequestId()) { setUrl(window.location.pathname, false); }
+    if (view === 'formView') { renderForm(null); }
+    else if (view === 'listView') { renderList(); }
+    else if (view === 'adminView') { renderAdmin(); }
+    renderTabs();
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------- 新規申請フォーム ---------- */
+  function emptyItem() { return { name: '', model: '', maker: '', quantity: '', unit: defaultUnit(), desiredDeliveryDate: '', note: '' }; }
+
+  function uniqueSorted(values) {
+    return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+  }
+
+  function deptSelectOptions(workers, selectedDept) {
+    const depts = uniqueSorted(workers.map(w => w.dept));
+    if (selectedDept && depts.indexOf(selectedDept) < 0) { depts.unshift(selectedDept); }
+    // 既定では何も選ばせない（自動入力しない）。未選択時はプレースホルダを選択状態にする。
+    const placeholder = '<option value=""' + (selectedDept ? '' : ' selected') + '>部署を選択</option>';
+    return placeholder + depts.map(d =>
+      '<option value="' + escapeAttr(d) + '"' + (d === selectedDept ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'
+    ).join('');
+  }
+
+  function applicantSelectOptions(workers, dept, selectedName) {
+    const names = uniqueSorted(workers.filter(w => w.dept === dept).map(w => w.name));
+    if (selectedName && names.indexOf(selectedName) < 0) { names.unshift(selectedName); }
+    if (names.length === 0) {
+      // 部署未選択なら選択を促し、部署選択済みで該当者なしならその旨を表示。
+      return dept
+        ? '<option value="" selected>（該当者なし）</option>'
+        : '<option value="" selected>先に部署を選択</option>';
+    }
+    const placeholder = '<option value=""' + (selectedName ? '' : ' selected') + '>申請者を選択</option>';
+    return placeholder + names.map(n =>
+      '<option value="' + escapeAttr(n) + '"' + (n === selectedName ? ' selected' : '') + '>' + escapeHtml(n) + '</option>'
+    ).join('');
+  }
+
+  function renderForm(draft) {
+    const data = state.bootstrap;
+    // 差戻し申請の編集中は詳細の取り直し（後処理の見回り）で描き直されないよう、詳細とは別の画面として扱う。
+    if (draft) { state.view = 'editView'; stopPendingPoll(); }
+    formState.editingId = draft ? draft.request.requestId : '';
+    formState.requestDate = draft ? draft.request.requestDate : todayStr();
+    formState.applicantName = draft ? draft.request.applicantName : '';
+    formState.department = draft ? draft.request.department : '';
+    formState.category = draft ? (draft.request.category || '') : '';
+    formState.reasonCode = draft ? draft.request.reasonCode : '';
+    formState.reasonDetail = draft ? draft.request.reasonDetail : '';
+    formState.items = draft ? draft.items.map(it => ({
+      name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
+      unit: it.unit || '',
+      desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
+    })) : [emptyItem()];
+
+    const editing = !!draft;
+    const deptOptions = (data.departments || []).map(d => '<option value="' + escapeAttr(d) + '">').join('');
+    const workers = (data.workers || []).filter(w => w && w.name);
+    const useMaster = workers.length > 0;
+    const applicantDeptCell = useMaster
+      ? field('部署', true, '<select class="control" id="f-dept">' + deptSelectOptions(workers, formState.department) + '</select>')
+      : field('部署', true, '<input class="control" type="text" id="f-dept" list="deptOptions" value="' + escapeAttr(formState.department) + '" maxlength="100"><datalist id="deptOptions">' + deptOptions + '</datalist>');
+    const applicantNameCell = useMaster
+      ? field('申請者', true, '<select class="control" id="f-applicant">' + applicantSelectOptions(workers, formState.department, formState.applicantName) + '</select>')
+      : field('申請者', true, '<input class="control" type="text" id="f-applicant" value="' + escapeAttr(formState.applicantName) + '" maxlength="100" placeholder="申請者名を入力">');
+
+    document.getElementById('main').innerHTML =
+      '<div class="fade-in">' +
+        '<div class="page-head">' +
+          '<div class="title-wrap">' +
+            '<span class="eyebrow">' + (editing ? 'Edit' : 'New Request') + '</span>' +
+            '<h2>' + (editing ? '差戻し申請の編集' : '新規申請') + '</h2>' +
+            '<span class="sub">' + (editing ? '内容を編集して保存します。保存後、詳細画面の「再提出」で申請し直せます。' : '必要事項を入力し、申請してください。金額は購買での確定後に決まります。') + '</span>' +
+          '</div>' +
+          '<div class="head-actions"><button class="btn ghost" id="clearFormBtn">入力をクリア</button></div>' +
+        '</div>' +
+
+        '<div class="card"><div class="card-pad"><div class="grid-3">' +
+          field('申請日', true, '<input class="control" type="date" id="f-date" value="' + escapeAttr(formState.requestDate) + '">') +
+          applicantDeptCell +
+          applicantNameCell +
+        '</div></div></div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>品目区分 <span class="req">必須</span></h3><span class="hint">購買の担当（メール送付先）を振り分けます。メカ・一般／不明はメカ購買、電気は電気購買へ送付します</span></div>' +
+          '<div class="card-pad"><div class="cat-seg" id="categorySeg">' +
+            CATEGORY_OPTIONS.map(c =>
+              '<button type="button" class="cat-opt' + (formState.category === c[0] ? ' on' : '') + '" data-cat="' + escapeAttr(c[0]) + '">' + escapeHtml(c[1]) + '</button>'
+            ).join('') +
+          '</div></div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・数量・希望納期などを入力してください</span></div>' +
+          '<div class="card-pad items-section">' +
+            '<div class="icards" id="icards"></div>' +
+            '<div style="margin-top:14px"><button class="btn sm" id="addItemBtn">＋ 明細行を追加</button></div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>購入理由</h3></div>' +
+          '<div class="card-pad">' +
+            '<div class="reasons" id="reasonCards"></div>' +
+            '<div style="margin-top:16px">' +
+              field('理由詳細', false, '<textarea class="control" id="f-reasonDetail" rows="3" maxlength="2000" placeholder="例）在庫が残り僅かのため補充します。">' + escapeHtml(formState.reasonDetail) + '</textarea>', '補足があれば記入してください（任意）') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">' +
+          '<button class="btn lg primary" id="submitBtn">' + (editing ? '💾 保存（プールに残す）' : '➤ 申請する') + '</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('f-date').addEventListener('input', e => { formState.requestDate = e.target.value; });
+    if (useMaster) {
+      const deptSel = document.getElementById('f-dept');
+      const applicantSel = document.getElementById('f-applicant');
+      formState.department = deptSel.value;
+      formState.applicantName = applicantSel.value;
+      deptSel.addEventListener('change', e => {
+        formState.department = e.target.value;
+        applicantSel.innerHTML = applicantSelectOptions(workers, formState.department, '');
+        formState.applicantName = applicantSel.value;
+      });
+      applicantSel.addEventListener('change', e => { formState.applicantName = e.target.value; });
+    } else {
+      document.getElementById('f-dept').addEventListener('input', e => { formState.department = e.target.value; });
+      document.getElementById('f-applicant').addEventListener('input', e => { formState.applicantName = e.target.value; });
+    }
+    document.getElementById('f-reasonDetail').addEventListener('input', e => { formState.reasonDetail = e.target.value; });
+    const categorySeg = document.getElementById('categorySeg');
+    if (categorySeg) {
+      categorySeg.querySelectorAll('.cat-opt').forEach(btn => btn.addEventListener('click', () => {
+        formState.category = btn.dataset.cat;
+        categorySeg.querySelectorAll('.cat-opt').forEach(b => b.classList.toggle('on', b.dataset.cat === formState.category));
+      }));
+    }
+    document.getElementById('clearFormBtn').addEventListener('click', () => {
+      if (!confirmDiscard()) { return; }
+      renderForm(null);
+    });
+    document.getElementById('addItemBtn').addEventListener('click', () => { formState.items.push(emptyItem()); renderItemCards(); });
+    document.getElementById('submitBtn').addEventListener('click', lockButton(submitForm));
+    renderReasonCards();
+    renderItemCards();
+    state.dirtyBaseline = formSnapshot();
+  }
+
+  function renderReasonCards() {
+    const host = document.getElementById('reasonCards');
+    host.innerHTML = state.bootstrap.reasons.map(r =>
+      '<div class="reason' + (formState.reasonCode === r.code ? ' on' : '') + '" data-code="' + escapeAttr(r.code) + '">' +
+        '<span class="rc">' + escapeHtml(r.code) + '</span><span class="rl">' + escapeHtml(r.label) + '</span></div>'
+    ).join('');
+    host.querySelectorAll('.reason').forEach(el => el.addEventListener('click', () => {
+      formState.reasonCode = el.dataset.code;
+      renderReasonCards();
+    }));
+  }
+
+  function renderItemCards() {
+    const host = document.getElementById('icards');
+    host.innerHTML = formState.items.map((it, i) =>
+      '<div class="icard" data-idx="' + i + '">' +
+        '<div class="icard-top">' +
+          '<span class="icard-no">' + (i + 1) + '</span>' +
+          '<span style="font-weight:700;font-size:13px;color:var(--ink-soft)">明細 ' + (i + 1) + '</span>' +
+          '<button class="row-del" data-del="' + i + '" style="margin-left:auto" title="削除">✕</button>' +
+        '</div>' +
+        '<div class="icard-grid">' +
+          '<div><span class="mini-lbl">品名</span><input class="control" data-f="name" value="' + escapeAttr(it.name) + '" placeholder="品名" maxlength="200"></div>' +
+          '<div><span class="mini-lbl">型式</span><input class="control" data-f="model" value="' + escapeAttr(it.model) + '" maxlength="200"></div>' +
+          '<div><span class="mini-lbl">メーカー</span><input class="control" data-f="maker" value="' + escapeAttr(it.maker) + '" maxlength="200"></div>' +
+          '<div class="sub">' +
+            '<div><span class="mini-lbl">数量</span><input class="control num" data-f="quantity" type="number" min="0" value="' + escapeAttr(it.quantity) + '"></div>' +
+            '<div><span class="mini-lbl">単位</span>' +
+              '<select class="control" data-unit-sel>' + unitSelectOptions(it.unit) + '</select>' +
+              '<input class="control unit-free" data-f="unit" value="' + escapeAttr(isFreeUnit(it.unit) ? (it.unit || '') : '') + '" placeholder="例）束(50本入)" maxlength="20"' + (isFreeUnit(it.unit) ? '' : ' hidden') + '></div>' +
+            '<div><span class="mini-lbl">希望納期</span><input class="control" data-f="desiredDeliveryDate" type="date" value="' + escapeAttr(it.desiredDeliveryDate) + '"></div>' +
+            '<div style="grid-column:1 / -1"><span class="mini-lbl">備考</span><input class="control" data-f="note" value="' + escapeAttr(it.note) + '" maxlength="500"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    ).join('');
+
+    host.querySelectorAll('.icard').forEach(card => {
+      const idx = Number(card.dataset.idx);
+      card.querySelectorAll('input[data-f]').forEach(input => {
+        input.addEventListener('input', () => {
+          formState.items[idx][input.dataset.f] = input.value;
+        });
+      });
+      // 単位セレクト。「その他」を選んだときだけ自由入力欄を出す（入力値は上の input[data-f] 経由で反映）。
+      const unitSel = card.querySelector('[data-unit-sel]');
+      const unitFree = card.querySelector('.unit-free');
+      if (unitSel && unitFree) {
+        unitSel.addEventListener('change', () => {
+          if (unitSel.value === unitOtherValue()) {
+            unitFree.hidden = false;
+            formState.items[idx].unit = unitFree.value;
+            unitFree.focus();
+          } else {
+            unitFree.hidden = true;
+            unitFree.value = '';
+            formState.items[idx].unit = unitSel.value;
+          }
+        });
+      }
+      card.querySelector('[data-del]').addEventListener('click', () => {
+        formState.items.splice(idx, 1);
+        if (formState.items.length === 0) { formState.items.push(emptyItem()); }
+        renderItemCards();
+      });
+    });
+  }
+
+  async function submitForm() {
+    if (!String(formState.department || '').trim()) { toast('部署を選択してください', 'err'); return; }
+    if (!String(formState.applicantName || '').trim()) { toast('申請者を選択してください', 'err'); return; }
+    if (!formState.category) { toast('品目区分を選択してください', 'err'); return; }
+    if (!formState.reasonCode) { toast('購入理由を選択してください', 'err'); return; }
+    if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
+    const unitError = findUnitError(formState.items);
+    if (unitError) { toast(unitError, 'err'); return; }
+    setBusy(true);
+    try {
+      const payload = {
+        requestDate: formState.requestDate,
+        applicantName: formState.applicantName,
+        department: formState.department,
+        category: formState.category,
+        reasonCode: formState.reasonCode,
+        reasonDetail: formState.reasonDetail,
+        items: formState.items
+      };
+      let detail;
+      if (formState.editingId) {
+        // 差戻しプールの編集は「保存」のみ（再提出は詳細画面の別ボタンで行う）。
+        detail = await gas('updateRequestDraft', formState.editingId, payload);
+        toast('保存しました（差戻しプールに残しました）', 'ok');
+      } else {
+        detail = await gas('createRequest', payload);
+        toast('申請しました', 'ok');
+      }
+      await refreshCounts();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 承認前の明細修正（軽微な記入ミス修正） ---------- */
+  // 差戻し再申請（renderForm）と違い、明細（型式・品名など非金額項目）だけを編集する軽量画面。
+  // 部署・理由・区分などは編集しない。保存しても経路・承認状態は維持される。
+  function renderItemEditForm(detail) {
+    const r = detail.request;
+    formState.items = (detail.items || []).map(it => ({
+      name: it.name || '', model: it.model || '', maker: it.maker || '', quantity: it.quantity,
+      unit: it.unit || '',
+      desiredDeliveryDate: it.desiredDeliveryDate || '', note: it.note || ''
+    }));
+    if (formState.items.length === 0) { formState.items = [emptyItem()]; }
+
+    document.getElementById('main').innerHTML =
+      '<div class="fade-in">' +
+        '<div class="page-head"><div class="title-wrap">' +
+          '<span class="eyebrow">Edit Items</span>' +
+          '<h2>申請明細の修正</h2>' +
+          '<span class="sub">型式・品名などの記入ミスを修正できます。承認の流れはそのまま維持されます（購買の金額入力前のみ）。</span>' +
+        '</div><div class="head-actions"><button class="btn ghost" id="cancelEditBtn">‹ 詳細へ戻る</button></div></div>' +
+
+        '<div class="card"><div class="card-pad"><div class="detail-grid">' +
+          dcell('申請ID', '<span class="num">' + escapeHtml(r.requestId) + '</span>') +
+          dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
+          dcell('部署', escapeHtml(r.department)) +
+          dcell('申請者', escapeHtml(r.applicantName)) +
+        '</div></div></div>' +
+
+        '<div class="card">' +
+          '<div class="card-head"><h3>申請明細</h3><span class="hint">品名・型式・数量・希望納期などを修正してください</span></div>' +
+          '<div class="card-pad items-section">' +
+            '<div class="icards" id="icards"></div>' +
+            '<div style="margin-top:14px"><button class="btn sm" id="addItemBtn">＋ 明細行を追加</button></div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">' +
+          '<button class="btn ghost" id="cancelEditBtn2">キャンセル</button>' +
+          '<button class="btn lg primary" id="saveItemsBtn">✓ 修正を保存</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('addItemBtn').addEventListener('click', () => { formState.items.push(emptyItem()); renderItemCards(); });
+    document.getElementById('saveItemsBtn').addEventListener('click', lockButton(() => saveItemEdits(r.requestId)));
+    document.getElementById('cancelEditBtn').addEventListener('click', () => { if (confirmDiscard()) { openDetail(r.requestId); } });
+    document.getElementById('cancelEditBtn2').addEventListener('click', () => { if (confirmDiscard()) { openDetail(r.requestId); } });
+    renderItemCards();
+    // 明細修正の画面は詳細とは別の画面として扱う（後処理の見回りで描き直さない・書きかけの確認の対象）。
+    state.view = 'itemEditView';
+    stopPendingPoll();
+    state.dirtyBaseline = formSnapshot();
+  }
+
+  async function saveItemEdits(requestId) {
+    if (!formState.items.some(it => it.name)) { toast('品名を1件以上入力してください', 'err'); return; }
+    const unitError = findUnitError(formState.items);
+    if (unitError) { toast(unitError, 'err'); return; }
+    setBusy(true);
+    try {
+      const detail = await gas('updateRequestInReview', requestId, { items: formState.items });
+      state.currentDetail = detail;
+      toast('明細を修正しました', 'ok');
+      await refreshCounts();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 一覧 ---------- */
+  async function renderList() {
+    const mode = state.listMode;
+    // リスト表示・タブ切替のたびに上部バッジも最新化（古い件数の取り残し防止）。
+    refreshCounts().then(renderTabs);
+    const titleMap = { returned: '差戻しプール', supervisor: '上席承認待ち', quote: '購買見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '承認待ち', all: '全申請', mine: '自分の申請' };
+    const eyebrow = { returned: 'Returned Pool', supervisor: 'Awaiting Supervisor', quote: 'Awaiting Quote', gm: 'Awaiting GM', president: 'Awaiting President', arrange: 'Awaiting Arrangement', pending: 'Awaiting Approval', all: 'All Requests', mine: 'My Requests' };
+    const subMap = {
+      returned: '差戻しになった申請の一覧です。編集して再提出、または不要なら削除できます（誰でも操作できます）。',
+      supervisor: 'あなたが上席として承認すべき案件です。担当部署（上席として登録された部署）の案件を表示。管理者は全部署。',
+      quote: '購買が各明細の単価を入力する案件です。',
+      gm: 'あなたが総務部長として承認すべき案件です。',
+      president: '社長決裁を待っている案件です。タブレットで提示し、その場で承認・差戻しを記録できます。',
+      arrange: '承認が完了し、購買が手配（発注）して「手配完了」を記録する案件です。',
+      pending: 'あなたが動かすべき案件です。',
+      all: '社内すべての申請を横断的に確認できます。',
+      mine: '自分が申請した案件の進捗を確認できます。'
+    };
+
+    document.getElementById('main').innerHTML =
+      '<div class="fade-in">' +
+        '<div class="page-head"><div class="title-wrap">' +
+          '<span class="eyebrow">' + (eyebrow[mode] || '') + '</span>' +
+          '<h2>' + escapeHtml(titleMap[mode] || '申請一覧') + '</h2>' +
+          '<span class="sub">' + escapeHtml(subMap[mode] || '') + '</span>' +
+        '</div><div class="head-actions"><button class="btn" id="refreshBtn">↻ 更新</button></div></div>' +
+        '<div id="statsHost"></div>' +
+        '<div class="card">' +
+          '<div class="card-pad" style="padding-bottom:14px"><div class="filters">' +
+            '<div class="field"><span class="lbl">状態</span><div class="seg-filter" id="statusSeg">' +
+              [['', 'すべて'], ['承認中', '承認中'], ['差戻し', '差戻し'], ['完了', '完了']].map(s =>
+                '<button data-v="' + s[0] + '"' + (s[0] === '' ? ' class="on"' : '') + '>' + s[1] + '</button>').join('') +
+            '</div></div>' +
+            field('検索', false, '<input class="control" type="search" id="queryFilter" placeholder="申請番号・部署・申請者" style="min-width:220px">') +
+          '</div></div>' +
+          '<div class="table-wrap"><table class="tbl"><thead><tr>' +
+            '<th>申請番号</th><th>申請日</th><th>申請者</th><th>部署</th><th>区分</th><th class="r">確定金額</th><th>状態</th><th>現在ステップ</th><th></th>' +
+          '</tr></thead><tbody id="listBody"><tr><td colspan="9"><div class="empty">読み込み中…</div></td></tr></tbody></table></div>' +
+          '<div class="pager" id="listPager" hidden></div>' +
+        '</div>' +
+      '</div>';
+
+    // 「↻ 更新」はリストだけでなく上部バッジ（件数）も再取得して整合させる。
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      refreshCounts().then(renderTabs);
+      loadRows();
+    });
+    // 条件を変えたら 1 ページ目から。
+    document.getElementById('queryFilter').addEventListener('input', debounce(() => { state.listPage = 1; loadRows(); }, 300));
+    document.getElementById('statusSeg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+      document.getElementById('statusSeg').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      state.listPage = 1;
+      loadRows();
+    }));
+    loadRows();
+  }
+
+  function currentStatusFilter() {
+    const on = document.querySelector('#statusSeg button.on');
+    return on ? on.dataset.v : '';
+  }
+
+  async function loadRows() {
+    const body = document.getElementById('listBody');
+    if (!body) { return; }
+    const seq = (loadRows._seq = (loadRows._seq || 0) + 1);
+    try {
+      const res = normalizeListResult(await gas('getRequests', {
+        mode: state.listMode,
+        status: currentStatusFilter(),
+        query: (document.getElementById('queryFilter') || {}).value || '',
+        page: state.listPage,
+        pageSize: LIST_PAGE_SIZE
+      }));
+      // 速く打ったときに古い応答で上書きしない。
+      if (seq !== loadRows._seq || !document.getElementById('listBody')) { return; }
+      // 件数が減ってページが範囲外になったら最後のページを取り直す。
+      const lastPage = Math.max(1, Math.ceil(res.total / res.pageSize));
+      if (res.rows.length === 0 && res.total > 0 && state.listPage > lastPage) {
+        state.listPage = lastPage;
+        return loadRows();
+      }
+      renderStats(res);
+      renderRows(res.rows);
+      renderPager(res);
+    } catch (error) {
+      if (seq !== loadRows._seq) { return; }
+      body.innerHTML = '<tr><td colspan="9"><div class="empty">' + escapeHtml(errText(error)) + '</div></td></tr>';
+    }
+  }
+
+  // getRequests の戻り値をページ送りの形にそろえる。古い形（配列）でも動くようにする。
+  function normalizeListResult(res) {
+    if (Array.isArray(res)) {
+      return { rows: res, total: res.length, page: 1, pageSize: Math.max(res.length, 1), summary: null };
+    }
+    const rows = (res && Array.isArray(res.rows)) ? res.rows : [];
+    const total = Number(res && res.total);
+    return {
+      rows: rows,
+      total: isFinite(total) ? total : rows.length,
+      page: Number(res && res.page) || 1,
+      pageSize: Number(res && res.pageSize) || LIST_PAGE_SIZE,
+      summary: (res && res.summary) || null
+    };
+  }
+
+  function renderPager(res) {
+    const host = document.getElementById('listPager');
+    if (!host) { return; }
+    const lastPage = Math.max(1, Math.ceil(res.total / res.pageSize));
+    if (lastPage <= 1) { host.hidden = true; host.innerHTML = ''; return; }
+    const from = (res.page - 1) * res.pageSize + 1;
+    const to = Math.min(res.total, from + res.rows.length - 1);
+    host.hidden = false;
+    host.innerHTML =
+      '<span class="pg-info">' + from + '–' + to + ' / ' + res.total + ' 件</span>' +
+      '<button class="btn sm" id="pgPrev"' + (res.page <= 1 ? ' disabled' : '') + '>‹ 前へ</button>' +
+      '<span class="pg-info">' + res.page + ' / ' + lastPage + '</span>' +
+      '<button class="btn sm" id="pgNext"' + (res.page >= lastPage ? ' disabled' : '') + '>次へ ›</button>';
+    document.getElementById('pgPrev').addEventListener('click', () => { state.listPage = Math.max(1, res.page - 1); loadRows(); window.scrollTo(0, 0); });
+    document.getElementById('pgNext').addEventListener('click', () => { state.listPage = Math.min(lastPage, res.page + 1); loadRows(); window.scrollTo(0, 0); });
+  }
+
+  function renderStats(res) {
+    const host = document.getElementById('statsHost');
+    if (!host) { return; }
+    const rows = res.rows;
+    // ページ送りのため、件数と金額はサーバーの集計（summary: 条件に合う全件）を優先する。
+    // 無いとき（古い形の応答）は表示中の行から数える。
+    const sum = res.summary || {};
+    const inReview = typeof sum.inReview === 'number' ? sum.inReview : rows.filter(r => r.status === '承認中').length;
+    const returned = typeof sum.returned === 'number' ? sum.returned : rows.filter(r => r.status === '差戻し').length;
+    // 未完了金額は、完了と取消を除く（決定事項）。
+    const amount = typeof sum.openAmount === 'number'
+      ? sum.openAmount
+      : rows.filter(r => r.status !== '完了' && r.status !== '取消').reduce((t, r) => t + grossOf(r.totalAmount || 0), 0);
+    const totalLabelMap = { returned: '差戻し件数', supervisor: '上席承認待ち', quote: '見積金額入力待ち', gm: '総務部長承認待ち', president: '社長承認待ち', arrange: '手配待ち', pending: '要対応件数' };
+    const totalLabel = totalLabelMap[state.listMode] || '件数';
+    host.innerHTML =
+      '<div class="stats">' +
+        '<div class="stat"><div class="sl">' + totalLabel + '</div><div class="sv accent">' + res.total + '</div><div class="su">件</div></div>' +
+        '<div class="stat"><div class="sl">承認中</div><div class="sv">' + inReview + '</div><div class="su">件 進行中</div></div>' +
+        '<div class="stat"><div class="sl">差戻し</div><div class="sv">' + returned + '</div><div class="su">件 要対応</div></div>' +
+        '<div class="stat"><div class="sl">未完了金額</div><div class="sv num" style="font-size:21px">' + escapeHtml(yen(amount)) + '</div><div class="su">承認プロセス中</div></div>' +
+      '</div>';
+  }
+
+  function renderRows(rows) {
+    const body = document.getElementById('listBody');
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="9"><div class="empty">該当する申請はありません。</div></td></tr>';
+      return;
+    }
+    const admin = !!state.bootstrap.isAdmin;
+    body.innerHTML = rows.map(r => {
+      const isQuote = r.currentStep === '購買見積';
+      const stepCell = r.status === '完了'
+        ? '<span style="color:var(--muted)">—</span>'
+        : '<span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap"><b>' + escapeHtml(r.currentStepLabel) + '</b>' +
+          (r.currentApproverName ? '<span style="color:var(--muted)">' + escapeHtml(r.currentApproverName) + '</span>' : '') +
+          (r.isPresidentPending ? '<span class="badge RETURNED" style="height:20px;font-size:10.5px"><span class="dot"></span>要提示</span>' : '') + '</span>';
+      const action = (r.isPresidentPending && admin)
+        ? '<button class="btn sm primary" data-pres="' + escapeAttr(r.requestId) + '">➤ 社長決裁</button>'
+        : (isQuote && state.listMode === 'quote')
+          ? '<button class="btn sm primary" data-open="' + escapeAttr(r.requestId) + '">✎ 金額入力</button>'
+          : '<span style="color:var(--muted)">›</span>';
+      return '<tr class="click" data-open="' + escapeAttr(r.requestId) + '">' +
+        '<td><span class="reqid">' + escapeHtml(r.requestId) + '</span></td>' +
+        '<td class="num" style="color:var(--muted)">' + escapeHtml(r.requestDate) + '</td>' +
+        '<td><div class="who"><span class="av" style="background:' + avColor(r.applicantName) + '">' + escapeHtml(initials(r.applicantName)) + '</span><div><div class="nm">' + escapeHtml(r.applicantName) + '</div></div></div></td>' +
+        '<td>' + escapeHtml(r.department) + '</td>' +
+        '<td>' + categoryChip(r) + '</td>' +
+        '<td class="cell-amt">' + escapeHtml(amountLabel(r)) + '</td>' +
+        '<td>' + badge(r.status, currentStateLabel(r)) + '</td>' +
+        '<td>' + stepCell + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' + action + '</td>' +
+      '</tr>';
+    }).join('');
+
+    body.querySelectorAll('tr[data-open]').forEach(tr => tr.addEventListener('click', () => openDetail(tr.dataset.open)));
+    body.querySelectorAll('[data-pres]').forEach(btn => btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openPresident(btn.dataset.pres);
+    }));
+  }
+
+  /* ---------- 詳細 ---------- */
+  async function openDetail(requestId, opts) {
+    setBusy(true);
+    try {
+      const detail = await gas('getRequestDetail', requestId);
+      state.currentDetail = detail;
+      state.view = 'detailView';
+      // 詳細画面だけ URL を ?requestId= にする（人に送れる・「戻る」で一覧へ）。
+      if (!(opts && opts.fromPop) && urlRequestId() !== detail.request.requestId) {
+        setUrl(window.location.pathname + '?requestId=' + encodeURIComponent(detail.request.requestId), false);
+      }
+      renderDetail(detail);
+      renderTabs();
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderDetail(detail, opts) {
+    const r = detail.request;
+    const p = detail.permissions;
+    state.dirtyBaseline = '';
+    state.splitTouched = false;
+    state.priceTouched = false;
+    const over = (r.route || []).indexOf('社長') !== -1;
+
+    let html = '<div class="fade-in">';
+    html += '<div class="page-head"><div class="title-wrap">' +
+      '<span class="eyebrow">Request Detail</span>' +
+      '<h2 style="display:flex;align-items:center;gap:12px"><span class="num" style="color:var(--primary)">' + escapeHtml(r.requestId) + '</span>' + badge(r.status, currentStateLabel(r)) + '</h2>' +
+      '<span class="sub">' + escapeHtml(r.department) + '　/　申請者 ' + escapeHtml(r.applicantName) + '</span>' +
+      '</div><div class="head-actions">' +
+        '<button class="btn ghost" id="backBtn">‹ 一覧へ戻る</button>' +
+        (r.pdfUrl ? '<a class="btn" href="' + escapeAttr(r.pdfUrl) + '" target="_blank" rel="noopener">⤓ PDFを開く</a>' : '') +
+        (p.canGeneratePdf ? '<button class="btn" id="genPdfBtn">⤓ PDF再作成</button>' : '') +
+        (p.canRecall ? '<button class="btn ghost" id="recallBtn">↩ 1つ前のステージへ戻す</button>' : '') +
+        (p.canDelete && r.status !== '差戻し' ? '<button class="btn danger ghost" id="delBtnHead">🗑 申請を取消</button>' : '') +
+      '</div></div>';
+
+    html += '<div class="card"><div class="card-head"><h3>承認フロー</h3><span class="hint">' + (over ? '社長決裁ルート' : '標準ルート') + '</span></div>' +
+      '<div class="stepper-card">' + stepperHtml(detail) + '</div></div>';
+
+    // 差戻しプール：差戻し中の申請は、編集（保存）／再提出／削除を行える（誰でも操作可）。
+    if (r.status === '差戻し') {
+      const lastReturn = (detail.history || []).filter(h => h.action === '差戻').slice(-1)[0];
+      const reason = lastReturn ? lastReturn.comment : '';
+      html += '<div class="approve-panel"><div class="ap-head">' +
+        '<span class="badge RETURNED"><span class="dot"></span>差戻し中（プール）</span>' +
+        '<span class="pill">内容を編集して再提出できます。不要な場合は削除してください。編集・再提出・削除は誰でも操作できます。</span></div>' +
+        // 明細分離で作られた申請は、元申請を辿れないと経緯が分からなくなるためリンクを出す。
+        (r.splitFromRequestId
+          ? '<div class="split-from">この申請は <button type="button" class="link-req" id="splitFromBtn">' + escapeHtml(r.splitFromRequestId) + '</button> の明細から分離されました。</div>'
+          : '') +
+        (reason ? '<div style="margin:4px 0 2px;padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:13px;line-height:1.6;white-space:pre-wrap"><b>差戻し理由:</b> ' + escapeHtml(reason) + '</div>' : '') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDeletePool ? '<button class="btn danger ghost" id="deletePoolBtn" style="margin-right:auto">🗑 削除</button>' : '') +
+          (p.canEdit ? '<button class="btn" id="editReturnedBtn">✎ 編集</button>' : '') +
+          (p.canResubmit ? '<button class="btn primary lg" id="resubmitBtn">➤ 再提出する</button>' : '') +
+        '</div></div>';
+    }
+
+    const isArrange = r.currentStep === '購買手配';
+    const approveWord = isArrange ? '手配完了' : '承認する';
+
+    // 全画面（タブレット）承認モードは、上席・総務部長・社長の承認ステップなら
+    // どのアカウントでも開ける（自分の端末で承認者に見せてその場で承認を得る運用）。
+    if (r.status === '承認中' &&
+        (r.currentStep === '上席' || r.currentStep === '総務部長' || r.currentStep === '社長')) {
+      const isPres = r.currentStep === '社長';
+      const ctaTitle = isPres ? '社長決裁を受ける' : '全画面で確認して承認';
+      const ctaDesc = isPres
+        ? 'タブレットで申請書を提示し、その場で承認・差戻しを記録できます。'
+        : '申請書を全画面で提示し、承認者にその場で承認・差戻しをしてもらえます。';
+      const ctaBtn = isPres ? '➤ 社長決裁モードを開く' : '➤ 全画面で確認して承認';
+      html += '<div class="president-cta"><div class="pc-l"><div class="pc-ic">▣</div><div class="pc-t">' +
+        '<b>' + escapeHtml(ctaTitle) + '</b><div>' + escapeHtml(ctaDesc) + '</div></div></div>' +
+        '<button class="btn primary lg" id="presBtn">' + escapeHtml(ctaBtn) + '</button></div>';
+    }
+
+    if (p.canQuote) {
+      html += quotePanelHtml(detail);
+    } else if (p.canArrange) {
+      html += '<div class="approve-panel"><div class="ap-head">' +
+        '<span class="badge IN_REVIEW"><span class="dot"></span>手配待ち</span>' +
+        '<span class="pill">商品の発注・手配が完了したら手配完了を記録、またはコメント付きで差戻しできます</span></div>' +
+        returnNoticeHtml() +
+        field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>', '差戻しの場合は理由を明確に記入してください（必須）') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
+          '<button class="btn danger ghost" id="rejectBtn">✕ 却下（削除）</button>' +
+          '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
+          '<button class="btn primary lg" id="arrangeBtn">✓ 手配完了</button>' +
+        '</div></div>';
+    } else if (p.canApprove) {
+      html += '<div class="approve-panel"><div class="ap-head">' +
+        '<span class="badge IN_REVIEW"><span class="dot"></span>あなたの承認待ち</span>' +
+        '<span class="pill">' + escapeHtml(stepLabel(r.currentStep)) + 'として承認またはコメント付きで差戻しできます</span></div>' +
+        (isApproverNoticeStep(r.currentStep) ? approverNoticeHtml() : '') +
+        (p.canSplitItems ? splitSelectHtml(detail.items) : '') +
+        returnNoticeHtml() +
+        field('承認・差戻しコメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>',
+          p.canSplitItems
+            ? '差戻しの場合、および明細の選択を外した場合は理由を明確に記入してください（必須）'
+            : '差戻しの場合は理由を明確に記入してください（必須）') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+          (p.canDelete ? '<button class="btn danger ghost" id="delBtn" style="margin-right:auto">🗑 申請を取消</button>' : '') +
+          '<button class="btn danger ghost" id="rejectBtn">✕ 却下（削除）</button>' +
+          '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
+          '<button class="btn primary lg" id="approveBtn">✓ ' + escapeHtml(approveWord) + '</button>' +
+        '</div></div>';
+    }
+
+    html += '<div class="card"><div class="card-pad"><div class="detail-grid">' +
+      dcell('申請日', '<span class="num">' + escapeHtml(r.requestDate) + '</span>') +
+      dcell('申請者', escapeHtml(r.applicantName)) +
+      dcell('部署', escapeHtml(r.department)) +
+      dcell('品目区分', escapeHtml(r.categoryLabel || categoryLabel(r.category))) +
+      dcell('確定金額', '<span class="big">' + escapeHtml(amountLabel(r)) + '</span>') +
+      '<div class="dcell" style="grid-column:span 2"><div class="dl">購入理由</div><div class="dv">' + escapeHtml(r.reasonCode) + '. ' + escapeHtml(r.reasonLabel) + '</div></div>' +
+      dcell('現在ステップ', escapeHtml(r.status === '完了' ? '完了' : r.currentStepLabel)) +
+      dcell('承認者', escapeHtml(r.currentApproverName || '—')) +
+      '</div>' +
+      (r.reasonDetail ? '<div style="margin-top:16px"><div class="dl" style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px">理由詳細</div>' +
+        '<div style="padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:13px;line-height:1.6;white-space:pre-wrap">' + escapeHtml(r.reasonDetail) + '</div></div>' : '') +
+      // 差戻しプールを抜けて再提出された後も分離元を辿れるよう、メタ欄にも常設で出す
+      // （プールパネル側のリンクは差戻し中しか表示されないため）。
+      (r.splitFromRequestId ? '<div class="split-from" style="margin-top:16px">この申請は <button type="button" class="link-req" id="splitFromBtn2">' + escapeHtml(r.splitFromRequestId) + '</button> の明細から分離されました。</div>' : '') +
+      '</div></div>';
+
+    html += '<div class="card pdf-preview-card"><div class="pdf-preview-head"><div class="lhs"><div class="doc-ic"></div>' +
+      '<div><h3>申請書（PDFフォーマット）</h3><div class="sub">保管・印刷用のモノクロ文書。Googleドライブに保存されます。</div></div></div>' +
+      '<div class="head-actions">' + (p.canPresident ? '<button class="btn" id="presBtn2">➤ 社長に提示</button>' : '') + '</div></div>' +
+      '<div class="pdf-preview-body"><div id="pdfPreviewWrap" style="width:100%;display:flex;justify-content:center"></div></div></div>';
+
+    html += '<div class="card"><div class="card-head"><h3>申請明細</h3>' +
+      '<div class="head-actions" style="display:flex;align-items:center;gap:12px">' +
+        '<span class="hint">' + detail.items.length + ' 件</span>' +
+        (p.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn">✎ 明細を修正</button>' : '') +
+      '</div></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>品名</th><th>型式</th><th>メーカー</th><th class="r">数量</th><th class="r">単価(税抜)</th><th class="r">金額(税抜)</th><th>希望納期</th><th>備考</th></tr></thead><tbody>' +
+      detail.items.map(it =>
+        '<tr><td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
+        '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
+        '<td style="color:var(--muted)">' + escapeHtml(it.maker || '—') + '</td>' +
+        '<td class="cell-amt">' + qtyText(it.quantity, it.unit) + '</td>' +
+        '<td class="cell-amt">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
+        '<td class="cell-amt">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
+        '<td class="num" style="color:var(--muted)">' + escapeHtml(it.desiredDeliveryDate || '—') + '</td>' +
+        '<td style="color:var(--muted)">' + escapeHtml(it.note || '—') + '</td></tr>'
+      ).join('') +
+      '</tbody><tfoot>' + detailTotalRows(r) + '</tfoot></table></div></div>';
+
+    html += '<div class="card"><div class="card-head"><h3>承認履歴</h3><span class="hint">' + detail.history.length + ' 件のアクション</span></div>' +
+      '<div class="card-pad">' + historyHtml(detail.history) + '</div></div>';
+
+    html += '</div>';
+    document.getElementById('main').innerHTML = html;
+
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
+    // 書き込みの操作は、終わるまでそのボタンを押せなくする（二重押し防止）。
+    const bindWrite = (id, fn) => bind(id, lockButton(fn));
+    bind('backBtn', () => { if (confirmDiscard()) { showView('listView'); } });
+    bind('editItemsBtn', () => { if (confirmDiscard()) { renderItemEditForm(detail); } });
+    bind('editItemsBtn2', () => { if (confirmDiscard()) { renderItemEditForm(detail); } });
+    bind('editReturnedBtn', () => renderForm(detail));
+    bindWrite('resubmitBtn', () => resubmitAction(r.requestId));
+    // プール削除は理由欄なし（低摩擦のクリーンアップ。取消は論理削除で、操作者は履歴に記録される）。
+    bindWrite('deletePoolBtn', () => deleteRequestAction(r.requestId));
+    bindWrite('recallBtn', () => recallAction(r.requestId));
+    bindWrite('delBtnHead', () => deleteRequestAction(r.requestId));
+    bindWrite('delBtn', () => deleteRequestAction(r.requestId));
+    bindWrite('genPdfBtn', () => regeneratePdf(r.requestId));
+    bind('presBtn', () => openTabletMode(r.requestId));
+    bind('presBtn2', () => openTabletMode(r.requestId));
+    bindWrite('approveBtn', () => approveAction(detail));
+    bindWrite('arrangeBtn', () => detailAction('arrangeComplete', '手配完了を記録しました'));
+    bindWrite('returnBtn', () => returnAction(false));
+    bindWrite('rejectBtn', () => returnAction(true));
+    bind('splitFromBtn', () => { if (confirmDiscard()) { openDetail(r.splitFromRequestId); } });
+    bind('splitFromBtn2', () => { if (confirmDiscard()) { openDetail(r.splitFromRequestId); } });
+    // 分割のチェックを変えたら書きかけとみなす（後処理の見回りで描き直さない）。
+    document.querySelectorAll('#main .split-chk').forEach(box => box.addEventListener('change', () => { state.splitTouched = true; }));
+
+    if (p.canQuote) { bindQuotePanel(detail); }
+    else if (p.canSplitItems && document.getElementById('approveBtn')) { bindApprovePanelSplit(detail); }
+
+    renderScaledPreview('pdfPreviewWrap', detail, {});
+    schedulePendingPoll(detail, !(opts && opts.fromPoll));
+  }
+
+  function dcell(label, valueHtml) {
+    return '<div class="dcell"><div class="dl">' + escapeHtml(label) + '</div><div class="dv">' + valueHtml + '</div></div>';
+  }
+
+  async function detailAction(fn, message) {
+    setBusy(true);
+    try {
+      const comment = (document.getElementById('approveComment') || {}).value || '';
+      const detail = await gas(fn, state.currentDetail.request.requestId, comment);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast(message, 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 承認パネルの明細選択。チェック変更のたびに行の見た目と承認ボタンの文言を追従させる。
+  function bindApprovePanelSplit(detail) {
+    const btn = document.getElementById('approveBtn');
+    const apply = () => {
+      const sel = splitSelection(detail);
+      markSplitRows(sel);
+      applySplitButtonState(sel, btn, '✓ 承認する', (k, d) => '✓ ' + k + '件を承認し、' + d + '件を差戻し');
+    };
+    document.querySelectorAll('.split-chk').forEach(box => box.addEventListener('change', apply));
+  }
+
+  // 承認の実行。明細の選択を外している場合は、その明細を分離して差し戻したうえで残りを承認する。
+  async function approveAction(detail) {
+    const sel = splitSelection(detail);
+    if (sel.keep.length === 0) { toast(SPLIT_ALL_OFF_TEXT, 'err'); return; }
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 分離は差戻しと同じ扱いのため理由必須。サーバでも弾かれるが往復させない。
+    if (sel.drop.length > 0 && !comment.trim()) {
+      toast('差し戻す明細がある場合は、理由（コメント）を入力してください', 'err');
+      return;
+    }
+    if (sel.drop.length > 0 && !window.confirm(splitConfirmText(detail, sel, '承認します'))) { return; }
+    setBusy(true);
+    try {
+      const updated = await gas('approveRequest', state.currentDetail.request.requestId, comment, false, sel.returnItems);
+      state.currentDetail = updated;
+      await refreshCounts();
+      renderDetail(updated);
+      renderTabs();
+      toast(sel.drop.length > 0
+        ? (sel.keep.length + '件を承認し、' + sel.drop.length + '件を差し戻しました')
+        : '承認しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 1つ前のステージへ戻す（1段リコール）。誤操作リカバリ用。理由コメントは必須。
+  async function recallAction(requestId) {
+    const preset = (document.getElementById('approveComment') || {}).value || '';
+    const reason = window.prompt('この申請を1つ前のステージへ戻します。理由を入力してください（必須）。', preset);
+    if (reason === null) { return; }
+    const comment = String(reason).trim();
+    if (!comment) { toast('戻す理由を入力してください', 'err'); return; }
+    setBusy(true);
+    try {
+      const detail = await gas('recallStep', requestId, comment);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast('1つ前のステージへ戻しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 申請の取消（論理削除）。確認後に取消し、一覧へ戻る。
+  async function deleteRequestAction(requestId) {
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    if (!window.confirm('この申請を取り消します。取消した申請は承認フローから外れ、申請書PDFは削除されます。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      await gas('deleteRequest', requestId, comment);
+      await refreshCounts();
+      toast('申請を取り消しました', 'ok');
+      showView('listView');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 差戻しプールからの再提出。確認後、上席の承認から再スタートする。
+  async function resubmitAction(requestId) {
+    if (!window.confirm('この申請を再提出しますか？上席の承認から再スタートします。')) { return; }
+    setBusy(true);
+    try {
+      const detail = await gas('resubmitRequest', requestId);
+      state.currentDetail = detail;
+      toast('再提出しました', 'ok');
+      await refreshCounts();
+      await openDetail(detail.request.requestId);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 差戻し。discard=false は差戻しプールへ、discard=true は却下（プールに入れず取消）。
+  async function returnAction(discard) {
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 却下は理由必須（サーバでも検証）。破壊的操作の確認ダイアログより前にチェックする。
+    if (discard && !comment.trim()) { toast('却下理由（コメント）を入力してください', 'err'); return; }
+    // 差戻し・却下は申請まるごとが対象で、明細のチェックは効かない。外した行は取り消し線と
+    // 「差戻し」バッジが付いて「この明細だけ戻る」と読めてしまうため、必ず明示して確認を取る。
+    const sel = splitSelection(state.currentDetail);
+    if (sel.drop.length > 0) {
+      const word = discard ? '却下' : '差戻し';
+      if (!window.confirm('明細の選択（' + sel.drop.length + '件を解除）は' + word + 'には反映されません。\n' +
+        'この申請の明細' + (sel.keep.length + sel.drop.length) + '件すべてが' + word + 'の対象になります。よろしいですか？\n\n' +
+        '一部の明細だけを差し戻す場合は、キャンセルして承認ボタンから実行してください。')) { return; }
+    }
+    if (discard && !window.confirm('この申請を却下します。差戻しプールに入れず取消となり、申請者は再提出できません。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      const detail = await gas('returnRequest', state.currentDetail.request.requestId, comment, false, discard);
+      state.currentDetail = detail;
+      await refreshCounts();
+      renderDetail(detail);
+      renderTabs();
+      toast(discard ? '却下しました' : '差戻ししました（プールへ）', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 見積・金額入力（購買） ---------- */
+  function quotePanelHtml(detail) {
+    const split = !!detail.permissions.canSplitItems;
+    // チェック列を足すと合計行の桁がずれるため、colspan も同じ数だけ広げる。
+    const footSpan = split ? 5 : 4;
+    const rows = detail.items.map((it, i) =>
+      '<tr data-qrow="' + i + '">' +
+        (split ? '<td class="q-chk"><input type="checkbox" class="split-chk" data-sidx="' + i + '" checked></td>' : '') +
+        '<td style="font-weight:600">' + escapeHtml(it.name) + '</td>' +
+        '<td style="color:var(--muted)">' + escapeHtml(it.model || '—') + '</td>' +
+        '<td class="cell-amt">' + qtyText(it.quantity, it.unit) + '</td>' +
+        '<td><div class="q-unit-wrap"><input class="control num q-unit" data-qidx="' + i + '" type="number" min="0" step="1" value="' + escapeAttr(it.unitPrice > 0 ? it.unitPrice : '') + '" placeholder="0">' +
+          (it.unit ? '<span class="q-unit-suffix">/' + escapeHtml(it.unit) + '</span>' : '') + '</div></td>' +
+        '<td class="cell-amt q-amt" data-qamt="' + i + '">' + escapeHtml(yen(it.amount > 0 ? it.amount : 0)) + '</td>' +
+      '</tr>'
+    ).join('');
+    return '<div class="approve-panel"><div class="ap-head">' +
+      '<span class="badge RETURNED"><span class="dot"></span>見積・金額入力待ち</span>' +
+      '<span class="pill">各明細の単価を入力して金額を確定、または見積不可・要修正としてコメント付きで差戻しできます</span></div>' +
+      '<div class="card" style="margin:4px 0 6px"><div class="card-head"><h3>見積・金額入力</h3>' +
+      '<div class="head-actions" style="display:flex;align-items:center;gap:12px">' +
+        '<span class="hint">税抜単価を入力すると金額・消費税・税込合計が自動計算されます</span>' +
+        (detail.permissions.canEditInReview ? '<button class="btn sm primary" id="editItemsBtn2">✎ 明細を修正</button>' : '') +
+      '</div></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr>' +
+      (split ? '<th class="q-chk">選択</th>' : '') +
+      '<th>品名</th><th>型式</th><th class="r">数量</th><th class="r" style="width:200px">単価(税抜・単位あたり)</th><th class="r" style="width:160px">金額(税抜)</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '<tfoot>' +
+      '<tr><td colspan="' + footSpan + '" class="r">小計（税抜）</td><td class="cell-amt" id="q-subtotal">' + escapeHtml(yen(detail.request.totalAmount > 0 ? detail.request.totalAmount : 0)) + '</td></tr>' +
+      '<tr><td colspan="' + footSpan + '" class="r">消費税（10%）</td><td class="cell-amt" id="q-tax">' + escapeHtml(yen(detail.request.totalAmount > 0 ? taxOf(detail.request.totalAmount) : 0)) + '</td></tr>' +
+      '<tr><td colspan="' + footSpan + '" class="r" style="font-weight:700;letter-spacing:.08em">合計（税込）</td>' +
+      '<td class="cell-amt" id="q-total" style="font-size:15px">' + escapeHtml(yen(detail.request.totalAmount > 0 ? grossOf(detail.request.totalAmount) : 0)) + '</td></tr></tfoot>' +
+      '</table></div>' +
+      (split ? '<div class="card-pad" style="padding-top:0"><span class="hint">チェックを外した明細は金額を入力せず、新しい申請として差戻しプールへ移ります（小計・消費税・合計からも除外されます）。</span></div>' : '') +
+      '</div>' +
+      returnNoticeHtml() +
+      field('コメント', false, '<textarea class="control" id="approveComment" rows="3" maxlength="1000" placeholder="コメントを入力"></textarea>',
+        split
+          ? '差戻し（見積不可・要修正）の場合、および明細の選択を外した場合は理由を明確に記入してください（必須）'
+          : '差戻し（見積不可・要修正）の場合は理由を明確に記入してください（必須）') +
+      (split ? '<div class="ss-warn" id="splitAllWarn" hidden>' + escapeHtml(SPLIT_ALL_OFF_TEXT) + '</div>' : '') +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+        '<button class="btn danger ghost" id="rejectBtn" style="margin-right:auto">✕ 却下（削除）</button>' +
+        '<button class="btn danger" id="returnBtn">‹ 差戻し（プールへ）</button>' +
+        '<button class="btn lg" id="expediteBtn" style="background:var(--warn);border-color:var(--warn);color:#fff">⚡ 金額不要／至急承認</button>' +
+        '<button class="btn primary lg" id="quoteBtn">✓ 金額を確定</button>' +
+      '</div>' +
+      '<div class="hint" style="text-align:right;margin-top:6px">価格が商社と確定済みの標準品（CO2・酸素・溶接ワイヤー・標準塗装色・標準作動油 等）は「金額不要／至急承認」で総務部長へ至急回せます。</div>' +
+      (split ? '<div class="ss-warn" id="expediteSplitHint" style="text-align:right" hidden>「⚡ 金額不要／至急承認」は明細の分割に対応していません。明細を選択解除している場合は使えません。</div>' : '') +
+      '</div>';
+  }
+
+  function bindQuotePanel(detail) {
+    const split = !!detail.permissions.canSplitItems;
+    const btn = document.getElementById('quoteBtn');
+    const eb = document.getElementById('expediteBtn');
+    const ebHint = document.getElementById('expediteSplitHint');
+    const recompute = () => {
+      const sel = splitSelection(detail);
+      let total = 0;
+      detail.items.forEach((it, i) => {
+        const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
+        const cell = document.querySelector('[data-qamt="' + i + '"]');
+        // 選択を外した明細は分離先で単価0にリセットされるため、入力を止めて集計からも外す。
+        const dropped = sel.drop.indexOf(i) >= 0;
+        if (input) { input.disabled = dropped; }
+        if (dropped) {
+          if (cell) { cell.textContent = '—'; }
+          return;
+        }
+        const unit = input ? Number(input.value) : 0;
+        const amount = (isFinite(unit) && unit >= 0 ? unit : 0) * Number(it.quantity || 0);
+        total += amount;
+        if (cell) { cell.textContent = yen(amount); }
+      });
+      const subEl = document.getElementById('q-subtotal');
+      if (subEl) { subEl.textContent = yen(total); }
+      const taxEl = document.getElementById('q-tax');
+      if (taxEl) { taxEl.textContent = yen(taxOf(total)); }
+      const totalEl = document.getElementById('q-total');
+      if (totalEl) { totalEl.textContent = yen(grossOf(total)); }
+      if (!split) { return; }
+      markSplitRows(sel);
+      applySplitButtonState(sel, btn, '✓ 金額を確定', (k, d) => '✓ ' + k + '件の金額を確定し、' + d + '件を差戻し');
+      // 至急承認は分割に対応しない仕様のため、一部でも解除されていれば使わせない。
+      if (eb) { eb.disabled = sel.drop.length > 0; }
+      if (ebHint) { ebHint.hidden = sel.drop.length === 0; }
+    };
+    document.querySelectorAll('.q-unit').forEach(input => input.addEventListener('input', () => { state.priceTouched = true; recompute(); }));
+    document.querySelectorAll('.split-chk').forEach(box => box.addEventListener('change', recompute));
+    if (btn) { btn.addEventListener('click', lockButton(() => confirmQuoteAction(detail))); }
+    if (eb) { eb.addEventListener('click', lockButton(() => confirmExpeditedAction(detail))); }
+  }
+
+  async function confirmExpeditedAction(detail) {
+    if (!window.confirm('金額確定を行わず「至急承認（金額確定不要）」として総務部長へ回します。よろしいですか？')) { return; }
+    setBusy(true);
+    try {
+      const comment = (document.getElementById('approveComment') || {}).value || '';
+      const updated = await gas('confirmExpedited', state.currentDetail.request.requestId, comment);
+      state.currentDetail = updated;
+      await refreshCounts();
+      renderDetail(updated);
+      renderTabs();
+      toast('至急承認（金額確定不要）として総務部長へ回しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmQuoteAction(detail) {
+    const sel = splitSelection(detail);
+    if (sel.keep.length === 0) { toast(SPLIT_ALL_OFF_TEXT, 'err'); return; }
+    const items = [];
+    let total = 0;
+    // 選択を外した明細の単価は分離先で0にリセットされるため、検証も送信もしない。
+    for (let k = 0; k < sel.keep.length; k++) {
+      const i = sel.keep[k];
+      const input = document.querySelector('.q-unit[data-qidx="' + i + '"]');
+      const unitPrice = input ? Number(input.value) : NaN;
+      if (!isFinite(unitPrice) || unitPrice < 0) {
+        toast('選択した明細すべてに0以上の単価を入力してください', 'err');
+        return;
+      }
+      items.push({ itemId: detail.items[i].itemId, unitPrice: unitPrice });
+      total += unitPrice * Number(detail.items[i].quantity || 0);
+    }
+    if (total <= 0) { toast('合計金額が0です。単価を入力してください', 'err'); return; }
+    const comment = (document.getElementById('approveComment') || {}).value || '';
+    // 分離は差戻しと同じ扱いのため理由必須。サーバでも弾かれるが往復させない。
+    if (sel.drop.length > 0 && !comment.trim()) {
+      toast('差し戻す明細がある場合は、理由（コメント）を入力してください', 'err');
+      return;
+    }
+    if (sel.drop.length > 0 && !window.confirm(splitConfirmText(detail, sel, '金額を確定します'))) { return; }
+    setBusy(true);
+    try {
+      const updated = await gas('confirmQuote', state.currentDetail.request.requestId, items, comment, sel.returnItems);
+      state.currentDetail = updated;
+      await refreshCounts();
+      renderDetail(updated);
+      renderTabs();
+      toast(sel.drop.length > 0
+        ? (sel.keep.length + '件の金額を確定し、' + sel.drop.length + '件を差し戻しました')
+        : '見積金額を確定しました', 'ok');
+      window.scrollTo(0, 0);
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function regeneratePdf(requestId) {
+    setBusy(true);
+    try {
+      const detail = await gas('generateRequestPdf', requestId);
+      state.currentDetail = detail;
+      renderDetail(detail);
+      toast('PDFを作成しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 承認フロー（縦タイムライン） ---------- */
+  function routeNodes(detail) {
+    const r = detail.request;
+    const keys = ['申請者'].concat(r.route || []).concat(['完了済']);
+    const completed = r.status === '完了';
+    let curIdx = completed ? keys.length - 1 : keys.indexOf(r.currentStep);
+    if (curIdx < 0) { curIdx = 0; }
+    return keys.map((key, i) => ({
+      key,
+      name: approverNameForStep(detail, key),
+      state: completed ? 'done' : (i < curIdx ? 'done' : i === curIdx ? 'current' : 'pending')
+    }));
+  }
+
+  function approverNameForStep(detail, key) {
+    const r = detail.request;
+    if (key === '申請者') { return r.applicantName; }
+    if (key === '完了済') { return ''; }
+    if (key === r.currentStep && r.status !== '完了') { return r.currentApproverName || ''; }
+    // リコールで未処理に戻った後続ステップには、以前の承認者名を残さない。
+    const route = r.route || [];
+    const ki = route.indexOf(key), ci = route.indexOf(r.currentStep);
+    if (ki >= 0 && ci >= 0 && ki > ci && r.status !== '完了') { return ''; }
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === '承認' || x.action === '完了処理' || x.action === '差戻' || x.action === '金額確定' || x.action === '金額不要至急'));
+    return h ? (h.actorName || '') : '';
+  }
+
+  function stepperHtml(detail) {
+    const nodes = routeNodes(detail);
+    return '<div class="step-t">' + nodes.map((n, i) => {
+      const nextDone = i < nodes.length - 1 && (nodes[i + 1].state === 'done' || n.state === 'done');
+      const avInner = n.key === '完了済' ? '◎' : (n.state === 'done' ? '✓' : escapeHtml(initials(n.name)));
+      const nameLine = n.name ? '<div class="t-name">' + escapeHtml(n.name) + '</div>' : (STEP_DESC[n.key] ? '<div class="t-name">' + escapeHtml(STEP_DESC[n.key]) + '</div>' : '');
+      const tag = n.state === 'current' ? '<span class="t-tag">承認待ち</span>' : (n.state === 'done' && n.key !== '完了済' ? '<span class="t-tag">完了</span>' : '');
+      return '<div class="trow ' + n.state + '"><div class="rail"><div class="av">' + avInner + '</div>' +
+        (i < nodes.length - 1 ? '<div class="bar' + (nextDone ? ' done' : '') + '"></div>' : '') + '</div>' +
+        '<div class="tbody"><div class="t-lbl">' + escapeHtml(stepLabel(n.key)) + tag + '</div>' + nameLine + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function historyHtml(history) {
+    if (!history.length) { return '<div class="empty">履歴はありません。</div>'; }
+    return '<div class="history">' + history.slice().reverse().map(h => {
+      const label = (state.bootstrap.actionLabels && state.bootstrap.actionLabels[h.action]) || h.actionLabel || h.action;
+      return '<div class="hrow"><div class="hicon ' + escapeAttr(ACTION_CLASS[h.action] || '') + '">' + (HIST_GLYPH[h.action] || '•') + '</div>' +
+        '<div class="hbody"><div class="ht"><span class="ha">' + escapeHtml(label) + '</span>' +
+        '<span class="hw">' + escapeHtml(h.actorName || h.actorEmail || '') + '</span>' +
+        '<span class="htime">' + escapeHtml(h.happenedAt) + '</span></div>' +
+        '<div class="hflow">' + escapeHtml(stepLabel(h.fromStep)) + ' › ' + escapeHtml(stepLabel(h.toStep)) + '</div>' +
+        (h.comment ? '<div class="hcomment">' + escapeHtml(h.comment) + '</div>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  /* ---------- PDFドキュメント（モノクロA4・クライアント描画） ---------- */
+  function pdfDocHtml(detail, opts) {
+    const o = opts || {};
+    const decision = o.variant === 'decision';
+    const r = detail.request;
+    const over = (r.route || []).indexOf('社長') !== -1;
+    const dateOnly = d => String(d || '').slice(0, 10);
+    const stampKeys = ['申請者'].concat(r.route || []);
+    const wm = decision ? '' : (r.status === '完了' ? '完了' : r.status === '差戻し' ? '差戻' : '');
+
+    let html = '<div class="pdf-doc' + (decision ? ' pdf-doc--decision' : '') + '">';
+    if (wm) { html += '<div class="wm">' + wm + '</div>'; }
+
+    html += '<div class="masthead"><div class="mh-left">' +
+      '<div class="mh-co">STORAGE SUPPLIES PURCHASE REQUEST</div>' +
+      '<div class="mh-title">貯蔵品購入申請書</div>' +
+      '<div class="mh-en">Storage Supplies Purchase Request</div></div>' +
+      '<div class="mh-right"><div class="mh-no">' + escapeHtml(r.requestId) + '</div>' +
+      '<div class="mh-date">申請日 <b>' + escapeHtml(dateOnly(r.requestDate)) + '</b></div>' +
+      '<div class="mh-date">区分 ' + (over ? '社長決裁' : '通常決裁') + '</div></div></div>' +
+      '<div class="rule-heavy"></div><div class="rule-thin"></div>';
+
+    if (!decision) {
+      html += '<div class="kessai"><div class="kessai-lbl">決 裁 欄　APPROVAL</div><div class="stamps">' +
+        stampKeys.map(key => {
+          const st = stampFor(detail, key);
+          if (st) {
+            const ng = st.kind === 'ng' ? ' ng' : '';
+            return '<div class="stamp acted' + ng + '"><div class="s-role">' + escapeHtml(stepLabel(key)) + '</div>' +
+              '<div class="dnstamp">' +
+                '<div class="dn-name" style="font-size:' + nameFont(st.name) + '">' + escapeHtml(st.name) + '</div>' +
+                '<div class="dn-date">' + escapeHtml(eraDate(st.date)) + '</div>' +
+                '<div class="dn-role">' + escapeHtml(stampTitle(detail, key)) + '</div>' +
+              '</div></div>';
+          }
+          const pendName = approverNameForStep(detail, key);
+          return '<div class="stamp"><div class="s-role">' + escapeHtml(stepLabel(key)) + '</div>' +
+            '<div class="s-empty"></div><div class="s-pending">' + escapeHtml(pendName || '—') + '</div></div>';
+        }).join('') + '</div></div>';
+    }
+
+    html += '<div class="meta">' +
+      mcell('部署', escapeHtml(r.department)) +
+      mcell('申請者', escapeHtml(r.applicantName)) +
+      '<div class="mcell wide" style="border-right:0"><div class="mk">メールアドレス</div><div class="mv mono" style="font-size:8.4pt">' + escapeHtml(r.applicantEmail) + '</div></div>' +
+      mcell('品目区分', escapeHtml(r.categoryLabel || categoryLabel(r.category))) +
+      mcell('明細件数', '<span class="mono">' + detail.items.length + ' 件</span>') +
+      mcell('状態', escapeHtml(r.statusLabel)) +
+      '<div class="mcell" style="border-right:0"><div class="mk">合計金額（税込）</div><div class="mv amt">' + escapeHtml(amountLabel(r)) + '</div></div>' +
+      '</div>';
+
+    html += '<div class="sec-head"><span class="sq"></span><h2>申請明細</h2><span class="sline"></span><span class="scount">' + detail.items.length + ' ITEMS</span></div>' +
+      '<table class="items"><thead><tr>' +
+      '<th style="width:5%">No.</th><th style="width:32%">品名 / 型式・メーカー</th><th class="r" style="width:10%">数量</th>' +
+      '<th class="r" style="width:13%">単価(税抜)</th><th class="r" style="width:14%">金額(税抜)</th>' +
+      '<th style="width:14%">希望納期</th><th>備考</th></tr></thead><tbody>' +
+      detail.items.map((it, i) =>
+        '<tr><td class="no">' + (i + 1) + '</td>' +
+        '<td><div class="nm">' + escapeHtml(it.name) + '</div><div class="sub">' + escapeHtml([it.model, it.maker].filter(Boolean).join('・') || '—') + '</div></td>' +
+        '<td class="r">' + escapeHtml(it.quantity) + (it.unit ? '<div class="unit">' + escapeHtml(it.unit) + '</div>' : '') + '</td>' +
+        '<td class="r">' + (it.unitPrice > 0 ? escapeHtml(yen(it.unitPrice)) : '未定') + '</td>' +
+        '<td class="r">' + (it.amount > 0 ? escapeHtml(yen(it.amount)) : '未定') + '</td>' +
+        '<td class="mono" style="font-size:8pt">' + escapeHtml(dateOnly(it.desiredDeliveryDate) || '—') + '</td>' +
+        '<td style="font-size:8pt;color:var(--gray)">' + escapeHtml(it.note || '—') + '</td></tr>'
+      ).join('') +
+      '</tbody><tfoot>' + previewTotalRows(r) + '</tfoot></table>';
+
+    html += '<div class="sec-head"><span class="sq"></span><h2>購入理由</h2><span class="sline"></span></div><div class="reasons-grid">' +
+      state.bootstrap.reasons.map(x =>
+        '<div class="rz' + (r.reasonCode === x.code ? ' on' : '') + '"><span class="chk">' + (r.reasonCode === x.code ? '✓' : '') + '</span>' +
+        '<span><b>' + escapeHtml(x.code) + '.</b> ' + escapeHtml(x.label) + '</span></div>'
+      ).join('') + '</div>' +
+      '<div class="reason-detail"><div class="rd-k">理由詳細</div>' + escapeHtml(r.reasonDetail || '—') + '</div>';
+
+    if (!decision) {
+      html += '<div class="sec-head"><span class="sq"></span><h2>承認履歴</h2><span class="sline"></span><span class="scount">' + detail.history.length + ' LOGS</span></div>' +
+        '<table class="hist"><thead><tr><th style="width:17%">日時</th><th style="width:11%">処理</th><th style="width:17%">担当</th><th style="width:22%">ステップ</th><th>コメント</th></tr></thead><tbody>' +
+        detail.history.map(h => {
+          const label = (state.bootstrap.actionLabels && state.bootstrap.actionLabels[h.action]) || h.actionLabel || h.action;
+          return '<tr><td class="mono">' + escapeHtml(h.happenedAt) + '</td><td>' + escapeHtml(label) + '</td>' +
+            '<td>' + escapeHtml(h.actorName || h.actorEmail || '') + '</td>' +
+            '<td class="mono" style="font-size:7.4pt">' + escapeHtml(stepLabel(h.fromStep)) + ' → ' + escapeHtml(stepLabel(h.toStep)) + '</td>' +
+            '<td style="color:var(--ink-2)">' + escapeHtml(h.comment || '—') + '</td></tr>';
+        }).join('') + '</tbody></table>' +
+        '<div class="doc-foot">' + qrHtml(r.requestId) +
+        '<div class="foot-meta"><div class="fm-id">' + escapeHtml(r.requestId) + '</div>' +
+        '<div>本書は貯蔵品購入申請システムにより発行された電磁的記録です。</div></div></div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function mcell(k, vHtml) { return '<div class="mcell"><div class="mk">' + escapeHtml(k) + '</div><div class="mv">' + vHtml + '</div></div>'; }
+
+  function stampFor(detail, key) {
+    if (key === '申請者') {
+      const h = detail.history.slice().reverse().find(x => x.action === '申請' || x.action === '再申請');
+      return h ? { name: h.actorName, date: h.happenedAt, kind: 'apply' } : null;
+    }
+    // リコールで未処理に戻ったステップ（現在ステップ以降）には押印を出さない（完了案件は全押印を表示）。
+    const route = detail.request.route || [];
+    const ki = route.indexOf(key), ci = route.indexOf(detail.request.currentStep);
+    if (ki >= 0 && ci >= 0 && ki >= ci && detail.request.status !== '完了') { return null; }
+    const h = detail.history.slice().reverse().find(x => x.fromStep === key && (x.action === '承認' || x.action === '完了処理' || x.action === '差戻' || x.action === '金額確定' || x.action === '金額不要至急'));
+    if (!h) { return null; }
+    // 購買（見積・手配）のハンコは承認者マスタの購買氏名（例: 五十嵐）で表示する。
+    let stampName = h.actorName;
+    if ((key === '購買見積' || key === '購買手配') && detail.purchasingStampName) {
+      stampName = detail.purchasingStampName;
+    }
+    return { name: stampName, date: h.happenedAt, kind: h.action === '差戻' ? 'ng' : 'approve' };
+  }
+
+  // 申請の詳細 URL の QR コード（決定事項 Q6。GAS 版の飾りのバーコードの置き換え）。
+  // 読むとその申請の詳細画面が開く。生成は同梱の qrcode-generator（MIT）。
+  function requestDetailUrl(requestId) {
+    return window.location.origin + '/?requestId=' + encodeURIComponent(requestId);
+  }
+  function qrHtml(requestId) {
+    if (typeof qrcode !== 'function' || !requestId) { return '<div class="qr"></div>'; }
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(requestDetailUrl(requestId));
+      qr.make();
+      return '<div class="qr" title="' + escapeAttr(requestDetailUrl(requestId)) + '">' + qr.createSvgTag({ cellSize: 2, margin: 0, scalable: true }) + '</div>';
+    } catch (e) {
+      return '<div class="qr"></div>';
+    }
+  }
+
+  /* スケール済みプレビュー（A4を縮小表示） */
+  function renderScaledPreview(hostId, detail, opts) {
+    const wrap = document.getElementById(hostId);
+    if (!wrap) { return; }
+    const maxScale = (opts && opts.maxScale) || 0.62;
+    wrap.innerHTML = '<div style="overflow:hidden"><div class="pdf-scaler" style="transform:scale(' + maxScale + ')">' + pdfDocHtml(detail, opts) + '</div></div>';
+    const measure = () => {
+      const cw = wrap.clientWidth;
+      const scaler = wrap.querySelector('.pdf-scaler');
+      const holder = wrap.firstElementChild;
+      if (!scaler || !holder) { return; }
+      const scale = Math.min(maxScale, cw / 793.7);
+      scaler.style.transform = 'scale(' + scale + ')';
+      const docEl = scaler.firstElementChild;
+      const dh = docEl ? docEl.offsetHeight : 1122;
+      holder.style.height = (dh * scale) + 'px';
+    };
+    measure();
+    setTimeout(measure, 160);
+    if (renderScaledPreview._handler) { window.removeEventListener('resize', renderScaledPreview._handler); }
+    renderScaledPreview._handler = measure;
+    window.addEventListener('resize', measure);
+  }
+
+  /* ---------- 全画面承認モード（社長決裁・上席ほか現承認者） ---------- */
+  const pmodeState = { detail: null, phase: 'view', comment: '', chips: [], canApprove: false, canPresident: false, openedStep: '' };
+
+  // 一覧の「社長決裁」ボタン互換: 社長決裁ステップ限定で開く。
+  async function openPresident(requestId) {
+    return openTabletMode(requestId);
+  }
+
+  async function openTabletMode(requestId) {
+    setBusy(true);
+    try {
+      const detail = await gas('getRequestDetail', requestId);
+      const p = detail.permissions || {};
+      // 全画面承認モードは誰でも開ける（承認者に見せてその場で承認を得るキオスク運用）。
+      pmodeState.detail = detail;
+      pmodeState.phase = 'view';
+      pmodeState.comment = '';
+      pmodeState.chips = [];
+      pmodeState.canApprove = !!p.canApprove;
+      pmodeState.canPresident = !!p.canPresident;
+      // 開いたときの段。記録するときにサーバーへ渡し、別の端末で先に進んでいたら止めてもらう（決定事項 Q1）。
+      pmodeState.openedStep = detail.request.currentStep;
+      renderPmode();
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function closePresident(reload) {
+    document.getElementById('pmodeRoot').innerHTML = '';
+    pmodeState.detail = null;
+    if (reload) {
+      refreshCounts().then(renderTabs);
+      if (state.view === 'listView') { loadRows(); }
+      else if (state.view === 'detailView' && state.currentDetail) { openDetail(state.currentDetail.request.requestId); }
+    }
+  }
+
+  function renderPmode() {
+    const detail = pmodeState.detail;
+    if (!detail) { return; }
+    const r = detail.request;
+    const root = document.getElementById('pmodeRoot');
+    const isPres = pmodeState.canPresident && !pmodeState.canApprove;
+    const isPurchasing = r.currentStep === '購買手配';
+    const stepLbl = r.currentStepLabel || stepLabel(r.currentStep);
+    const kicker = isPres ? '社長決裁モード' : (stepLbl + ' モード');
+    const approveWord = isPurchasing ? '手配完了' : '承認する';
+    const approveSmall = isPres ? '社長決裁' : (isPurchasing ? '発注手配' : stepLbl);
+
+    let actions = '';
+    if (pmodeState.phase === 'view') {
+      const prompt = isPurchasing ? 'この申請の手配が完了しましたか？' : 'この申請を承認してよろしいでしょうか？';
+      actions = '<div class="pmode-actions">' +
+        (isApproverNoticeStep(r.currentStep) ? '<div class="pmode-notice"><b>⚠ 承認は責任を伴います</b>　' + escapeHtml(APPROVER_NOTICE_SHORT) + '</div>' : '') +
+        '<div class="pmode-prompt"><span class="pp-dot"></span>' + escapeHtml(prompt) + '</div>' +
+        '<div class="pmode-btns">' +
+          '<button class="pbtn ng" id="pmNg"><span class="pbtn-ic">✕</span><span><b>差し戻す</b><small>NG・要修正</small></span></button>' +
+          '<button class="pbtn ok" id="pmOk"><span class="pbtn-ic">✓</span><span><b>' + escapeHtml(approveWord) + '</b><small>' + escapeHtml(approveSmall) + '</small></span></button>' +
+        '</div></div>';
+    }
+
+    let sheet = '';
+    if (pmodeState.phase === 'confirm-approve') {
+      const sheetTitle = isPurchasing ? 'この申請の手配を完了します' : 'この申請を承認します';
+      const sheetSub = isPurchasing ? '記録後、総務部へ通知されます。' : (isPres ? '承認後、購買へ進みます。' : '承認後、次のステップへ進みます。');
+      const confirmWord = isPurchasing ? '手配完了を確定' : '承認を確定';
+      sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ok">✓</div>' +
+        '<h3>' + escapeHtml(sheetTitle) + '</h3><p class="psheet-sub">' + escapeHtml(r.requestId) + '・' + escapeHtml(amountLabel(r)) + '<br>' + escapeHtml(sheetSub) + '</p>' +
+        (isApproverNoticeStep(r.currentStep) ? '<div class="psheet-notice">⚠ 承認は責任を伴います。' + escapeHtml(APPROVER_NOTICE_LINES.join(' ')) + '</div>' : '') +
+        '<input class="psheet-input" id="pmComment" placeholder="コメント（任意）" value="' + escapeAttr(pmodeState.comment) + '">' +
+        '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ok" id="pmConfirmOk">' + escapeHtml(confirmWord) + '</button></div></div></div>';
+    } else if (pmodeState.phase === 'confirm-return') {
+      sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ng">✕</div>' +
+        '<h3>この申請を差し戻します</h3><p class="psheet-sub">理由を選択または入力してください（申請者へ通知されます）。</p>' +
+        '<div class="psheet-notice">⚠ ' + escapeHtml(RETURN_NOTICE_TEXT) + '</div>' +
+        '<div class="psheet-chips">' + NG_REASONS.map(c => '<button class="pchip' + (pmodeState.chips.indexOf(c) >= 0 ? ' on' : '') + '" data-chip="' + escapeAttr(c) + '">' + escapeHtml(c) + '</button>').join('') + '</div>' +
+        '<textarea class="psheet-input" id="pmComment" rows="2" placeholder="補足コメント">' + escapeHtml(pmodeState.comment) + '</textarea>' +
+        '<div class="psheet-btns"><button class="pbtn2 ghost" id="pmBack">戻る</button><button class="pbtn2 ng" id="pmConfirmNg">差戻しを確定</button></div></div></div>';
+    } else if (pmodeState.phase === 'done-approve' || pmodeState.phase === 'done-return') {
+      const ok = pmodeState.phase === 'done-approve';
+      const doneTitle = ok ? (isPurchasing ? '手配完了を記録しました' : '承認しました') : '差し戻しました';
+      const doneSub = ok
+        ? (isPurchasing ? '総務部へ通知されました。記録に残りました。' : '次のステップへ進みます。記録に残りました。')
+        : '申請者へ通知されました。';
+      sheet = '<div class="pmode-sheet"><div class="psheet-card"><div class="psheet-icon ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '✓' : '✕') + '</div>' +
+        '<h3>' + escapeHtml(doneTitle) + '</h3>' +
+        '<p class="psheet-sub">' + escapeHtml(doneSub) + '</p>' +
+        '<div class="psheet-btns"><button class="pbtn2 ok" id="pmCloseDone">閉じる</button></div></div></div>';
+    }
+
+    root.innerHTML = '<div class="pmode">' +
+      '<div class="pmode-bar"><div class="pmode-bar-l"><span class="pmode-kicker">' + escapeHtml(kicker) + '</span>' +
+        '<span class="pmode-id mono">' + escapeHtml(r.requestId) + '</span>' +
+        '<span class="pmode-meta">' + escapeHtml(r.applicantName) + '（' + escapeHtml(r.department) + '）</span> ' + categoryChip(r) + '</div>' +
+        '<div class="pmode-bar-r"><div class="pmode-amt"><span class="pa-l">確定金額</span><span class="pa-v mono">' + escapeHtml(amountLabel(r)) + '</span></div>' +
+        '<button class="pmode-close" id="pmClose">閉じる ✕</button></div></div>' +
+      '<div class="pmode-stage" id="pmStage"><div class="pmode-paper" id="pmPaper"><div class="pmode-paper-inner" id="pmPaperInner">' + pdfDocHtml(detail, { variant: 'decision' }) + '</div></div></div>' +
+      actions + sheet + '</div>';
+
+    fitPaper();
+    bindPmode();
+  }
+
+  function fitPaper() {
+    const stage = document.getElementById('pmStage');
+    const paper = document.getElementById('pmPaper');
+    const inner = document.getElementById('pmPaperInner');
+    if (!stage || !paper || !inner) { return; }
+    const availW = stage.clientWidth - 52;
+    // 視認性優先で「表示エリアの横幅いっぱい」付近まで拡大（高さがはみ出る分は縦スクロール）。
+    // 横幅いっぱいだと窮屈なため約13%控えめに。大きすぎ防止に上限2.4倍。
+    const scale = Math.max(0.2, Math.min(availW / 793.7, 2.4)) * 0.87;
+    paper.style.width = (793.7 * scale) + 'px';
+    paper.style.height = (1122.5 * scale) + 'px';
+    inner.style.transform = 'scale(' + scale + ')';
+  }
+
+  function bindPmode() {
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) { el.addEventListener('click', fn); } };
+    bind('pmClose', () => closePresident(false));
+    bind('pmNg', () => { pmodeState.phase = 'confirm-return'; renderPmode(); });
+    bind('pmOk', () => { pmodeState.phase = 'confirm-approve'; renderPmode(); });
+    bind('pmBack', () => { pmodeState.phase = 'view'; renderPmode(); });
+    bind('pmConfirmOk', lockButton(() => decidePresident('approve')));
+    bind('pmConfirmNg', lockButton(() => decidePresident('return')));
+    bind('pmCloseDone', () => closePresident(true));
+    const cmt = document.getElementById('pmComment');
+    if (cmt) { cmt.addEventListener('input', e => { pmodeState.comment = e.target.value; }); }
+    document.querySelectorAll('#pmodeRoot [data-chip]').forEach(b => b.addEventListener('click', () => {
+      const c = b.dataset.chip;
+      const idx = pmodeState.chips.indexOf(c);
+      if (idx >= 0) { pmodeState.chips.splice(idx, 1); } else { pmodeState.chips.push(c); }
+      renderPmode();
+    }));
+    if (!fitPaper._bound) {
+      window.addEventListener('resize', () => { if (pmodeState.detail) { fitPaper(); } });
+      fitPaper._bound = true;
+    }
+  }
+
+  async function decidePresident(decision) {
+    const detail = pmodeState.detail;
+    const r = detail.request;
+    const isPurchasing = r.currentStep === '購買手配';
+    let comment = pmodeState.comment;
+    if (decision === 'return') {
+      comment = [pmodeState.chips.join('、'), pmodeState.comment].filter(Boolean).join(' / ');
+      if (!comment) { toast('差戻し理由を選択または入力してください', 'err'); return; }
+    }
+    setBusy(true);
+    try {
+      let updated;
+      const step = r.currentStep;
+      // VPS 版: 開いたときの段を最後の引数 expectedStep として送る（途中の引数は GAS 版の既定値で埋める）。
+      const expectedStep = pmodeState.openedStep || step;
+      if (step === '社長') {
+        // 社長決裁。本人/管理者でなければキオスク代理として記録。
+        const kiosk = !pmodeState.canPresident;
+        updated = await gas('recordPresidentDecision', r.requestId, decision, comment, kiosk, null, expectedStep);
+      } else {
+        // 上席・総務部長の承認/差戻し。本人でなければキオスク代理として記録。
+        const kiosk = !pmodeState.canApprove;
+        updated = decision === 'approve'
+          ? await gas('approveRequest', r.requestId, comment, kiosk, null, expectedStep)
+          : await gas('returnRequest', r.requestId, comment, kiosk, false, expectedStep);
+      }
+      pmodeState.detail = updated;
+      pmodeState.phase = decision === 'approve' ? 'done-approve' : 'done-return';
+      renderPmode();
+      toast(decision === 'approve' ? '承認を記録しました' : '差戻しを記録しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 管理 ---------- */
+  // 管理画面のヘッダー（タイトル＋保存ボタン）を、固定済みの appbar（トップバー＋タブ）の
+  // すぐ下に貼り付けて固定する。下のカード群だけがスクロールする。
+  let adminStickyResizeBound = false;
+  function positionAdminStickyHead() {
+    const head = document.getElementById('adminStickyHead');
+    const appbar = document.querySelector('.appbar');
+    if (!head || !appbar) { return; }
+    head.style.top = appbar.offsetHeight + 'px';
+    if (!adminStickyResizeBound) {
+      adminStickyResizeBound = true;
+      window.addEventListener('resize', () => {
+        const h = document.getElementById('adminStickyHead');
+        const a = document.querySelector('.appbar');
+        if (h && a) { h.style.top = a.offsetHeight + 'px'; }
+      });
+    }
+  }
+
+  function renderAdmin() {
+    const s = state.bootstrap.settings;
+    document.getElementById('main').innerHTML =
+      '<div class="fade-in">' +
+        '<div class="admin-sticky-head" id="adminStickyHead">' +
+          '<div class="page-head"><div class="title-wrap"><span class="eyebrow">Administration</span><h2>管理</h2>' +
+            '<span class="sub">承認ルート・しきい値・通知などアプリ全体の設定を管理します。</span></div>' +
+            '<div class="head-actions">' +
+              '<button class="btn primary" id="saveAdminBtn">✓ 保存</button>' +
+            '</div></div>' +
+        '</div>' +
+        '<div class="card"><div class="card-head"><h3>基本設定</h3></div><div class="card-pad"><div class="grid-2">' +
+          field('社長決裁しきい値（税抜）', false, '<input class="control num" id="a-threshold" type="text" inputmode="numeric" value="' + escapeAttr(yen(s.thresholdAmount)) + '">', 'この税抜金額以上の申請は社長決裁ルートになります（¥・カンマ区切りで表示）') +
+          field('PDF保存先フォルダID', false, '<input class="control" id="a-folder" type="text" value="' + escapeAttr(s.pdfFolderId) + '" placeholder="Google Drive フォルダID">', '空欄なら自動作成されます') +
+          field('管理者メールアドレス', false, '<input class="control" id="a-admins" type="text" value="' + escapeAttr(s.adminEmails) + '">', 'カンマ区切りで複数指定可') +
+          field('メール通知', false, '<label style="display:flex;align-items:center;gap:10px;min-height:40px;font-weight:600"><input type="checkbox" id="a-notify" ' + (s.enableEmailNotifications ? 'checked' : '') + ' style="width:18px;height:18px">承認依頼・差戻し・完了メールを送信する</label>') +
+        '</div></div></div>' +
+        // VPS 版で足したカード: Google への許可（委任）とテスト転送。
+        '<div class="card"><div class="card-head"><h3>Google に許可</h3><a class="btn sm" id="delegateBtn" href="/auth/google-delegate/start">' + (delegateGranted() ? '↻ 許可をやり直す' : '➤ Google に許可する') + '</a></div>' +
+          '<div class="card-pad"><div class="admin-status" id="delegateStatus"></div>' +
+          '<span class="hint" style="display:block;margin-top:8px">メールの送信・PDF のGoogleドライブへの保存・スプレッドシートへの書き出しは、ここで許可した Google アカウントの名義で行います。</span></div>' +
+        '</div>' +
+        '<div class="card"><div class="card-head"><h3>テスト転送</h3><div class="head-actions">' +
+            '<button class="btn sm" id="redirectOnBtn">✉ 2時間だけ自分宛てに寄せる</button>' +
+            '<button class="btn sm" id="redirectOffBtn">解除</button>' +
+          '</div></div>' +
+          '<div class="card-pad"><div class="admin-status" id="redirectStatus"></div>' +
+          '<span class="hint" style="display:block;margin-top:8px">オンの間は、このアプリが送るメールをすべて自分宛てに送ります（件名に【テスト転送】、本来の宛先は本文の頭）。動作確認に使います。期限が来ると自動で元に戻ります。</span></div>' +
+        '</div>' +
+        '<div class="card"><div class="card-head"><h3>部署別 上席マスタ（外部 DeptApprovers と同期・読み取り専用）</h3><button class="btn sm" id="syncDeptSupBtn">↻ 外部シートから同期</button></div>' +
+          '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+            '<th>部署</th><th>メールアドレス</th><th>表示名</th><th>役職</th><th>通知メール</th><th>有効</th>' +
+          '</tr></thead><tbody id="deptSupervisorBody"></tbody></table></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">外部スプレッドシートの「DeptApprovers」シートから同期した上席です（このアプリ上では編集できません。編集は元シートで行ってください）。部署ごとに複数登録でき、その部署の上席なら誰でも承認、各上席は自部署の案件のみ「上席承認待ち」に表示されます。部署別の行が無い部署は承認者マスタの上席にフォールバックします。</span>' +
+          '<span class="sync-status" id="deptSupSyncStatus"></span></div>' +
+        '</div>' +
+        '<div class="card"><div class="card-head"><h3>作業員マスタ（外部 作業日報シートと同期・読み取り専用）</h3><button class="btn sm" id="syncWorkersBtn">↻ 外部シートから同期</button></div>' +
+          '<div class="card-pad"><span class="hint" id="workersSyncInfo"></span>' +
+          '<span class="sync-status" id="workersSyncStatus"></span></div>' +
+        '</div>' +
+        APPROVER_ROLES.map(function(role, i) {
+          return '<div class="card"><div class="card-head"><h3>承認者：' + role.title + '</h3><button class="btn sm" id="' + role.addBtn + '">＋ 行を追加</button></div>' +
+            '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+              '<th>部署</th><th>メールアドレス</th><th>氏名</th><th>役職</th><th></th>' +
+            '</tr></thead><tbody id="' + role.body + '"></tbody></table></div>' +
+            '<div class="card-pad" style="padding-top:14px"><span class="hint">' +
+              (i === 0
+                ? '各承認者を役職カードごとに設定します。「*」は全体デフォルト（全部署共通）。特定部署だけ変える場合のみ部署名で行を追加してください。同じ部署で「＋ 行を追加」して複数人を登録でき、その役職の誰でも対応（金額入力・承認）できます。役職は決裁印（PDF）の下段に表示されます（複数人の場合は代表1つ）。上席はこのマスタではなく外部「DeptApprovers」で管理します。'
+                : '「*」は全体デフォルト。部署別に分ける場合のみ部署名で追加。同じ部署で複数行にすると複数人が対応できます。') +
+            '</span></div>' +
+          '</div>';
+        }).join('') +
+        '<div class="card"><div class="card-head"><h3>通知宛先マスタ</h3><button class="btn sm" id="addRecipientBtn">＋ 行を追加</button></div>' +
+          '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+            '<th>種別</th><th>送信区分</th><th>メールアドレス</th><th>表示名</th><th>有効</th><th></th>' +
+          '</tr></thead><tbody id="recipientBody"></tbody></table></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">総務部＝承認進捗・手配完了の通知先。購買（メカ・一般兼用）＝メカ／一般・不明の見積依頼・手配依頼の送付先。電気購買＝電気区分の送付先。見積・手配メールは品目区分で主担当購買を To に、もう一方の購買を CC に入れて1通で送ります（区分が電気なら電気購買が To、それ以外はメカ購買が To）。電気購買が未設定なら自動的にメカ購買へ送られます。同一種別に複数宛先を登録でき、送信区分で To / CC を選べます（CC のみの場合は To に昇格）。</span></div>' +
+        '</div>' +
+        // VPS 版で足したカード: 自動の送り直しでも失敗した後処理（PDF・メール）の一覧。
+        '<div class="card"><div class="card-head"><h3>失敗した後処理（PDF・メール）</h3><button class="btn sm" id="reloadFailedBtn">↻ 更新</button></div>' +
+          '<div class="table-wrap"><table class="approver-tbl"><thead><tr>' +
+            '<th>日時</th><th>申請番号</th><th>処理</th><th>回数</th><th>エラー</th><th></th>' +
+          '</tr></thead><tbody id="failedJobsBody"><tr><td colspan="6"><div class="empty" style="padding:18px">読み込み中…</div></td></tr></tbody></table></div>' +
+          '<div class="card-pad" style="padding-top:14px"><span class="hint">自動で送り直しても失敗した後処理です。原因を直してから「やり直す」を押してください。メールは送れていない分だけ送ります（二重には届きません）。</span></div>' +
+        '</div>' +
+      '</div>';
+
+    const thrInput = document.getElementById('a-threshold');
+    if (thrInput) {
+      // 編集中は数字のみ、フォーカスを外すと ¥・カンマ表示に整形。
+      thrInput.addEventListener('focus', () => { thrInput.value = String(amountDigits(thrInput.value)); });
+      thrInput.addEventListener('blur', () => { thrInput.value = yen(amountDigits(thrInput.value)); });
+    }
+    document.getElementById('saveAdminBtn').addEventListener('click', lockButton(saveAdmin));
+    document.getElementById('syncDeptSupBtn').addEventListener('click', lockButton(syncDeptSupervisors));
+    document.getElementById('syncWorkersBtn').addEventListener('click', syncWorkers);
+    document.getElementById('redirectOnBtn').addEventListener('click', lockButton(() => changeMailRedirect(true)));
+    document.getElementById('redirectOffBtn').addEventListener('click', lockButton(() => changeMailRedirect(false)));
+    document.getElementById('reloadFailedBtn').addEventListener('click', lockButton(loadFailedJobs));
+    renderDelegateStatus();
+    renderMailRedirectStatus();
+    renderSyncStatus();
+    loadFailedJobs();
+    renderWorkersSyncInfo();
+    positionAdminStickyHead();
+    renderDeptSupervisorRows();
+
+    const approverRows = state.bootstrap.approvers || [];
+    APPROVER_ROLES.forEach(role => {
+      document.getElementById(role.addBtn).addEventListener('click', () => addRoleApproverRow(role, {}));
+      const seen = approverRows.filter(r => (r.department || '') !== '');
+      if (seen.length === 0) {
+        addRoleApproverRow(role, { department: '*' });
+      } else {
+        // 保存時に連結されたメール一覧を、1人1行に展開して表示する（複数人対応）。
+        seen.forEach(r => {
+          const emails = String(r[role.key + 'Email'] || '').split(/[,\n;]/).map(s => s.trim()).filter(Boolean);
+          if (emails.length === 0) {
+            addRoleApproverRow(role, { department: r.department, email: '', name: r[role.key + 'Name'] || '', title: r[role.key + 'Title'] || '' });
+          } else {
+            emails.forEach((em, idx) => addRoleApproverRow(role, {
+              department: r.department,
+              email: em,
+              name: idx === 0 ? (r[role.key + 'Name'] || '') : '',
+              title: idx === 0 ? (r[role.key + 'Title'] || '') : ''
+            }));
+          }
+        });
+      }
+    });
+
+    document.getElementById('addRecipientBtn').addEventListener('click', () => addRecipientRow({ type: '総務部', active: true }));
+    const recipients = state.bootstrap.recipients || [];
+    recipients.forEach(addRecipientRow);
+    if (recipients.length === 0) {
+      addRecipientRow({ type: '総務部', active: true });
+      addRecipientRow({ type: '購買', active: true });
+    }
+  }
+
+  const RECIPIENT_TYPES = [['総務部', '総務部'], ['購買', '購買（メカ・一般兼用）'], ['電気購買', '電気購買']];
+
+  function addRecipientRow(row) {
+    row = row || {};
+    const body = document.getElementById('recipientBody');
+    const tr = document.createElement('tr');
+    const typeOptions = RECIPIENT_TYPES.map(t =>
+      '<option value="' + t[0] + '"' + (row.type === t[0] ? ' selected' : '') + '>' + escapeHtml(t[1]) + '</option>'
+    ).join('');
+    const sendAs = String(row.sendAs || 'TO').toUpperCase() === 'CC' ? 'CC' : 'TO';
+    const sendAsOptions = [['TO', 'To'], ['CC', 'CC']].map(s =>
+      '<option value="' + s[0] + '"' + (sendAs === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'
+    ).join('');
+    tr.innerHTML =
+      '<td><select class="iinput" data-field="type">' + typeOptions + '</select></td>' +
+      '<td><select class="iinput" data-field="sendAs">' + sendAsOptions + '</select></td>' +
+      '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="example@company.co.jp"></td>' +
+      '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
+      '<td style="text-align:center"><input data-field="active" type="checkbox"' + (row.active === false ? '' : ' checked') + ' style="width:18px;height:18px"></td>' +
+      '<td><button class="row-del" type="button">✕</button></td>';
+    tr.querySelector('.row-del').addEventListener('click', () => tr.remove());
+    body.appendChild(tr);
+  }
+
+  // 部署別 上席マスタは外部 DeptApprovers シートの読み取り専用ミラー。
+  function renderDeptSupervisorRows() {
+    const body = document.getElementById('deptSupervisorBody');
+    if (!body) { return; }
+    const rows = state.bootstrap.deptSupervisors || [];
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="6"><div class="empty" style="padding:18px">外部シート（DeptApprovers）から同期された上席はありません。元シートに登録後「外部シートから同期」を押してください（未設定の部署は承認者マスタの上席にフォールバックします）。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r =>
+      '<tr><td>' + escapeHtml(r.department) + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.email) + '</td><td>' + escapeHtml(r.name || '—') + '</td><td>' + escapeHtml(r.title || '—') + '</td><td class="num" style="font-size:12px">' + escapeHtml(r.notifyEmail || '—') + '</td><td>' + (r.active ? '有効' : '無効') + '</td></tr>'
+    ).join('');
+  }
+
+  async function syncDeptSupervisors() {
+    setBusy(true);
+    try {
+      const result = await gas('syncDeptSupervisorsNow');
+      state.bootstrap = await gas('getBootstrap');
+      renderDeptSupervisorRows();
+      renderSyncStatus();
+      const n = result && typeof result.count === 'number' ? result.count : null;
+      toast(n !== null ? ('上席マスタを同期しました（' + n + '件）') : '上席マスタを同期しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderWorkersSyncInfo() {
+    const el = document.getElementById('workersSyncInfo');
+    if (!el) { return; }
+    const n = (state.bootstrap.workers || []).length;
+    el.textContent = '新規申請の「部署」「申請者」の選択肢は、外部の作業日報スプレッドシート（作業員マスタ）から同期したこの一覧（現在 ' + n + ' 名）から作られます。毎朝8時台に自動同期します。異動・入社をすぐ反映したいときは「外部シートから同期」を押してください。';
+  }
+
+  /* ---------- 管理画面: VPS 版で足した表示と操作 ---------- */
+  // Google への許可（委任）の状態。getBootstrap の delegate: { granted, email, grantedAt }。
+  function delegateGranted() { return !!(state.bootstrap.delegate && state.bootstrap.delegate.granted); }
+  function renderDelegateStatus() {
+    const el = document.getElementById('delegateStatus');
+    if (!el) { return; }
+    const d = state.bootstrap.delegate || {};
+    el.innerHTML = d.granted
+      ? '<span class="st-ok">✓ 許可済み</span><span>' + escapeHtml(d.email || '') + '</span>' +
+        (d.grantedAt ? '<span class="num" style="color:var(--muted)">' + escapeHtml(d.grantedAt) + '</span>' : '')
+      : '<span class="st-ng">✕ まだ許可されていません</span><span style="color:var(--muted)">許可するまで、メールの送信と PDF の保存はできません。</span>';
+  }
+
+  // テスト転送の状態。getBootstrap の mailRedirect: { active, to, until, forced }。
+  function renderMailRedirectStatus() {
+    const el = document.getElementById('redirectStatus');
+    if (!el) { return; }
+    const m = state.bootstrap.mailRedirect || {};
+    if (m.forced) {
+      el.innerHTML = '<span class="st-ng">● テスト環境のため常に転送中</span><span>' + escapeHtml(m.to || '') + '</span>';
+    } else if (m.active) {
+      el.innerHTML = '<span class="st-ng">● 転送中</span><span>' + escapeHtml(m.to || '') + '</span>' +
+        (m.until ? '<span class="num" style="color:var(--muted)">' + escapeHtml(m.until) + ' まで</span>' : '');
+    } else {
+      el.innerHTML = '<span class="st-ok">○ オフ</span><span style="color:var(--muted)">本来の宛先へ送っています。</span>';
+    }
+  }
+
+  async function changeMailRedirect(on) {
+    setBusy(true);
+    try {
+      state.bootstrap.mailRedirect = on ? await gas('setMailRedirect', 120) : await gas('clearMailRedirect');
+      renderMailRedirectStatus();
+      toast(on ? 'テスト転送をオンにしました（2時間）' : 'テスト転送を解除しました', 'ok');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 作業員マスタ・上席マスタの最終同期。getBootstrap の syncStatus: { workers, deptSupervisors }、
+  // それぞれ { lastSyncedAt, ok, count, error }。
+  function syncStatusText(st) {
+    if (!st || !st.lastSyncedAt) { return '最終同期: まだ同期していません'; }
+    return '最終同期: ' + st.lastSyncedAt + '・' + (st.ok ? '成功' : '失敗') +
+      (typeof st.count === 'number' ? '・' + st.count + ' 件' : '') +
+      (!st.ok && st.error ? '（' + st.error + '）' : '');
+  }
+  function renderSyncStatus() {
+    const s = state.bootstrap.syncStatus || {};
+    [['workersSyncStatus', s.workers], ['deptSupSyncStatus', s.deptSupervisors]].forEach(pair => {
+      const el = document.getElementById(pair[0]);
+      if (!el) { return; }
+      el.textContent = syncStatusText(pair[1]);
+      el.style.color = pair[1] && pair[1].lastSyncedAt && !pair[1].ok ? 'var(--accent)' : '';
+    });
+  }
+
+  // 失敗した後処理の一覧（listFailedJobs）と、やり直し（retryFailedJob）。
+  async function loadFailedJobs() {
+    const body = document.getElementById('failedJobsBody');
+    if (!body) { return; }
+    try {
+      renderFailedJobs(await gas('listFailedJobs'));
+    } catch (error) {
+      body.innerHTML = '<tr><td colspan="6"><div class="empty" style="padding:18px">' + escapeHtml(errText(error)) + '</div></td></tr>';
+    }
+  }
+  function renderFailedJobs(jobs) {
+    const body = document.getElementById('failedJobsBody');
+    if (!body) { return; }
+    jobs = Array.isArray(jobs) ? jobs : [];
+    if (jobs.length === 0) {
+      body.innerHTML = '<tr><td colspan="6"><div class="empty" style="padding:18px">失敗した後処理はありません。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = jobs.map(j =>
+      '<tr><td class="num" style="font-size:12px;white-space:nowrap">' + escapeHtml(j.failedAt || '') + '</td>' +
+      '<td><span class="reqid">' + escapeHtml(j.requestId || '—') + '</span></td>' +
+      '<td>' + escapeHtml(j.label || j.kind || '') + '</td>' +
+      '<td class="num">' + escapeHtml(j.attempts == null ? '' : j.attempts) + '</td>' +
+      '<td style="font-size:12px;color:var(--muted)">' + escapeHtml(j.error || '') + '</td>' +
+      '<td><button class="btn sm" data-retry="' + escapeAttr(j.jobId) + '">↻ やり直す</button></td></tr>'
+    ).join('');
+    body.querySelectorAll('[data-retry]').forEach(btn => btn.addEventListener('click', lockButton(async () => {
+      setBusy(true);
+      try {
+        await gas('retryFailedJob', btn.dataset.retry);
+        toast('やり直しを受け付けました', 'ok');
+        await loadFailedJobs();
+      } catch (error) {
+        toast(errText(error), 'err');
+      } finally {
+        setBusy(false);
+      }
+    })));
+  }
+
+  async function syncWorkers() {
+    const btn = document.getElementById('syncWorkersBtn');
+    if (btn) { btn.disabled = true; }
+    setBusy(true);
+    try {
+      const result = await gas('syncWorkersNow') || {};
+      state.bootstrap = await gas('getBootstrap');
+      renderWorkersSyncInfo();
+      renderSyncStatus();
+      if (result.error) {
+        toast('元シートが見つからないため、作業員マスタを同期できませんでした', 'err');
+      } else if (result.skipped) {
+        toast('元シートが空のため、作業員マスタは更新しませんでした', 'err');
+      } else if (result.triggers && result.triggers.error) {
+        toast('作業員マスタを同期しました（' + result.count + '名）。ただし毎朝の自動同期の設定に失敗しました: ' + result.triggers.error, 'err');
+      } else {
+        toast('作業員マスタを同期しました（' + result.count + '名）', 'ok');
+      }
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  // 承認者マスタを役職ごとのカードに分割。各カードは部署/メール/氏名/役職。
+  const APPROVER_ROLES = [
+    { key: 'purchasing', title: '購買（メカ・一般兼用）', body: 'purApproverBody', addBtn: 'addPurApproverBtn' },
+    { key: 'purchasingElec', title: '電気購買', body: 'purElecApproverBody', addBtn: 'addPurElecApproverBtn' },
+    { key: 'generalManager', title: '総務部長', body: 'gmApproverBody', addBtn: 'addGmApproverBtn' },
+    { key: 'president', title: '社長', body: 'presApproverBody', addBtn: 'addPresApproverBtn' }
+  ];
+
+  function addRoleApproverRow(role, row) {
+    row = row || {};
+    const body = document.getElementById(role.body);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input class="iinput" data-field="department" type="text" value="' + escapeAttr(row.department || '') + '" placeholder="* で全体"></td>' +
+      '<td><input class="iinput" data-field="email" type="email" value="' + escapeAttr(row.email || '') + '" placeholder="example@company.co.jp"></td>' +
+      '<td><input class="iinput" data-field="name" type="text" value="' + escapeAttr(row.name || '') + '"></td>' +
+      '<td><input class="iinput" data-field="title" type="text" value="' + escapeAttr(row.title || '') + '" placeholder="役職（任意・例:部長）"></td>' +
+      '<td><button class="row-del" type="button">✕</button></td>';
+    tr.querySelector('.row-del').addEventListener('click', () => tr.remove());
+    body.appendChild(tr);
+  }
+
+  async function saveAdmin() {
+    setBusy(true);
+    try {
+      const settings = {
+        thresholdAmount: amountDigits(document.getElementById('a-threshold').value),
+        pdfFolderId: document.getElementById('a-folder').value,
+        adminEmails: document.getElementById('a-admins').value,
+        enableEmailNotifications: document.getElementById('a-notify').checked
+      };
+      // 役職カード3つを部署キーで1行に統合（撤去した上席/申請者列は送らない＝空欄化）。
+      // 同じ部署で複数行あるときはメールを連結し「1部署に複数の承認者」を許可する。
+      // 氏名・役職は代表（最初の非空）を採用する。
+      const byDept = {};
+      APPROVER_ROLES.forEach(role => {
+        Array.from(document.querySelectorAll('#' + role.body + ' tr')).forEach(tr => {
+          const o = {};
+          tr.querySelectorAll('[data-field]').forEach(input => { o[input.dataset.field] = input.value; });
+          const dept = (o.department || '').trim();
+          if (!dept) { return; }
+          if (!byDept[dept]) { byDept[dept] = { department: dept, active: true }; }
+          const row = byDept[dept];
+          const emailKey = role.key + 'Email';
+          const email = (o.email || '').trim();
+          if (email) {
+            row[emailKey] = row[emailKey] ? (row[emailKey] + ', ' + email) : email;
+          } else if (!row[emailKey]) {
+            row[emailKey] = '';
+          }
+          if ((o.name || '').trim() && !row[role.key + 'Name']) { row[role.key + 'Name'] = o.name.trim(); }
+          if ((o.title || '').trim() && !row[role.key + 'Title']) { row[role.key + 'Title'] = o.title.trim(); }
+        });
+      });
+      const rows = Object.keys(byDept).map(d => byDept[d]);
+      // 全社共通（*）に購買・総務部長・社長が揃っているか点検。未設定だと申請が途中で止まる。
+      const star = byDept['*'] || {};
+      const missingStar = [];
+      if (!String(star.purchasingEmail || '').trim()) { missingStar.push('購買'); }
+      if (!String(star.generalManagerEmail || '').trim()) { missingStar.push('総務部長'); }
+      if (!String(star.presidentEmail || '').trim()) { missingStar.push('社長'); }
+      const recipientRows = Array.from(document.querySelectorAll('#recipientBody tr')).map(tr => {
+        const obj = {};
+        tr.querySelectorAll('[data-field]').forEach(input => {
+          obj[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+        });
+        return obj;
+      }).filter(row => row.email);
+      // VPS 版: 承認者マスタ・通知宛先・設定を 1 回の呼び出し（1 つのトランザクション）で保存する。
+      state.bootstrap = await gas('saveAdminAll', rows, recipientRows, settings);
+      renderTopbar();
+      renderAdmin();
+      if (missingStar.length) {
+        toast('保存しましたが、全社共通(*)で未設定の役職があります', 'err');
+        window.alert('⚠ 全社共通（部署＝*）で次の役職が未設定です:\n\n　・' + missingStar.join('\n　・') +
+          '\n\nこのままだと、該当の申請がこのステップで「承認者メールアドレスが未設定です」エラーになり進めません。\n' +
+          '各役職カードに「部署＝*」「メール＝担当者のメール」の行を追加して保存してください。');
+      } else {
+        toast('管理設定を保存しました', 'ok');
+      }
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runSample(fn, confirmMsg) {
+    if (!window.confirm(confirmMsg)) { return; }
+    setBusy(true);
+    try {
+      const result = await gas(fn);
+      state.bootstrap = await gas('getBootstrap');
+      await refreshCounts();
+      toast((result && result.message) || '完了しました', 'ok');
+      state.listMode = 'all';
+      showView('listView');
+    } catch (error) {
+      toast(errText(error), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 共通UI ---------- */
+  function field(label, required, controlHtml, hint) {
+    return '<label class="field"><span class="lbl">' + escapeHtml(label) + (required ? '<span class="req">必須</span>' : '') + '</span>' +
+      controlHtml + (hint ? '<span class="hint">' + escapeHtml(hint) + '</span>' : '') + '</label>';
+  }
+  // 色クラスは英語ASCII（Styles.html）のまま。status は日本語コードなので STATUS_CLASS で変換する。
+  function badge(status, label) { return '<span class="badge ' + escapeAttr(STATUS_CLASS[status] || '') + '"><span class="dot"></span>' + escapeHtml(label || status) + '</span>'; }
+  function stepLabel(key) { return (state.bootstrap.stepLabels && state.bootstrap.stepLabels[key]) || key || ''; }
+  // 一覧・詳細の状態バッジ表示用。色クラスは r.status のまま、テキストだけ分かりやすく。
+  function currentStateLabel(r) {
+    if (r.status === '差戻し') { return '差戻し'; }
+    if (r.status === '完了') { return '完了'; }
+    if (r.status === '取消') { return '取消'; }
+    const byStep = {
+      '上席': '上席承認待ち',
+      '購買見積': '見積金額待ち',
+      '総務部長': '総務部長承認待ち',
+      '社長': '社長承認待ち',
+      '購買手配': '手配待ち'
+    };
+    return byStep[r.currentStep] || r.currentStepLabel || '';
+  }
+  function threshold() { return Number((state.bootstrap.settings || {}).thresholdAmount) || 100000; }
+  function surname(name) { return String(name || '').trim().split(/\s+/)[0] || ''; }
+  // データネーム印の中央帯（元号年.月.日）。例: 2026-05-27 → 令8. 5. 27
+  function eraDate(value) {
+    const s = String(value || '').slice(0, 10);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) { return ''; }
+    const y = Number(m[1]);
+    const n = y - 2018;
+    const era = n >= 1 ? ('令' + n) : String(y % 100);
+    return era + '. ' + Number(m[2]) + '. ' + Number(m[3]);
+  }
+  // 決裁印の下段。承認者マスタの役職があればそれを、無ければ役割名。
+  function stampTitle(detail, key) {
+    const t = detail.stepTitles && detail.stepTitles[key];
+    return t ? t : stepLabel(key);
+  }
+  // 印面に収まるよう文字数で氏名フォントを縮小。
+  function nameFont(name) {
+    const n = String(name || '').replace(/\s+/g, '').length;
+    if (n <= 2) { return '9pt'; }
+    if (n === 3) { return '7.6pt'; }
+    return '6.4pt';
+  }
+
+  /* ---------- 基盤ヘルパー ---------- */
+  // VPS 版: google.script.run の代わりに /api/rpc/{関数名} を呼ぶ。関数名・引数の並び・戻り値は GAS 版と同じ。
+  // 応答は { ok: true, result } か { ok: false, error: '日本語の文' }。失敗は GAS 版と同じく文字列で reject する。
+  const READ_FNS = ['getBootstrap', 'getTabCounts', 'getRequests', 'getRequestDetail', 'listFailedJobs'];
+  function gas(name) {
+    const args = Array.prototype.slice.call(arguments, 1);
+    const headers = { 'Content-Type': 'application/json' };
+    // 書き込みの呼び出しには毎回新しい冪等キーを付ける（サーバーは同じキーの 2 回目に 1 回目の結果を返す）。
+    if (READ_FNS.indexOf(name) < 0) { headers['X-Idempotency-Key'] = newIdempotencyKey(); }
+    return fetch('/api/rpc/' + encodeURIComponent(name), {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(args),
+      credentials: 'same-origin'
+    }).then(res => {
+      if (res.status === 401) {
+        // ログイン切れ。今の URL（?requestId= を含む）を戻り先にしてログインへ。
+        window.location.href = '/auth/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+        return new Promise(() => {});
+      }
+      return res.json().then(
+        data => {
+          if (data && data.ok) { return data.result; }
+          throw (data && data.error) || ('サーバーでエラーが発生しました（' + res.status + '）');
+        },
+        () => { throw 'サーバーでエラーが発生しました（' + res.status + '）'; }
+      );
+    }, () => {
+      throw '通信できませんでした。ネットワークの状態を確かめて、もう一度お試しください。';
+    });
+  }
+
+  function newIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') { return window.crypto.randomUUID(); }
+    const b = new Uint8Array(16);
+    window.crypto.getRandomValues(b);
+    return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  }
+
+  // 書き込みのボタンを、処理が終わるまで押せなくする（二重押し防止）。
+  // 成功して画面が描き直されたときは元のボタンが消えているので、残っているときだけ戻す。
+  function lockButton(handler) {
+    return async function (e) {
+      const btn = e && e.currentTarget;
+      if (btn && btn.disabled) { return; }
+      if (btn) { btn.disabled = true; }
+      try {
+        await handler.apply(this, arguments);
+      } finally {
+        if (btn && btn.isConnected) { btn.disabled = false; }
+      }
+    };
+  }
+
+  /* ---------- 書きかけの入力（VPS 版） ---------- */
+  function formSnapshot() {
+    return JSON.stringify([formState.requestDate, formState.applicantName, formState.department, formState.category,
+      formState.reasonCode, formState.reasonDetail, formState.items]);
+  }
+  // 新規フォーム・差戻し編集・明細修正は描いた直後との違い、詳細はコメント欄と見積単価の入力で判定する。
+  function isDirty() {
+    if (state.view === 'formView' || state.view === 'editView' || state.view === 'itemEditView') {
+      return !!state.dirtyBaseline && formSnapshot() !== state.dirtyBaseline;
+    }
+    if (state.view === 'detailView') {
+      const c = document.getElementById('approveComment');
+      return !!(c && c.value.trim()) || !!state.priceTouched;
+    }
+    return false;
+  }
+  function confirmDiscard() {
+    return !isDirty() || window.confirm('入力中の内容が消えます。よろしいですか？');
+  }
+
+  /* ---------- URL と「戻る」（VPS 版。詳細画面だけ ?requestId=） ---------- */
+  function urlRequestId() { return new URLSearchParams(window.location.search).get('requestId') || ''; }
+  function currentUrl() { return window.location.pathname + window.location.search; }
+  let lastUrl = currentUrl();
+  // 履歴に URL を積む（replace=true なら今の履歴を置き換える）。
+  function setUrl(url, replace) {
+    if (replace) { history.replaceState({}, '', url); } else { history.pushState({}, '', url); }
+    lastUrl = currentUrl();
+  }
+  function onPopState() {
+    if (isDirty() && !window.confirm('入力中の内容が消えます。よろしいですか？')) {
+      // 移動をやめて、URL を元に戻す。
+      setUrl(lastUrl, false);
+      return;
+    }
+    lastUrl = currentUrl();
+    if (pmodeState.detail) { closePresident(false); }
+    const id = urlRequestId();
+    if (id) {
+      openDetail(id, { fromPop: true });
+    } else if (state.view !== 'formView' && state.view !== 'listView' && state.view !== 'adminView') {
+      showView('listView', { fromPop: true });
+    }
+  }
+
+  /* ---------- 後処理の完了待ち（VPS 版。GAS 版の runDeferredJobs / refreshDetailIfIdle の代わり） ---------- */
+  // 詳細の pendingJobs（PDF・メールの未完了の件数）が 1 以上なら、3 秒ごと（最大 2 分）に詳細を取り直す。
+  // 入力の途中に描き直すと入力が消えるので、そのときは取り直しを見送る。
+  const PENDING_POLL_MS = 3000;
+  const PENDING_POLL_MAX_MS = 120000;
+  const pendingPoll = { timer: null, requestId: '', startedAt: 0 };
+  function stopPendingPoll() {
+    if (pendingPoll.timer) { clearTimeout(pendingPoll.timer); }
+    pendingPoll.timer = null;
+    pendingPoll.requestId = '';
+  }
+  function schedulePendingPoll(detail, restart) {
+    if (pendingPoll.timer) { clearTimeout(pendingPoll.timer); pendingPoll.timer = null; }
+    const id = detail && detail.request && detail.request.requestId;
+    if (!id || !(Number(detail.pendingJobs) >= 1)) { pendingPoll.requestId = ''; return; }
+    if (restart || pendingPoll.requestId !== id) { pendingPoll.requestId = id; pendingPoll.startedAt = Date.now(); }
+    if (Date.now() - pendingPoll.startedAt >= PENDING_POLL_MAX_MS) { pendingPoll.requestId = ''; return; }
+    pendingPoll.timer = setTimeout(() => pollPendingDetail(id), PENDING_POLL_MS);
+  }
+  function viewingDetail(id) {
+    return state.view === 'detailView' && state.currentDetail && state.currentDetail.request.requestId === id;
+  }
+  function detailInputBusy() {
+    const active = document.activeElement;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) { return true; }
+    const c = document.getElementById('approveComment');
+    return !!(c && c.value) || state.splitTouched || state.priceTouched || !!pmodeState.detail;
+  }
+  async function pollPendingDetail(id) {
+    pendingPoll.timer = null;
+    if (!viewingDetail(id)) { pendingPoll.requestId = ''; return; }
+    const again = () => schedulePendingPoll(state.currentDetail, false);
+    if (detailInputBusy()) { return again(); }
+    try {
+      const detail = await gas('getRequestDetail', id);
+      if (!viewingDetail(id)) { return; }
+      if (detailInputBusy()) { return again(); }
+      state.currentDetail = detail;
+      renderDetail(detail, { fromPoll: true });
+    } catch (error) {
+      if (viewingDetail(id)) { again(); }
+    }
+  }
+
+  function toast(msg, kind) {
+    const host = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = 'toast ' + (kind || '');
+    el.innerHTML = '<span class="tdot"></span>' + escapeHtml(msg);
+    host.appendChild(el);
+    setTimeout(() => { el.remove(); }, 3200);
+  }
+
+  function setBusy(busy) {
+    document.getElementById('loading').hidden = !busy;
+  }
+
+  function errText(error) { return (error && error.message) ? error.message : String(error); }
+
+  function yen(value) {
+    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value || 0));
+  }
+  // 消費税率。サーバの Constants.gs APP.TAX_RATE と一致させること。
+  // 税抜額 net から消費税（端数切り捨て）・税込額を算出する。
+  const TAX_RATE = 0.10;
+  function taxOf(net) { return Math.floor((Number(net) || 0) * TAX_RATE); }
+  function grossOf(net) { net = Number(net) || 0; return net + taxOf(net); }
+  // 文字列から数字だけを取り出して整数に（¥・カンマ等を除去）。
+  function amountDigits(value) {
+    return Number(String(value == null ? '' : value).replace(/[^0-9]/g, '')) || 0;
+  }
+
+  function initials(name) {
+    if (!name) { return '—'; }
+    const parts = String(name).trim().split(/\s+/);
+    return (parts[0] || '')[0] + (parts[1] ? parts[1][0] : '');
+  }
+  const AV_COLORS = ['#0e6f60', '#4250d6', '#9a4b3f', '#b06a12', '#2f4a6b', '#7a3f86', '#0f7b8a', '#385c2e'];
+  function avColor(seed) {
+    let h = 0;
+    const s = String(seed);
+    for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
+    return AV_COLORS[h % AV_COLORS.length];
+  }
+
+  // 日本時間の今日（yyyy-MM-dd）。GAS 版は toISOString（世界時）で、朝 9 時前は前日になっていた（決定事項）。
+  function todayStr() { return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); }
+
+  function escapeHtml(value) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function escapeAttr(value) { return escapeHtml(value).replace(/`/g, '&#96;'); }
+
+  function debounce(fn, wait) {
+    let timer = null;
+    return function () {
+      const args = arguments;
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(null, args), wait);
+    };
+  }
+</script>
+  </body>
+</html>
